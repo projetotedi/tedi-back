@@ -1,0 +1,33 @@
+{
+  "formatter": {
+    "external": { "command": "oxfmt", "arguments": ["--stdin-filepath", "{buffer_path}"] }
+  },
+  "format_on_save": "on",
+  "languages": {
+    "TypeScript": {
+      "formatter": {
+        "external": { "command": "oxfmt", "arguments": ["--stdin-filepath", "{buffer_path}"] }
+      },
+      "format_on_save": "on"
+    },
+    "JavaScript": {
+      "formatter": {
+        "external": { "command": "oxfmt", "arguments": ["--stdin-filepath", "{buffer_path}"] }
+      },
+      "format_on_save": "on"
+    },
+    "JSON": {
+      "format_on_save": "on"
+    }
+  },
+  "lsp": {
+    "oxc": {
+      "settings": {
+        "run": "onSave",
+        "lint": { "enable": true },
+        "format": { "enable": false }
+      }
+    }
+  },
+  "file_scan_exclusions": ["**/node_modules", "**/dist", "**/coverage", "**/.env"]
+}

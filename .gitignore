@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+*.tsbuildinfo
+.DS_Store
+
+# agent artifacts (temporary, not versioned)
+.agents/artifacts/*
+!.agents/artifacts/.gitkeep

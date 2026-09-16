@@ -1,0 +1,7 @@
+{
+  "common": {
+    "notFound": "Recurso não encontrado.",
+    "validationError": "Erro de validação.",
+    "internalError": "Erro interno do servidor."
+  }
+}

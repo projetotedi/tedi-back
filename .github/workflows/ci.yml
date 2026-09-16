@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging, develop]
+  pull_request:
+    branches: [main, staging, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tedi
+          POSTGRES_PASSWORD: tedi
+          POSTGRES_DB: tedi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tedi"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: tedi
+      DB_PASSWORD: tedi
+      DB_DATABASE: tedi
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Format check
+        run: yarn format:check
+
+      - name: Run migrations
+        run: yarn migration:run
+
+      - name: Test
+        run: yarn test
+
+      - name: Build
+        run: yarn build
