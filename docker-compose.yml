@@ -1,0 +1,29 @@
+# Infra local de desenvolvimento: só o Postgres.
+# A API roda fora do container (yarn dev) para manter hot reload.
+#
+#   docker compose up -d      sobe o banco
+#   docker compose down       para (mantém os dados)
+#   docker compose down -v    para e apaga os dados
+#
+# Credenciais iguais às do .env.example e do CI (ci.yml).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tedi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tedi
+      POSTGRES_PASSWORD: tedi
+      POSTGRES_DB: tedi
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - tedi-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tedi -d tedi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  tedi-pgdata:

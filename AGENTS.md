@@ -37,7 +37,8 @@ Use Yarn.
 - `yarn test:all` / `yarn test:watch` / `yarn test:cov`: tudo, watch, cobertura.
 - `yarn lint`: roda o oxlint.
 - `yarn format` / `yarn format:check`: roda o oxfmt (aplica ou só verifica).
-- `yarn migration:create src/database/migrations/<NomeDaMigration>`: cria uma migration (caminho completo, funciona em qualquer SO).
+- `yarn migration:generate src/database/migrations/<NomeDaMigration>`: gera a migration a partir do diff entre entidades e banco local (revisar o arquivo antes de commitar).
+- `yarn migration:create src/database/migrations/<NomeDaMigration>`: cria uma migration vazia, para escrever à mão (caminho completo, funciona em qualquer SO).
 - `yarn migration:run` / `migration:revert` / `migration:show`: aplica, reverte ou lista migrations (usa `src/database/data-source.ts`).
 
 ## Estilo de Código e Convenções de Nomenclatura
@@ -82,7 +83,7 @@ Use Yarn.
 
 - Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
 - Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
-- Um `docker-compose.yml` com Postgres para desenvolvimento local ainda será adicionado (ver `docs/ARCHITECTURE.md`, seção 8).
+- Desenvolvimento local: `docker compose up -d` sobe só o Postgres (`docker-compose.yml`, credenciais `tedi`/`tedi`, porta 5432); a API roda fora do container com `yarn dev` para manter hot reload. `docker compose down -v` apaga os dados.
 
 ## Artefatos do Agente
 
