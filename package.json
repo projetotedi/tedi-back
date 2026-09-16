@@ -20,6 +20,7 @@
     "test:all": "jest --testPathIgnorePatterns=\"$^\"",
     "typeorm:ts": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:create": "yarn typeorm:ts migration:create",
+    "migration:generate": "yarn typeorm:ts migration:generate -d ./src/database/data-source.ts",
     "migration:run": "yarn typeorm:ts migration:run -d ./src/database/data-source.ts",
     "migration:revert": "yarn typeorm:ts migration:revert -d ./src/database/data-source.ts",
     "migration:show": "yarn typeorm:ts migration:show -d ./src/database/data-source.ts",
