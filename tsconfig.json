@@ -24,6 +24,7 @@
       "@database/*": ["./src/database/*"],
       "@shared/*": ["./src/shared/*"],
       "@modules/*": ["./src/modules/*"]
-    }
+    },
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   }
 }

@@ -80,7 +80,8 @@ Use Yarn.
 
 ## Dicas de Segurança e Configuração
 
-- Não commitar `.env`. Usar `.env.example` como referência (`NODE_ENV`, `PORT`, `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`).
+- Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
+- Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
 - Um `docker-compose.yml` com Postgres para desenvolvimento local ainda será adicionado (ver `docs/ARCHITECTURE.md`, seção 8).
 
 ## Artefatos do Agente

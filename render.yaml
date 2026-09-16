@@ -1,0 +1,31 @@
+# Blueprint do Render (https://render.com/docs/blueprint-spec).
+# No painel: New → Blueprint → apontar para este repositório. O Render cria o serviço
+# a partir deste arquivo e pede os valores das variáveis marcadas com sync: false.
+#
+# Plano free: o serviço hiberna após 15 min sem tráfego e acorda no próximo request
+# (30 a 60 s). Suficiente para testar; não para a turma piloto.
+services:
+  - type: web
+    name: tedi-back
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    # --production=false garante as devDependencies (nest cli, typescript) no build,
+    # mesmo com NODE_ENV=production definido abaixo.
+    buildCommand: yarn install --frozen-lockfile --production=false && yarn build
+    # Roda as migrations pendentes e sobe a API. Pre-deploy command não existe no plano free.
+    startCommand: yarn start:prod
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: DATABASE_URL
+        sync: false # colar a connection string do Neon (com ?sslmode=require)
+      - key: DB_SSL
+        value: "true"
+      - key: CORS_ORIGINS
+        sync: false # ex.: https://tedi-front.vercel.app,https://*.vercel.app
