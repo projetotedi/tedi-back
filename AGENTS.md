@@ -37,7 +37,8 @@ Use Yarn.
 - `yarn test:all` / `yarn test:watch` / `yarn test:cov`: tudo, watch, cobertura.
 - `yarn lint`: roda o oxlint.
 - `yarn format` / `yarn format:check`: roda o oxfmt (aplica ou só verifica).
-- `yarn migration:create src/database/migrations/<NomeDaMigration>`: cria uma migration (caminho completo, funciona em qualquer SO).
+- `yarn migration:generate src/database/migrations/<NomeDaMigration>`: gera a migration a partir do diff entre entidades e banco local (revisar o arquivo antes de commitar).
+- `yarn migration:create src/database/migrations/<NomeDaMigration>`: cria uma migration vazia, para escrever à mão (caminho completo, funciona em qualquer SO).
 - `yarn migration:run` / `migration:revert` / `migration:show`: aplica, reverte ou lista migrations (usa `src/database/data-source.ts`).
 
 ## Estilo de Código e Convenções de Nomenclatura
