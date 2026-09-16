@@ -74,8 +74,8 @@ Use Yarn.
 
 ## Diretrizes de Commit e Pull Request
 
-- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop`: install → lint → format:check → migration:run → test → build.
-- Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn test`, `yarn build`.
+- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **integration** (Postgres → migration:run → `yarn test:int`), **schema-drift** (migrations num banco limpo + `migration:generate` deve não gerar nada) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
+- Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:int`.
 - Usar o template em `.github/pull_request_template.md` (em português): Resumo, Impacto funcional, Migração (indicar se houve/foi necessário rodar), Validações (checklist de lint/format/test/build), Observações.
 
 ## Dicas de Segurança e Configuração

@@ -6,10 +6,62 @@ on:
   pull_request:
     branches: [main, staging, develop]
 
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
+env:
+  NODE_ENV: test
+  PORT: 3000
+  DB_HOST: localhost
+  DB_PORT: 5432
+  DB_USERNAME: tedi
+  DB_PASSWORD: tedi
+  DB_DATABASE: tedi
+
+jobs:
+  # Lint, formatação e tipos. Sem banco. É o job mais rápido e o primeiro a falhar.
+  quality:
+    name: Qualidade
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Lint
+        run: yarn lint
+      - name: Formatação
+        run: yarn format:check
+      - name: Tipos
+        run: yarn typecheck
+
+  # Testes unitários (*.spec.ts): services com repositórios mockados. Sem banco.
+  unit:
+    name: Testes unitários
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Unitários com cobertura
+        run: yarn test:cov
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura-unit
+          path: coverage/lcov-report
+          retention-days: 7
+
+  # Testes de integração (*.int.spec.ts): controller até o Postgres real, com supertest.
+  integration:
+    name: Testes de integração
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16-alpine
@@ -21,42 +73,79 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U tedi"
-          --health-interval 10s
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
-
-    env:
-      NODE_ENV: test
-      PORT: 3000
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_USERNAME: tedi
-      DB_PASSWORD: tedi
-      DB_DATABASE: tedi
-
+          --health-retries 10
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: yarn
-          cache-dependency-path: yarn.lock
-
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
-
-      - name: Lint
-        run: yarn lint
-
-      - name: Format check
-        run: yarn format:check
-
-      - name: Run migrations
+      - run: yarn install --frozen-lockfile
+      - name: Migrations
         run: yarn migration:run
+      - name: Integração
+        run: yarn test:int
 
-      - name: Test
-        run: yarn test
+  # Drift de schema: aplica todas as migrations num banco limpo e confere que as entidades
+  # não pedem nenhuma migration nova. Falha quando alguém alterou entidade e esqueceu a migration.
+  schema-drift:
+    name: Entidades × migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tedi
+          POSTGRES_PASSWORD: tedi
+          POSTGRES_DB: tedi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tedi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Migrations
+        run: yarn migration:run
+      - name: Gerar migration de verificação
+        shell: bash
+        run: |
+          set +e
+          out=$(yarn -s typeorm:ts migration:generate -d ./src/database/data-source.ts src/database/migrations/DriftCheck 2>&1)
+          set -e
+          generated=$(ls src/database/migrations/*DriftCheck*.ts 2>/dev/null || true)
+          if [ -n "$generated" ]; then
+            echo "::error::Há diferença entre as entidades e as migrations. Gere a migration com 'yarn migration:generate' e commite."
+            for f in $generated; do echo "--- $f"; cat "$f"; done
+            exit 1
+          fi
+          if echo "$out" | grep -q "No changes in database schema were found"; then
+            echo "Entidades e migrations estão alinhadas."
+            exit 0
+          fi
+          echo "$out"
+          echo "::error::Não foi possível verificar o drift (falha ao conectar ou ao carregar as entidades)."
+          exit 1
 
-      - name: Build
-        run: yarn build
+  # Compila só depois de tudo passar. É o artefato que o deploy usa.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [quality, unit, integration, schema-drift]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
