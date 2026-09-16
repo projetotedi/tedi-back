@@ -6,12 +6,17 @@ Stack: NestJS 11 + TypeORM 0.3 + PostgreSQL 16, TypeScript, Yarn.
 
 ## Rodando localmente
 
+Pré-requisitos: Node 22+, Yarn 1, Docker Desktop.
+
 ```bash
-cp .env.example .env        # ajuste DB_HOST para localhost se o Postgres não estiver no Docker
+docker compose up -d        # Postgres 16 em localhost:5432 (usuário/senha/banco: tedi)
+cp .env.example .env        # já aponta para o Postgres do compose
 yarn install
 yarn migration:run
-yarn dev                    # http://localhost:3000/api/docs
+yarn dev                    # http://localhost:3000/api/docs · http://localhost:3000/health
 ```
+
+Para parar o banco: `docker compose down` (mantém os dados) ou `docker compose down -v` (apaga).
 
 ## Comandos
 

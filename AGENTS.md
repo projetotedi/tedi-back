@@ -82,7 +82,7 @@ Use Yarn.
 
 - Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
 - Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
-- Um `docker-compose.yml` com Postgres para desenvolvimento local ainda será adicionado (ver `docs/ARCHITECTURE.md`, seção 8).
+- Desenvolvimento local: `docker compose up -d` sobe só o Postgres (`docker-compose.yml`, credenciais `tedi`/`tedi`, porta 5432); a API roda fora do container com `yarn dev` para manter hot reload. `docker compose down -v` apaga os dados.
 
 ## Artefatos do Agente
 
