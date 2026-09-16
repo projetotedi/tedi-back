@@ -20,7 +20,7 @@ src/
     └── <modulo>/
         ├── <modulo>.module.ts
         ├── controllers/  services/  entities/  dto/  enums/  listeners/
-        └── __tests__/       testes do módulo (unitários *.spec.ts e integração *.int.spec.ts)
+        └── __tests__/       testes do módulo (unitários *.spec.ts e e2e *.e2e.spec.ts)
 ```
 
 `dist/` é gerado por `nest build` — não editar à mão. Aliases de import: `@config/*`, `@database/*`, `@shared/*`, `@modules/*` (ver `tsconfig.json`). Dentro de um módulo, import relativo; entre módulos, só o `*.module.ts` ou o que ele exporta.
@@ -33,7 +33,7 @@ Use Yarn.
 - `yarn dev`: sobe o Nest em watch mode (`nest start --watch`).
 - `yarn build`: compila com `nest build` para `dist/`.
 - `yarn test`: testes unitários (`*.spec.ts`, sem banco).
-- `yarn test:int`: testes de integração (`*.int.spec.ts`, precisa de Postgres).
+- `yarn test:e2e`: testes e2e (`*.e2e.spec.ts`, precisa de Postgres).
 - `yarn test:all` / `yarn test:watch` / `yarn test:cov`: tudo, watch, cobertura.
 - `yarn lint`: roda o oxlint.
 - `yarn format` / `yarn format:check`: roda o oxfmt (aplica ou só verifica).
@@ -44,7 +44,7 @@ Use Yarn.
 
 - Linter/formatter: oxlint + oxfmt (sem `.oxlintrc.json` próprio — usa config padrão do oxlint).
 - TypeScript: `strictNullChecks`, `noImplicitAny`, `strictBindCallApply`, `noFallthroughCasesInSwitch` ativados; decorators habilitados (`experimentalDecorators` + `emitDecoratorMetadata`) para Nest, TypeORM e class-validator funcionarem.
-- Nomes de arquivo: kebab-case com sufixo de tipo (`pessoas.controller.ts`, `pessoas.service.ts`, `pessoa.entity.ts`, `criar-pessoa.dto.ts`, `*.spec.ts`, `*.int.spec.ts`).
+- Nomes de arquivo: kebab-case com sufixo de tipo (`pessoas.controller.ts`, `pessoas.service.ts`, `pessoa.entity.ts`, `criar-pessoa.dto.ts`, `*.spec.ts`, `*.e2e.spec.ts`).
 - Nomes de domínio em português, sufixos técnicos em inglês. Classes/DTOs/Entities em PascalCase, seguindo a convenção padrão do Nest.
 
 ## Regras do Projeto
@@ -61,21 +61,21 @@ Use Yarn.
 
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
-- **Integração** (`*.int.spec.ts`): controller até o banco com `supertest`, subindo só o módulo em teste (+ `auth` se a rota é protegida). Precisam de Postgres (no CI é um serviço `postgres:16-alpine`).
-- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.int.spec.ts`).
-- Teste de integração importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
-- Cada teste de integração limpa as tabelas que tocou.
+- **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`).
+- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`).
+- Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
+- Cada teste e2e limpa as tabelas que tocou.
 
 ### Restrições de Execução para Agentes
 
 - Ao iterar, rode apenas o spec do arquivo alterado (`yarn test <caminho-do-spec>`); rode a suíte completa (`yarn test`) antes de abrir o PR.
-- Testes de integração assumem um Postgres real (como no CI) — não assumir que rodam sem banco disponível.
-- Rode migrations pendentes (`yarn migration:run`) antes de rodar `yarn test:int` localmente, como o CI faz.
+- Testes e2e assumem um Postgres real (como no CI) — não assumir que rodam sem banco disponível.
+- Rode migrations pendentes (`yarn migration:run`) antes de rodar `yarn test:e2e` localmente, como o CI faz.
 
 ## Diretrizes de Commit e Pull Request
 
-- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **integration** (Postgres → migration:run → `yarn test:int`), **schema-drift** (migrations num banco limpo + `migration:generate` deve não gerar nada) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
-- Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:int`.
+- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **e2e** (Postgres → migration:run → `yarn test:e2e`), **schema-drift** (migrations num banco limpo + `migration:generate` deve não gerar nada) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
+- Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:e2e`.
 - Usar o template em `.github/pull_request_template.md` (em português): Resumo, Impacto funcional, Migração (indicar se houve/foi necessário rodar), Validações (checklist de lint/format/test/build), Observações.
 
 ## Dicas de Segurança e Configuração

@@ -15,15 +15,15 @@ yarn dev                    # http://localhost:3000/api/docs
 
 ## Comandos
 
-| Comando                                                | O que faz                                  |
-| ------------------------------------------------------ | ------------------------------------------ |
-| `yarn dev`                                             | sobe a API em watch mode                   |
-| `yarn test`                                            | testes unitários (sem banco)               |
-| `yarn test:int`                                        | testes de integração (precisa de Postgres) |
-| `yarn lint` / `yarn format:check`                      | qualidade                                  |
-| `yarn build`                                           | compila para `dist/`                       |
-| `yarn migration:create src/database/migrations/<Nome>` | nova migration                             |
-| `yarn migration:run`                                   | aplica migrations                          |
+| Comando                                                | O que faz                                      |
+| ------------------------------------------------------ | ---------------------------------------------- |
+| `yarn dev`                                             | sobe a API em watch mode                       |
+| `yarn test`                                            | testes unitários (sem banco)                   |
+| `yarn test:e2e`                                        | testes e2e (HTTP + Postgres, precisa do banco) |
+| `yarn lint` / `yarn format:check`                      | qualidade                                      |
+| `yarn build`                                           | compila para `dist/`                           |
+| `yarn migration:create src/database/migrations/<Nome>` | nova migration                                 |
+| `yarn migration:run`                                   | aplica migrations                              |
 
 ## Arquitetura
 
