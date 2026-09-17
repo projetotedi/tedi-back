@@ -1,6 +1,7 @@
 import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
 import { ApiOkResponse, ApiServiceUnavailableResponse, ApiTags } from "@nestjs/swagger";
 import { DataSource } from "typeorm";
+import { Public } from "@shared/decorators/public.decorator";
 import { HealthResponseDto } from "./health.response.dto";
 
 /**
@@ -13,6 +14,7 @@ export class HealthController {
   constructor(private readonly dataSource: DataSource) {}
 
   @Get()
+  @Public()
   @ApiOkResponse({ type: HealthResponseDto })
   @ApiServiceUnavailableResponse({ description: "Banco de dados indisponível" })
   async check(): Promise<HealthResponseDto> {

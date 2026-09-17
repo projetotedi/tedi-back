@@ -1,3 +1,8 @@
+// AuthModule (dentro do AppModule) chama ConfigService.getOrThrow('JWT_SECRET') no boot.
+// Este teste sobe o AppModule inteiro, então precisa da env; fixamos aqui para o spec
+// funcionar sem depender de .env local — o CI também exporta a mesma env.
+process.env.JWT_SECRET = process.env.JWT_SECRET ?? "app-e2e-secret-not-for-production";
+
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -9,7 +14,7 @@ import { AppModule } from "../app.module";
  * Pega módulo esquecido no AppModule e configuração quebrada antes de qualquer teste por módulo.
  */
 describe("AppModule", () => {
-  let app: INestApplication;
+  let app: INestApplication | undefined;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -18,11 +23,11 @@ describe("AppModule", () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) await app.close();
   });
 
   it("sobe e /health responde com o banco acessível", async () => {
-    const res = await request(app.getHttpServer()).get("/health").expect(200);
+    const res = await request(app!.getHttpServer()).get("/health").expect(200);
     expect(res.body).toMatchObject({ status: "ok", database: "up" });
   });
 });

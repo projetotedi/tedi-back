@@ -1,0 +1,21 @@
+meta {
+  name: check
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Health check da plataforma (Render, Docker). Rota pública (@Public), retorna
+  { status, database, uptimeSeconds, timestamp } quando o Postgres responde;
+  503 quando o banco está fora.
+}
