@@ -1,10 +1,17 @@
 name: Docker
 
+# Só confere que a imagem de produção continua construindo. Roda em push para main
+# (e manualmente), não em PR: em PR a imagem não é usada por ninguém e gasta minutos da cota.
 on:
   push:
-    branches: [main, staging, develop]
-  pull_request:
-    branches: [main, staging, develop]
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - package.json
+      - yarn.lock
+      - src/**
+  workflow_dispatch:
 
 jobs:
   build-image:
