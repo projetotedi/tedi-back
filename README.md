@@ -102,14 +102,14 @@ Não há passo manual. O `yarn start:prod`, usado pelo Render e pelo `Dockerfile
 
 ## Comandos do dia a dia
 
-| Comando                                           | O que faz                                        |
-| ------------------------------------------------- | ------------------------------------------------ |
-| `yarn dev`                                        | sobe a API em watch mode                         |
-| `yarn test`                                       | testes unitários (sem banco)                     |
-| `yarn test:e2e`                                   | testes end-to-end (precisa do Postgres local)    |
-| `yarn test:all`                                   | os dois                                          |
-| `yarn lint` / `yarn format` / `yarn format:check` | qualidade                                        |
-| `yarn build`                                      | compila para `dist/`                             |
+| Comando                                           | O que faz                                     |
+| ------------------------------------------------- | --------------------------------------------- |
+| `yarn dev`                                        | sobe a API em watch mode                      |
+| `yarn test`                                       | testes unitários (sem banco)                  |
+| `yarn test:e2e`                                   | testes end-to-end (precisa do Postgres local) |
+| `yarn test:all`                                   | os dois                                       |
+| `yarn lint` / `yarn format` / `yarn format:check` | qualidade                                     |
+| `yarn build`                                      | compila para `dist/`                          |
 
 Antes de abrir PR: `yarn lint && yarn format:check && yarn test && yarn build`, que é o que o CI roda.
 
