@@ -6,10 +6,11 @@ A org `projetotedi` é privada e a integração GitHub do Claude devolve 404 nel
 
 ## Branch da task
 
-1. `git fetch origin` e base atualizada: `git checkout develop && git pull --ff-only` (ou `git checkout -b develop origin/develop` se ainda não existir local).
-2. Se `origin/develop` **não existir** no repositório (hoje é o caso do `tedi-front`), pergunte ao usuário se pode criar a partir de `main`. Com sim, o próprio `github-pr.mjs` cria na hora do PR (`createBaseFrom: "main"`); para trabalhar antes disso, crie local: `git checkout -b develop origin/main`.
+1. Base escolhida pelo usuário na etapa 3 da skill (`<base>`): `main` é a recomendada e o padrão sugerido; `develop` ou outra branch só quando ele pedir. A pergunta é obrigatória em toda execução.
+2. `git fetch origin` e confira que `origin/<base>` existe (`git rev-parse --verify origin/<base>`). Se não existir, volte ao usuário: ou ele corrige o nome, ou autoriza criar a partir de `main` (`createBaseFrom: "main"` no spec do PR e `git branch <base> origin/main` local).
 3. Nome da branch: use a linha `**Branch:**` do guia técnico da issue quando existir (ex.: `feature/GUS-74-person-entity`). Se não existir, monte `<tipo>/GUS-<n>-<slug-em-ingles>`, com tipo `feature` (label Feature), `fix` (Bug), `chore` (Improvement/INFRA) ou `docs` (prefixo `[docs]` no título). Slug curto, em inglês, kebab-case, sem acento.
-4. `git checkout -b <branch> develop`. O identificador `GUS-<n>` **sempre** está no nome; o Linear liga a branch à issue por ele.
+4. `git checkout -b <branch> origin/<base>` (sem fazer checkout da base, para não mexer no que o usuário tem local). O identificador `GUS-<n>` **sempre** está no nome; o Linear liga a branch à issue por ele.
+5. Destino do PR: `develop` quando a base for `main` ou `develop`; para outra base, pergunte. `main` nunca recebe PR de card diretamente; a subida para produção é um PR `develop → main` feito à parte.
 
 ## Título do PR
 
