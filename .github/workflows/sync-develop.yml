@@ -1,0 +1,73 @@
+# Mantém a develop (ambiente de teste) atualizada com o que entrou em produção (main).
+# Roda todo dia às 06:00 de Brasília (09:00 UTC; o Brasil não tem horário de verão desde 2019)
+# e também pelo botão "Run workflow" na aba Actions.
+#
+# Regras:
+# - Merge automático main -> develop quando não há conflito.
+# - Com conflito, o job não força nada: abre (ou reaproveita) um PR main -> develop para alguém resolver.
+# - Nunca toca na main.
+name: Sync develop with main
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-develop
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Merge main into develop
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$(git rev-parse origin/main)" = "$(git merge-base origin/main HEAD)" ]; then
+            echo "develop já contém a main; nada a fazer."
+            echo "result=up-to-date" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git merge --no-ff --no-edit origin/main -m "chore: sync main -> develop ($(date -u +%Y-%m-%d))"; then
+            git push origin develop
+            echo "result=merged" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR when there is a conflict
+        if: steps.merge.outputs.result == 'conflict'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh pr list --base develop --head main --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            echo "PR #$existing já aberto; nada a fazer."
+            exit 0
+          fi
+          gh pr create --base develop --head main \
+            --title "chore: sync main -> develop (conflito)" \
+            --body "$(printf '%s\n' \
+              "O merge automático diário de \`main\` em \`develop\` falhou por conflito." \
+              "" \
+              "Resolva os conflitos neste PR e faça o merge para a \`develop\` voltar a refletir o que está em produção." \
+              "" \
+              "Workflow: \`.github/workflows/sync-develop.yml\`.")"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "Resultado: ${{ steps.merge.outputs.result }}" >> "$GITHUB_STEP_SUMMARY"

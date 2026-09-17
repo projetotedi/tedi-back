@@ -62,21 +62,21 @@ Use Yarn.
 
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
-- **E2E** (`*.e2e.spec.ts`): controller até o banco com `supertest`, subindo só o módulo em teste (+ `auth` se a rota é protegida). Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
+- **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
 - **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`).
-- Teste de integração importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
-- Cada teste de integração limpa as tabelas que tocou.
+- Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
+- Cada teste e2e limpa as tabelas que tocou.
 
 ### Restrições de Execução para Agentes
 
 - Ao iterar, rode apenas o spec do arquivo alterado (`yarn test <caminho-do-spec>`); rode a suíte completa (`yarn test`) antes de abrir o PR.
-- Testes de integração assumem um Postgres real (como no CI) — não assumir que rodam sem banco disponível.
+- Testes e2e assumem um Postgres real (como no CI) — não assumir que rodam sem banco disponível.
 - Rode migrations pendentes (`yarn migration:run`) antes de rodar `yarn test:e2e` localmente, como o CI faz.
 
 ## Diretrizes de Commit e Pull Request
 
-- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop`: install → lint → format:check → migration:run → test → build.
-- Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn test`, `yarn build`.
+- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **e2e** (Postgres → migration:run → `yarn test:e2e`), **schema-drift** (migrations num banco limpo + `migration:generate` deve não gerar nada) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
+- Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:e2e`.
 - Usar o template em `.github/pull_request_template.md` (em português): Resumo, Impacto funcional, Migração (indicar se houve/foi necessário rodar), Validações (checklist de lint/format/test/build), Observações.
 
 ## Dicas de Segurança e Configuração
