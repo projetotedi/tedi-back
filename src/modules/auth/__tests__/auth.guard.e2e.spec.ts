@@ -7,7 +7,7 @@ import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { join } from "node:path";
 import cookieParser from "cookie-parser";
-import * as request from "supertest";
+import request from "supertest";
 import { TestModule } from "./test-support/test.module";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
