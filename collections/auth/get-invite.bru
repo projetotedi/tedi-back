@@ -1,0 +1,27 @@
+meta {
+  name: get-invite
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/auth/invites/:token
+  body: none
+  auth: none
+}
+
+params:path {
+  token: {{inviteToken}}
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Retorna os metadados de um convite sem consumi-lo (usedAt permanece null).
+  Rota pública (@Public) — chamada pela página de aceite do front antes de renderizar o formulário.
+  Retorna 200 InviteResponseDto { type, role, expiresAt }.
+  Não inclui o token na resposta.
+  Erros possíveis: 400 INVALID_INVITE (token inválido, expirado, usado ou revogado).
+}
