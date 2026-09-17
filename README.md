@@ -104,6 +104,19 @@ O caminho é sempre `src/database/migrations/<NomeEmPascalCase>`; o TypeORM comp
 
 Não há passo manual. O `yarn start:prod`, usado pelo Render e pelo `Dockerfile`, executa `migration:run:prod` antes de subir a API. Se uma migration falhar, o deploy falha e o log mostra o erro. Detalhes, incluindo como reverter em produção, em [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+## Contrato OpenAPI
+
+O arquivo `docs/openapi.json` é o contrato que o `tedi-front` consome com **Orval** para gerar hooks tipados (`useCheck`, `useLogin`, etc.).
+
+| Comando               | O que faz                                                                      |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `yarn openapi:export` | gera `docs/openapi.json` sem subir servidor nem precisar de banco              |
+| `yarn openapi:check`  | falha (exit 1) se o arquivo commitado divergir do que `openapi:export` geraria |
+
+`openapi:check` roda no CI (job `qualidade`). Se você alterar um DTO ou controller, rode `yarn openapi:export` e inclua `docs/openapi.json` no commit.
+
+> **Nota:** após um rebase, sempre rode `yarn openapi:export` antes do merge para evitar conflito no `openapi.json`.
+
 ## Comandos do dia a dia
 
 | Comando                                           | O que faz                                      |
@@ -115,7 +128,7 @@ Não há passo manual. O `yarn start:prod`, usado pelo Render e pelo `Dockerfile
 | `yarn lint` / `yarn format` / `yarn format:check` | qualidade                                      |
 | `yarn build`                                      | compila para `dist/`                           |
 
-Antes de abrir PR: `yarn lint && yarn format:check && yarn typecheck && yarn test && yarn build`, e `yarn test:e2e` com o Postgres do compose de pé. É o que o CI roda.
+Antes de abrir PR: `yarn lint && yarn format:check && yarn typecheck && yarn test && yarn build && yarn openapi:check`, e `yarn test:e2e` com o Postgres do compose de pé. É o que o CI roda.
 
 ## Arquitetura
 
