@@ -2,8 +2,13 @@ import { APP_GUARD } from "@nestjs/core";
 import { Module, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { PeopleModule } from "@modules/people/people.module";
 import { AuthGuard } from "./guards/auth.guard";
+import { AuthController } from "./auth.controller";
+import { AuthService } from "./services/auth.service";
+import { PasswordService } from "./services/password.service";
+import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
 
 @Module({
   imports: [
@@ -16,13 +21,23 @@ import { AuthGuard } from "./guards/auth.guard";
         signOptions: { expiresIn: "7d" },
       }),
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 15 * 60 * 1000,
+        limit: 10,
+      },
+    ]),
   ],
+  controllers: [AuthController],
   providers: [
     {
       provide: APP_GUARD,
       useClass: AuthGuard,
     },
     AuthGuard,
+    AuthService,
+    PasswordService,
+    LoginThrottlerGuard,
   ],
   exports: [],
 })
