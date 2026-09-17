@@ -19,6 +19,10 @@ yarn migration:run          # 4. cria/atualiza as tabelas
 yarn dev                    # 5. API em http://localhost:3000, com hot reload
 ```
 
+> **JWT_SECRET obrigatório:** o guard de autenticação falha no boot se `JWT_SECRET` não estiver definido.
+> Para desenvolvimento, adicione `JWT_SECRET=dev` ao seu `.env` (o `.env.example` já tem a chave).
+> Em produção, gere um valor aleatório seguro (ex.: `openssl rand -hex 32`).
+
 Confira se está tudo de pé:
 
 - http://localhost:3000/health → `{"status":"ok","database":"up",...}`

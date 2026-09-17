@@ -31,7 +31,7 @@ Monólito modular em NestJS. Um módulo por área do domínio, espelhando os ép
 ## 3. Dependências permitidas
 
 ```
-auth       ← todos (para guards). auth não depende de ninguém.
+auth       → people   (o guard carrega a Person do banco a cada request)
 pessoas    ← turmas, alocacoes, horas, importacao
 turmas     ← aulas, presencas
 aulas      ← alocacoes, presencas
@@ -42,6 +42,8 @@ auditoria  ← ninguém importa. Ouve eventos (AcaoAuditavel) de qualquer módul
 ```
 
 A seta só aponta "para baixo". `horas` nunca importa `presencas`; se precisa reagir a algo de lá, escuta o evento.
+
+**Regra do AuthModule:** nenhum outro módulo importa `AuthModule`. O guard é global (registrado como `APP_GUARD`) e protege todos os endpoints automaticamente. Se um módulo precisar de funcionalidade de `auth`, a solução é exportar o necessário do módulo que detém a informação (ex.: `PeopleModule` exporta `PeopleService`), não importar `AuthModule`.
 
 ## 4. Estrutura de pastas
 
@@ -63,13 +65,18 @@ src/
 │   │   └── __tests__/pagination.util.spec.ts
 │   ├── swagger/swagger.util.ts
 │   ├── i18n/                        # módulo nestjs-i18n + locales/{pt-BR,en-US}
-│   ├── entities/base.entity.ts      # (próximo passo) id, createdAt, updatedAt, deletedAt
+│   ├── entities/base.entity.ts      # id (UUID v7), createdAt, updatedAt, deletedAt
+│   ├── enums/
+│   │   └── role.enum.ts             # enum Role + roleSatisfies()
+│   ├── decorators/
+│   │   ├── auth-user.type.ts        # interface AuthUser { id, role, accessEnabled }
+│   │   ├── roles.decorator.ts       # @Roles(minRole) — metadata key 'auth:roles'
+│   │   ├── public.decorator.ts      # @Public() — metadata key 'auth:public'
+│   │   └── current-user.decorator.ts # @CurrentUser() — extrai AuthUser do request
 │   ├── filters/                     # (próximo passo) HttpExceptionFilter → ErroApiDto
 │   ├── interceptors/                # (próximo passo) logging
-│   ├── decorators/                  # (próximo passo) @CurrentUser(), @Roles()
-│   ├── guards/                      # (próximo passo) RolesGuard
 │   ├── events/                      # (próximo passo) eventos de domínio compartilhados
-│   └── health/                      # (próximo passo) GET /health
+│   └── health/                      # GET /health (marcado com @Public())
 │
 └── modules/
     └── <modulo>/                    # ver template abaixo
@@ -106,6 +113,7 @@ Regras:
 - `entities/` pertence ao módulo. Outro módulo que precisa dos dados chama o service exportado.
 - Eventos compartilhados vivem em `shared/events/` como classes com payload tipado, publicados via `@nestjs/event-emitter`.
 - Registrar o módulo em `app.module.ts`.
+- **Módulo protegido não importa `AuthModule`.** O guard é global; anotar os endpoints com `@Roles()` ou `@Public()` de `shared/decorators/` é suficiente. Se o módulo precisar do usuário logado, use o parâmetro decorado com `@CurrentUser()`.
 
 ## 5. Testes
 
@@ -154,9 +162,20 @@ Dentro de um módulo, usar import relativo. Entre módulos, usar `@modules/<m>` 
 Fora do escopo deste PR, na ordem sugerida:
 
 1. `config/` com validação de env (Zod ou Joi).
-2. `shared/entities/base.entity.ts`, `HttpExceptionFilter` + `ErroApiDto`, `LoggingInterceptor`, `enableCors`, `helmet`, `GET /health`; apontar o healthcheck do Docker para `/health`.
-3. `docker-compose.yml` com Postgres para desenvolvimento local.
-4. `@nestjs/event-emitter` e `shared/events/` com os primeiros eventos.
-5. Swagger para Orval: `operationIdFactory`, `@ApiOkResponsePaginated`, `scripts/export-openapi.ts`, `openapi:export`/`openapi:check`.
-6. Módulo `auth`, depois `auditoria`, depois `pessoas` como referência para os demais.
+2. `HttpExceptionFilter` + `ErroApiDto` + `LoggingInterceptor` (GUS-76).
+3. `@nestjs/event-emitter` e `shared/events/` com os primeiros eventos.
+4. Swagger para Orval: `operationIdFactory`, `@ApiOkResponsePaginated`, `scripts/export-openapi.ts`, `openapi:export`/`openapi:check` (GUS-77).
+5. Módulo `auth` — emissão de JWT (login, `/auth/me`, logout) (GUS-78).
+6. `auditoria` como referência para os demais.
 7. `dependency-cruiser` no CI para falhar quando um módulo importar interno de outro.
+
+## 9. Contrato de autorização
+
+O contrato de autorização é definido em `src/shared/decorators/` e aplicado pelo `AuthGuard` global em `src/modules/auth/`:
+
+- **`@Roles(minRole: Role)`** — declara o nível mínimo para acessar o endpoint. O `AuthGuard` usa `roleSatisfies(userRole, minRole)` para verificar. `Role.SUPERADMIN` satisfaz qualquer `@Roles`.
+- **`@Public()`** — marca o endpoint como público; o guard devolve `true` imediatamente, sem exigir cookie ou JWT.
+- **`@CurrentUser()`** — parâmetro do handler que retorna `AuthUser { id, role, accessEnabled }` depois que o guard validou a requisição.
+- **Sem decorator** — o endpoint exige que o usuário esteja autenticado (cookie `tedi_session` com JWT válido), mas aceita qualquer role.
+- **Revogação imediata** — o guard consulta `PeopleService.findById` a cada requisição; se `accessEnabled` for `false`, o guard retorna 401 mesmo com JWT válido (decisão 19).
+- **Bypass de desenvolvimento** — com `NODE_ENV !== 'production'` e `DEV_FAKE_ROLE=<role>`, o guard injeta um usuário fake sem exigir cookie. Em produção a variável é ignorada e um aviso é emitido no boot.

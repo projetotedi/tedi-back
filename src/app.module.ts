@@ -4,6 +4,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { dataSourceOptions } from "@database/data-source";
 import { HealthController } from "@shared/health/health.controller";
 import { I18nModule } from "@shared/i18n";
+import { AuthModule } from "@modules/auth/auth.module";
 import { PeopleModule } from "@modules/people/people.module";
 
 @Module({
@@ -11,9 +12,10 @@ import { PeopleModule } from "@modules/people/people.module";
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(dataSourceOptions),
     I18nModule,
+    AuthModule,
     PeopleModule,
     // Módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md):
-    // AuthModule, TurmasModule, AulasModule, ...
+    // TurmasModule, AulasModule, ...
   ],
   controllers: [HealthController],
 })
