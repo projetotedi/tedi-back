@@ -84,6 +84,7 @@ Escopo pela linha do cronograma: "cada pessoa entra com seu login e enxerga só 
 | 14 | — | (revertida) | Convite por e-mail | Substituída pela decisão 31. | — | revertida |
 | 15 | — | (parcialmente revertida) | Coordenadora redefine: mantido; envio por e-mail: substituído pela decisão 34. | — | — | revertida |
 | 17 | — | (revertida) | Resend como provedor de e-mail | Sem e-mail no MVP (decisão 31). Se voltar, reabrir. | — | revertida |
+| 35 | 2026-09-17 | Idioma do código | **Tudo a nível de código em inglês** (regra geral do projeto, dada pelo usuário). Vale para módulos (`people`, não `pessoas`), entidades (`Person`), colunas (`passwordHash`, `role`, `accessEnabled`, `mustChangePassword`, `isSuperAdmin`), enums (`Role`: `member`/`director`/`coordinator`), DTOs (`ApiErrorDto`), rotas (`/access`, `/invites`, `/auth/password`), `operationId` (`listAccess`, `createInvite`), códigos de erro (`INVALID_CREDENTIALS`), eventos (`AuditableActionEvent`), env vars, chaves de i18n, nomes de testes. Textos de interface continuam em português via i18n. **As decisões 1 a 34 abaixo usam nomes em português por terem sido escritas antes; os nomes válidos são os do arquivo de cards e das issues, já convertidos.** | Padrão do projeto; evita mistura de idiomas no código. Reverte a regra "domínio em português" de `docs/ARCHITECTURE.md` §1.5 (corrigir em GUS-89). | Gustavo | confirmada |
 | 4 | 2026-09-16 | Desativar acesso × inativar membro (RF-011) | **Flag `acessoAtivo`** na credencial. Login recusa inativo. `deletedAt` reservado para anonimização (E9.c). Inativar membro (E1.b) desativa o acesso e grava data de saída no Membro. | Padrão sugerido, confirmado. | Gustavo | confirmada |
 
 ## Regras de negócio confirmadas
@@ -123,7 +124,7 @@ Hierarquia no guard: `@Roles(Perfil.DIRETOR)` admite diretor e coordenadora. `su
 
 ## Issues no Linear
 
-GUS-74 Pessoa mínima · GUS-75 Contrato de autorização · GUS-76 ErroApiDto · GUS-77 OpenAPI export · GUS-78 Login · GUS-79 Seed e troca de senha · GUS-80 Convite por perfil · GUS-81 Gestão de acessos · GUS-82 Proxy /api · GUS-83 Sessão no front · GUS-84 Tela de login · GUS-85 Aceite do convite · GUS-86 Home e menu · GUS-87 Tela de acessos (lista/gerar) · GUS-88 Tela de acessos (ações) · GUS-89 Docs. Relacionada pré-existente: GUS-72 "Login" (João), vinculada a GUS-78.
+GUS-74 Person mínima · GUS-75 Contrato de autorização · GUS-76 ApiErrorDto · GUS-77 OpenAPI export · GUS-78 Login · GUS-79 Seed e troca de senha · GUS-80 Convite por perfil · GUS-81 Gestão de acessos · GUS-82 Proxy /api · GUS-83 Sessão no front · GUS-84 Tela de login · GUS-85 Aceite do convite · GUS-86 Home e menu · GUS-87 Tela de acessos (lista/gerar) · GUS-88 Tela de acessos (ações) · GUS-89 Docs. Relacionada pré-existente: GUS-72 "Login" (João), vinculada a GUS-78.
 
 ## Referências
 
