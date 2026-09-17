@@ -15,6 +15,10 @@ export interface DiffResult {
 /**
  * Compares two OpenAPI JSON strings line by line.
  *
+ * Normalises line endings to LF before comparing so that the check passes on
+ * Windows checkouts where Git's `core.autocrlf` may have converted the
+ * committed file to CRLF.
+ *
  * Produces a simple diff format:
  * - Lines only in `a` are prefixed with `- `.
  * - Lines only in `b` are prefixed with `+ `.
@@ -23,12 +27,15 @@ export interface DiffResult {
  * it is sufficient to show which keys changed when `openapi:check` fails.
  */
 export function diffOpenApiStrings(a: string, b: string): DiffResult {
-  if (a === b) {
+  const normalA = a.replace(/\r\n/g, "\n");
+  const normalB = b.replace(/\r\n/g, "\n");
+
+  if (normalA === normalB) {
     return { equal: true, diff: "" };
   }
 
-  const linesA = a.split("\n");
-  const linesB = b.split("\n");
+  const linesA = normalA.split("\n");
+  const linesB = normalB.split("\n");
 
   const diffLines: string[] = [];
   const maxLen = Math.max(linesA.length, linesB.length);
