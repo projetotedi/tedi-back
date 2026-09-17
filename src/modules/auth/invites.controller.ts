@@ -1,17 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  Param,
-  Post,
-} from "@nestjs/common";
-import {
-  ApiCreatedResponse,
-  ApiNoContentResponse,
-  ApiOkResponse,
-  ApiTags,
-} from "@nestjs/swagger";
+import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
+import { ApiCreatedResponse, ApiNoContentResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { Public } from "@shared/decorators/public.decorator";

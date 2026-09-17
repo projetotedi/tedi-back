@@ -102,10 +102,10 @@ describe("seedInitialCoordinator (e2e)", () => {
     it("creates the coordinator on first run", async () => {
       await seedInitialCoordinator(dataSource);
 
-      const rows = await dataSource.query(
+      const rows = (await dataSource.query(
         "SELECT ra, role, access_enabled FROM people WHERE ra = $1",
         [ADMIN_RA],
-      ) as Array<{ ra: string; role: string; access_enabled: boolean }>;
+      )) as Array<{ ra: string; role: string; access_enabled: boolean }>;
 
       expect(rows).toHaveLength(1);
       expect(rows[0].role).toBe("superadmin");
@@ -116,17 +116,16 @@ describe("seedInitialCoordinator (e2e)", () => {
       await seedInitialCoordinator(dataSource);
 
       // Save the hash from the first run
-      const first = await dataSource.query(
-        "SELECT password_hash FROM people WHERE ra = $1",
-        [ADMIN_RA],
-      ) as Array<{ password_hash: string }>;
+      const first = (await dataSource.query("SELECT password_hash FROM people WHERE ra = $1", [
+        ADMIN_RA,
+      ])) as Array<{ password_hash: string }>;
 
       await seedInitialCoordinator(dataSource);
 
-      const rows = await dataSource.query(
+      const rows = (await dataSource.query(
         "SELECT count(*) as cnt, max(password_hash) as hash FROM people WHERE ra = $1",
         [ADMIN_RA],
-      ) as Array<{ cnt: string; hash: string }>;
+      )) as Array<{ cnt: string; hash: string }>;
 
       expect(Number(rows[0].cnt)).toBe(1);
       expect(rows[0].hash).toBe(first[0].password_hash);

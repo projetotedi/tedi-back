@@ -9,7 +9,11 @@ import { PasswordService } from "./password.service";
 import { Invite, InviteType } from "../entities/invite.entity";
 import { CreateInviteDto } from "../dto/create-invite.dto";
 import { AcceptInviteDto } from "../dto/accept-invite.dto";
-import { AUDITABLE_ACTION_EVENT, AuditableAction, AuditableActionEvent } from "@shared/events/auditable-action.event";
+import {
+  AUDITABLE_ACTION_EVENT,
+  AuditableAction,
+  AuditableActionEvent,
+} from "@shared/events/auditable-action.event";
 
 /** Invite is valid for 48 hours. */
 const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
@@ -42,10 +46,7 @@ export class InvitesService {
    *    once in the response and never stored again.
    *  - INVITE_CREATED event is emitted AFTER the invite is saved.
    */
-  async create(
-    dto: CreateInviteDto,
-    actorId: string,
-  ): Promise<{ invite: Invite; token: string }> {
+  async create(dto: CreateInviteDto, actorId: string): Promise<{ invite: Invite; token: string }> {
     if (dto.role === Role.SUPERADMIN) {
       throw new HttpException(
         { error: "INVALID_ROLE", message: "Role cannot be assigned via invite." },
@@ -93,7 +94,12 @@ export class InvitesService {
     const tokenHash = hashToken(token);
     const invite = await this.inviteRepo.findOne({ where: { tokenHash } });
 
-    if (!invite || invite.usedAt !== null || invite.revokedAt !== null || invite.expiresAt < new Date()) {
+    if (
+      !invite ||
+      invite.usedAt !== null ||
+      invite.revokedAt !== null ||
+      invite.expiresAt < new Date()
+    ) {
       throw new HttpException(
         { error: "INVALID_INVITE", message: "Invalid or expired invite." },
         400,

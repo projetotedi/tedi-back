@@ -35,20 +35,20 @@ O que o plano free implica:
 
 ## 3. Variáveis de ambiente
 
-| Variável          | Onde            | Valor                                                         |
-| ----------------- | --------------- | ------------------------------------------------------------- |
-| `DATABASE_URL`    | Render (secret) | string do Neon                                                |
-| `DB_SSL`          | Render          | `true` (já no blueprint)                                      |
-| `CORS_ORIGINS`    | Render (secret) | domínios do front, separados por vírgula                      |
-| `JWT_SECRET`      | Render (secret) | string aleatória segura (`openssl rand -base64 48`)           |
-| `ADMIN_RA`        | Render (secret) | RA da coordenadora inicial (ex.: `a1234567`)                  |
-| `ADMIN_NAME`      | Render (secret) | nome completo da coordenadora inicial                         |
-| `ADMIN_EMAIL`     | Render (secret) | e-mail da coordenadora inicial                                |
-| `ADMIN_PASSWORD`  | Render (secret) | senha inicial (mín. 8 chars); trocar após o primeiro login    |
-| `APP_URL`         | Render (secret) | URL base do front-end (ex.: `https://tedi-front.vercel.app`) |
-| `NODE_ENV`        | Render          | `production` (já no blueprint)                                |
-| `NODE_VERSION`    | Render          | `22.12.0` (já no blueprint)                                   |
-| `PORT`            | Render define   | não configurar                                                |
+| Variável         | Onde            | Valor                                                        |
+| ---------------- | --------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`   | Render (secret) | string do Neon                                               |
+| `DB_SSL`         | Render          | `true` (já no blueprint)                                     |
+| `CORS_ORIGINS`   | Render (secret) | domínios do front, separados por vírgula                     |
+| `JWT_SECRET`     | Render (secret) | string aleatória segura (`openssl rand -base64 48`)          |
+| `ADMIN_RA`       | Render (secret) | RA da coordenadora inicial (ex.: `a1234567`)                 |
+| `ADMIN_NAME`     | Render (secret) | nome completo da coordenadora inicial                        |
+| `ADMIN_EMAIL`    | Render (secret) | e-mail da coordenadora inicial                               |
+| `ADMIN_PASSWORD` | Render (secret) | senha inicial (mín. 8 chars); trocar após o primeiro login   |
+| `APP_URL`        | Render (secret) | URL base do front-end (ex.: `https://tedi-front.vercel.app`) |
+| `NODE_ENV`       | Render          | `production` (já no blueprint)                               |
+| `NODE_VERSION`   | Render          | `22.12.0` (já no blueprint)                                  |
+| `PORT`           | Render define   | não configurar                                               |
 
 > **`APP_URL` antes do deploy:** se não configurada, o campo `url` retornado por `POST /invites`
 > fica com valor errado. Configure antes do primeiro deploy que usará o endpoint de convite.

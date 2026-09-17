@@ -179,9 +179,7 @@ describe("InvitesController (e2e)", () => {
       const url: string = createRes.body.url as string;
       const token = new URL(url).searchParams.get("token") ?? "";
 
-      const getRes = await request(app.getHttpServer())
-        .get(`/auth/invites/${token}`)
-        .expect(200);
+      const getRes = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(200);
 
       expect(getRes.body.type).toBe("access");
       expect(getRes.body.role).toBe("member");
@@ -326,12 +324,24 @@ describe("InvitesController (e2e)", () => {
 
       await request(app.getHttpServer())
         .post("/auth/invites/accept")
-        .send({ token, name: "Alice", ra: "a2210001", email: "alice@example.com", password: "Senha@123" })
+        .send({
+          token,
+          name: "Alice",
+          ra: "a2210001",
+          email: "alice@example.com",
+          password: "Senha@123",
+        })
         .expect(204);
 
       const res = await request(app.getHttpServer())
         .post("/auth/invites/accept")
-        .send({ token, name: "Bob", ra: "b2210002", email: "bob@example.com", password: "Senha@123" })
+        .send({
+          token,
+          name: "Bob",
+          ra: "b2210002",
+          email: "bob@example.com",
+          password: "Senha@123",
+        })
         .expect(400);
 
       expect(res.body.error).toBe("INVALID_INVITE");
@@ -383,9 +393,9 @@ describe("InvitesController (e2e)", () => {
       expect(loginRes.body.name).toBe("Alice Updated");
 
       // Ensure only one person exists with this RA
-      const count = await dataSource.query(
+      const count = (await dataSource.query(
         "SELECT count(*) FROM people WHERE ra = 'a2210001'",
-      ) as Array<{ count: string }>;
+      )) as Array<{ count: string }>;
       expect(Number(count[0].count)).toBe(1);
     });
 

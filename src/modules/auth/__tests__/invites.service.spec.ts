@@ -8,10 +8,7 @@ import { CreateInviteDto } from "../dto/create-invite.dto";
 import { AcceptInviteDto } from "../dto/accept-invite.dto";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
-import {
-  AUDITABLE_ACTION_EVENT,
-  AuditableAction,
-} from "@shared/events/auditable-action.event";
+import { AUDITABLE_ACTION_EVENT, AuditableAction } from "@shared/events/auditable-action.event";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -258,19 +255,21 @@ describe("InvitesService", () => {
       });
 
       return {
-        findOne: jest.fn().mockImplementation(
-          async (
-            entity: unknown,
-            opts: { where: { tokenHash?: string; ra?: string; email?: string } },
-          ) => {
-            if (entity === Invite) {
-              return invite;
-            }
-            if (opts.where.ra !== undefined) return existingByRa;
-            if (opts.where.email !== undefined) return existingByEmail;
-            return null;
-          },
-        ),
+        findOne: jest
+          .fn()
+          .mockImplementation(
+            async (
+              entity: unknown,
+              opts: { where: { tokenHash?: string; ra?: string; email?: string } },
+            ) => {
+              if (entity === Invite) {
+                return invite;
+              }
+              if (opts.where.ra !== undefined) return existingByRa;
+              if (opts.where.email !== undefined) return existingByEmail;
+              return null;
+            },
+          ),
         create: jest.fn().mockReturnValue(savedPerson),
         save: jest.fn().mockResolvedValue(savedPerson),
       };
