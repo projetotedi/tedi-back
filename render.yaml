@@ -29,3 +29,15 @@ services:
         value: "true"
       - key: CORS_ORIGINS
         sync: false # ex.: https://tedi-front.vercel.app,https://*.vercel.app
+      - key: JWT_SECRET
+        sync: false # gere um valor seguro (ex.: openssl rand -base64 48)
+      - key: ADMIN_RA
+        sync: false # RA da coordenadora inicial (ex.: a1234567)
+      - key: ADMIN_NAME
+        sync: false # nome completo da coordenadora inicial
+      - key: ADMIN_EMAIL
+        sync: false # e-mail da coordenadora inicial
+      - key: ADMIN_PASSWORD
+        sync: false # senha inicial (min 8 chars); trocar após primeiro login
+      - key: APP_URL
+        sync: false # URL base do front-end (ex.: https://tedi-front.vercel.app)
