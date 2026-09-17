@@ -1,12 +1,12 @@
 import "reflect-metadata";
 import { Test, TestingModule } from "@nestjs/testing";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { DataSource } from "typeorm";
-import { QueryFailedError } from "typeorm";
+import { DataSource, QueryFailedError } from "typeorm";
 import { config } from "dotenv";
 import { join } from "node:path";
 import { PeopleModule } from "../people.module";
 import { PeopleService } from "../services/people.service";
+import { Person } from "../entities/person.entity";
 
 config();
 
@@ -108,14 +108,11 @@ describe("people repository (e2e)", () => {
   describe("email round-trip", () => {
     it("stores lowercased email and retrieves by lowercase key", async () => {
       await service.save({ name: "Maria", email: "Maria@X.com" });
-      const found = await service.findByRa("any-non-existent");
-      expect(found).toBeNull();
 
-      // Verify the email was stored lowercased via direct query.
-      const rows: Array<{ email: string }> = await dataSource.query(
-        `SELECT email FROM people WHERE name = 'Maria'`,
-      );
-      expect(rows[0].email).toBe("maria@x.com");
+      const repo = dataSource.getRepository(Person);
+      const found = await repo.findOne({ where: { email: "maria@x.com" } });
+      expect(found).not.toBeNull();
+      expect(found?.email).toBe("maria@x.com");
     });
   });
 
@@ -123,18 +120,16 @@ describe("people repository (e2e)", () => {
     it("hides soft-deleted records from normal find but shows them with withDeleted", async () => {
       const person = await service.save({ name: "Bob" });
 
-      // Soft remove via the underlying repo
-      const repo = dataSource.getRepository("people");
+      const repo = dataSource.getRepository(Person);
       await repo.softRemove(person);
 
       const visible = await repo.find();
-      expect(visible.find((p: { id: string }) => p.id === person.id)).toBeUndefined();
+      expect(visible.find((p) => p.id === person.id)).toBeUndefined();
 
       const all = await repo.find({ withDeleted: true });
-      const found = all.find((p: { id: string }) => p.id === person.id) as {
-        deleted_at: Date | null;
-      };
+      const found = all.find((p) => p.id === person.id);
       expect(found).toBeDefined();
+      expect(found?.deletedAt).not.toBeNull();
     });
   });
 
