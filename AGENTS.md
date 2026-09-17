@@ -85,6 +85,12 @@ Use Yarn.
 - Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
 - Desenvolvimento local: `docker compose up -d` sobe só o Postgres (`docker-compose.yml`, credenciais `tedi`/`tedi`, porta 5432); a API roda fora do container com `yarn dev` para manter hot reload. `docker compose down -v` apaga os dados.
 
+## Skills e agentes do repositório
+
+- `.claude/skills/do-task/` — esteira de execução de uma issue do Linear: conectores → leitura do card e do plano de produto → branch `<tipo>/GUS-<n>-<slug>` → plano (agente `tedi-planner`) aprovado pelo humano → implementação (`tedi-dev`) → revisão (`tedi-reviewer`) → revisão manual no CRIT → PR para `develop` com assignee e labels. Invocar com `/do-task GUS-<n>`. Pré-requisitos: MCP do Linear, credencial do GitHub com acesso à org e o binário `crit` (a etapa 0 da skill confere e explica).
+- `.claude/agents/tedi-*.md` — definições dos agentes (modelo e esforço fixos por papel). Não alterar o esforço por conveniência; mudar aqui muda para todo o time.
+- As skills de planejamento (`plan-feature`, `create-task`) ficam no ambiente de quem planeja, não no repositório.
+
 ## Artefatos do Agente
 
 Use `AGENTS.md` como ponto de entrada compartilhado para todos os agentes de IA.
