@@ -323,14 +323,31 @@ describe("AccessController (e2e)", () => {
       expect(res.body.accessEnabled).toBe(false);
     });
 
-    it("CA81-5 (unit coverage): coordinator actor sees 409 LAST_COORDINATOR — verified via unit test", async () => {
-      // This e2e test verifies the scenario is properly handled by the service layer.
-      // When 2 coordinators exist and one demotes the other, count = 2 → passes.
-      // When 1 coordinator exists and tries to act on the last coordinator ≠ self → impossible
-      // without superadmin, because both would have to be coordinator to call the route.
-      // Unit test access.service.spec.ts "CA81-5 (coordinator)" proves the 409 path at count=1.
-      // Marking this as a known e2e gap; divergence is documented in the final report.
-      expect(true).toBe(true);
+    it("CA81-5: coordinator gets 409 LAST_COORDINATOR when trying to disable last enabled coordinator", async () => {
+      // Setup: coord1 + coord2 (both enabled coordinators)
+      // Superadmin disables coord2 (bypasses LAST_COORDINATOR — coord1 still enabled, count stays at 1 after)
+      // coord1 then tries to PATCH /access/coord2/enabled {enabled:false} → coord2 still has role=coordinator
+      // assertNotLastCoordinator counts role=coordinator AND accessEnabled=true → only coord1 → count=1 → 409
+      const superadmin = await createSuperadmin();
+      const coord1 = await createCoordinator("coord1001", "coord1@example.com");
+      const coord2 = await createCoordinator("coord2002", "coord2@example.com");
+
+      // Superadmin disables coord2 (200, bypasses LAST_COORDINATOR)
+      await request(app.getHttpServer())
+        .patch(`/access/${coord2.id}/enabled`)
+        .set("Cookie", superadmin.cookie)
+        .send({ enabled: false })
+        .expect(200);
+
+      // coord1 tries to disable coord2 again — coord2 has role=coordinator but accessEnabled=false
+      // assertNotLastCoordinator: count of enabled coordinators = 1 (only coord1) → 409
+      const res = await request(app.getHttpServer())
+        .patch(`/access/${coord2.id}/enabled`)
+        .set("Cookie", coord1.cookie)
+        .send({ enabled: false })
+        .expect(409);
+
+      expect(res.body.error).toBe("LAST_COORDINATOR");
     });
   });
 
