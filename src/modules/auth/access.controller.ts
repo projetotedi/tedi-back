@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiCreatedResponse, ApiNoContentResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
+import { ApiCreatedResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { ApiOkResponsePaginated } from "@shared/pagination/api-paginated-response.decorator";
 import { Roles } from "@shared/decorators/roles.decorator";
@@ -84,7 +84,6 @@ export class AccessController {
   @Post(":id/password-reset")
   @HttpCode(201)
   @ApiCreatedResponse({ type: PasswordResetResponseDto })
-  @ApiNoContentResponse({ description: "unused" })
   async createPasswordReset(
     @Param("id") id: string,
     @CurrentUser() actor: AuthUser,

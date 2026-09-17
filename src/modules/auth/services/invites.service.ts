@@ -295,6 +295,11 @@ export class InvitesService {
   async accept(dto: AcceptInviteDto): Promise<void> {
     let personIdForEvent: string;
     let actionForEvent: AuditableAction;
+    // For PASSWORD_RESET the endpoint is anonymous (link opened by the target);
+    // attribute the audit event to the coordinator that ISSUED the reset
+    // (invite.createdById), not to the target. For ACCESS the invite acceptance
+    // is also anonymous, but the actor is the person being provisioned.
+    let actorIdForEvent: string;
 
     await this.dataSource.transaction(async (manager) => {
       const tokenHash = hashToken(dto.token);
@@ -326,6 +331,7 @@ export class InvitesService {
 
         personIdForEvent = person.id;
         actionForEvent = AuditableAction.PASSWORD_RESET;
+        actorIdForEvent = invite.createdById;
       } else {
         // ACCESS branch — provisions a Person
         const ra = (dto.ra ?? "").trim().toLowerCase();
@@ -392,31 +398,24 @@ export class InvitesService {
 
         personIdForEvent = person.id;
         actionForEvent = AuditableAction.ACCESS_CREATED;
+        // On accept-access, the acceptor IS the newly-provisioned person.
+        actorIdForEvent = person.id;
       }
     });
 
     // Emit AFTER the transaction has committed.
     // Emitting inside the tx would risk leaking the event on rollback.
-    if (actionForEvent! === AuditableAction.PASSWORD_RESET) {
-      const event = new AuditableActionEvent();
-      event.actorId = personIdForEvent!;
-      event.action = AuditableAction.PASSWORD_RESET;
-      event.targetType = "person";
-      event.targetId = personIdForEvent!;
-      event.before = null;
-      event.after = { personId: personIdForEvent! };
-      event.occurredAt = new Date();
-      this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
-    } else {
-      const event = new AuditableActionEvent();
-      event.actorId = personIdForEvent!;
-      event.action = AuditableAction.ACCESS_CREATED;
-      event.targetType = "person";
-      event.targetId = personIdForEvent!;
-      event.before = null;
-      event.after = { role: undefined };
-      event.occurredAt = new Date();
-      this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
-    }
+    const event = new AuditableActionEvent();
+    event.actorId = actorIdForEvent!;
+    event.action = actionForEvent!;
+    event.targetType = "person";
+    event.targetId = personIdForEvent!;
+    event.before = null;
+    event.after =
+      actionForEvent! === AuditableAction.PASSWORD_RESET
+        ? { personId: personIdForEvent! }
+        : { personId: personIdForEvent! };
+    event.occurredAt = new Date();
+    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }

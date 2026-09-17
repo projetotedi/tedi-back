@@ -158,6 +158,8 @@ export class AccessService {
     this.assertNotSelf(actorId, id);
 
     let updated: Person;
+    let previousEnabled = dto.enabled;
+    let changed = false;
 
     // 2. Serializable transaction.
     await this.dataSource.transaction("SERIALIZABLE", async (mgr) => {
@@ -170,8 +172,12 @@ export class AccessService {
         throw new HttpException({ error: "NOT_FOUND", message: "Person not found." }, 404);
       }
 
-      // b. Disabling a coordinator requires that there's at least one other active coordinator.
-      // SUPERADMIN bypasses this check (decision confirmed in GUS-81 card).
+      previousEnabled = target.accessEnabled;
+
+      // Disabling a coordinator requires that there's at least one OTHER active
+      // coordinator. SUPERADMIN bypasses this check (decision confirmed in
+      // GUS-81 card). Runs even on no-op requests: the rule is about the
+      // *intent* to make coordinators disabled, not only about state change.
       if (
         target.role === Role.COORDINATOR &&
         dto.enabled === false &&
@@ -180,20 +186,29 @@ export class AccessService {
         await this.assertNotLastCoordinator(mgr);
       }
 
+      // No-op guard: skip write and event when the state doesn't actually change.
+      if (target.accessEnabled === dto.enabled) {
+        updated = target;
+        return;
+      }
+
       target.accessEnabled = dto.enabled;
       updated = await mgr.save(Person, target);
+      changed = true;
     });
 
-    // 3. Emit after commit.
-    const event = new AuditableActionEvent();
-    event.actorId = actorId;
-    event.action = dto.enabled ? AuditableAction.ACCESS_ENABLED : AuditableAction.ACCESS_DISABLED;
-    event.targetType = "person";
-    event.targetId = id;
-    event.before = null;
-    event.after = { accessEnabled: dto.enabled };
-    event.occurredAt = new Date();
-    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
+    // 3. Emit after commit — only when the state actually changed.
+    if (changed) {
+      const event = new AuditableActionEvent();
+      event.actorId = actorId;
+      event.action = dto.enabled ? AuditableAction.ACCESS_ENABLED : AuditableAction.ACCESS_DISABLED;
+      event.targetType = "person";
+      event.targetId = id;
+      event.before = { accessEnabled: previousEnabled };
+      event.after = { accessEnabled: dto.enabled };
+      event.occurredAt = new Date();
+      this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
+    }
 
     return this.toResponseDto(updated!);
   }

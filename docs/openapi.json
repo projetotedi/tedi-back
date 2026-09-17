@@ -688,9 +688,6 @@
             },
             "description": ""
           },
-          "204": {
-            "description": "unused"
-          },
           "400": {
             "content": {
               "application/json": {
