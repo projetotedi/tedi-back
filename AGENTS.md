@@ -20,7 +20,7 @@ src/
     └── <modulo>/
         ├── <modulo>.module.ts
         ├── controllers/  services/  entities/  dto/  enums/  listeners/
-        └── __tests__/       testes do módulo (unitários *.spec.ts e integração *.int.spec.ts)
+        └── __tests__/       testes do módulo (unitários *.spec.ts e e2e *.e2e.spec.ts)
 ```
 
 `dist/` é gerado por `nest build` — não editar à mão. Aliases de import: `@config/*`, `@database/*`, `@shared/*`, `@modules/*` (ver `tsconfig.json`). Dentro de um módulo, import relativo; entre módulos, só o `*.module.ts` ou o que ele exporta.
@@ -33,7 +33,7 @@ Use Yarn.
 - `yarn dev`: sobe o Nest em watch mode (`nest start --watch`).
 - `yarn build`: compila com `nest build` para `dist/`.
 - `yarn test`: testes unitários (`*.spec.ts`, sem banco).
-- `yarn test:int`: testes de integração (`*.int.spec.ts`, precisa de Postgres).
+- `yarn test:e2e`: testes end-to-end (`*.e2e.spec.ts`, sobem o módulo com Postgres real; precisa do banco).
 - `yarn test:all` / `yarn test:watch` / `yarn test:cov`: tudo, watch, cobertura.
 - `yarn lint`: roda o oxlint.
 - `yarn format` / `yarn format:check`: roda o oxfmt (aplica ou só verifica).
@@ -45,7 +45,7 @@ Use Yarn.
 
 - Linter/formatter: oxlint + oxfmt (sem `.oxlintrc.json` próprio — usa config padrão do oxlint).
 - TypeScript: `strictNullChecks`, `noImplicitAny`, `strictBindCallApply`, `noFallthroughCasesInSwitch` ativados; decorators habilitados (`experimentalDecorators` + `emitDecoratorMetadata`) para Nest, TypeORM e class-validator funcionarem.
-- Nomes de arquivo: kebab-case com sufixo de tipo (`pessoas.controller.ts`, `pessoas.service.ts`, `pessoa.entity.ts`, `criar-pessoa.dto.ts`, `*.spec.ts`, `*.int.spec.ts`).
+- Nomes de arquivo: kebab-case com sufixo de tipo (`pessoas.controller.ts`, `pessoas.service.ts`, `pessoa.entity.ts`, `criar-pessoa.dto.ts`, `*.spec.ts`, `*.e2e.spec.ts`).
 - Nomes de domínio em português, sufixos técnicos em inglês. Classes/DTOs/Entities em PascalCase, seguindo a convenção padrão do Nest.
 
 ## Regras do Projeto
@@ -62,8 +62,8 @@ Use Yarn.
 
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
-- **Integração** (`*.int.spec.ts`): controller até o banco com `supertest`, subindo só o módulo em teste (+ `auth` se a rota é protegida). Precisam de Postgres (no CI é um serviço `postgres:16-alpine`).
-- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.int.spec.ts`).
+- **E2E** (`*.e2e.spec.ts`): controller até o banco com `supertest`, subindo só o módulo em teste (+ `auth` se a rota é protegida). Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
+- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`).
 - Teste de integração importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
 - Cada teste de integração limpa as tabelas que tocou.
 
@@ -71,7 +71,7 @@ Use Yarn.
 
 - Ao iterar, rode apenas o spec do arquivo alterado (`yarn test <caminho-do-spec>`); rode a suíte completa (`yarn test`) antes de abrir o PR.
 - Testes de integração assumem um Postgres real (como no CI) — não assumir que rodam sem banco disponível.
-- Rode migrations pendentes (`yarn migration:run`) antes de rodar `yarn test:int` localmente, como o CI faz.
+- Rode migrations pendentes (`yarn migration:run`) antes de rodar `yarn test:e2e` localmente, como o CI faz.
 
 ## Diretrizes de Commit e Pull Request
 

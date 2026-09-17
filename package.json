@@ -15,7 +15,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:int": "jest --testPathIgnorePatterns=\"$^\" --testRegex=\".*\\.int\\.spec\\.ts$\" --runInBand --passWithNoTests",
+    "test:e2e": "jest --testPathIgnorePatterns=\"$^\" --testRegex=\".*\\.e2e\\.spec\\.ts$\" --runInBand --passWithNoTests",
     "test:all": "jest --testPathIgnorePatterns=\"$^\"",
     "typeorm:ts": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:create": "yarn typeorm:ts migration:create",
@@ -83,7 +83,7 @@
     "testEnvironment": "node",
     "testPathIgnorePatterns": [
       "/node_modules/",
-      ".int.spec.ts$"
+      ".e2e.spec.ts$"
     ],
     "testRegex": ".*.spec.ts$",
     "transform": {
