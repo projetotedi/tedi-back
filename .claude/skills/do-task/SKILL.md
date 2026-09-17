@@ -39,9 +39,10 @@ Escreva para o usuário um **Contexto** de 5 a 8 linhas: para que fim esta task 
 ## Etapa 3 — Branch e estado
 
 1. Repositório: linha `Repositório:` do guia técnico, senão label `Backend` → `tedi-back`, `Frontend` → `tedi-front`. Card com os dois lados: back primeiro.
-2. Branch conforme `references/github.md`: base `develop` atualizada, nome da linha `Branch:` do card ou `<tipo>/GUS-<n>-<slug-em-ingles>`. O identificador `GUS-<n>` sempre está no nome.
-3. Worktree limpo antes de criar a branch (`git status --short` vazio); se não estiver, pare e pergunte o que fazer com as mudanças.
-4. Linear: `save_issue` com `state: In Progress` e assignee = usuário que roda a skill.
+2. **Base da branch:** pergunte sempre, com `AskUserQuestion`: "A partir de qual branch crio a branch da task?" com as opções `main` (Recomendada — produção, o ponto de partida padrão), `develop` (ambiente de teste, quando o card depende de algo que só está lá) e `outra branch` (o usuário informa o nome; útil para empilhar em cima de outro card). Guarde a resposta como `<base>` e use nas etapas 4, 5, 6 e 7. Não assuma a base sem perguntar, mesmo em execuções repetidas.
+3. Branch conforme `references/github.md`: `origin/<base>` atualizada, nome da linha `Branch:` do card ou `<tipo>/GUS-<n>-<slug-em-ingles>`. O identificador `GUS-<n>` sempre está no nome.
+4. Worktree limpo antes de criar a branch (`git status --short` vazio); se não estiver, pare e pergunte o que fazer com as mudanças.
+5. Linear: `save_issue` com `state: In Progress` e assignee = usuário que roda a skill.
 
 ## Etapa 3.1 — Planejamento
 
@@ -57,26 +58,26 @@ Ao receber o plano:
 
 Lance o agente `tedi-dev` (Sonnet 5, esforço máximo), um por repositório tocado, com card, plano aprovado, repositório/branch e estado do ambiente (`docker compose ps` antes, para dizer se há Postgres). Rode em background e espere a notificação; não faça edições paralelas no mesmo repositório enquanto ele trabalha.
 
-Ao receber o relatório: confira que há commits na branch (`git log develop..HEAD --oneline`) e que os comandos de qualidade saíram verdes. Testes vermelhos ou relatório incompleto: mostre ao usuário e pergunte antes de qualquer nova rodada.
+Ao receber o relatório: confira que há commits na branch (`git log origin/<base>..HEAD --oneline`) e que os comandos de qualidade saíram verdes. Testes vermelhos ou relatório incompleto: mostre ao usuário e pergunte antes de qualquer nova rodada.
 
 ## Etapa 5 — Revisão automática
 
-Lance `tedi-reviewer` (Opus 5, medium) com card, plano, relatório do dev e `git diff develop...HEAD`. Achados `bloqueante` e `importante` voltam ao `tedi-dev` em **uma** rodada de correção; `menor` fica listado para o usuário. Re-revisão só do diff novo e só se houve bloqueante.
+Lance `tedi-reviewer` (Opus 5, medium) com card, plano, relatório do dev e `git diff origin/<base>...HEAD`. Achados `bloqueante` e `importante` voltam ao `tedi-dev` em **uma** rodada de correção; `menor` fica listado para o usuário. Re-revisão só do diff novo e só se houve bloqueante.
 
 Mostre ao usuário: veredito, tabela de cobertura dos critérios, achados corrigidos e os que ficaram.
 
 ## Etapa 6 — Revisão manual no CRIT
 
-Na raiz do repositório: `crit --base-branch develop` com `run_in_background: true` (`references/crit.md`). Avise: "O CRIT abriu no navegador. Comente o que quiser e clique em Finish Review, ou me diga 'terminei'." Depois **espere**: a notificação da tarefa em background ou a palavra do usuário, o que vier primeiro. Não avance sozinho.
+Na raiz do repositório: `crit --base-branch <base>` com `run_in_background: true` (`references/crit.md`). Avise: "O CRIT abriu no navegador. Comente o que quiser e clique em Finish Review, ou me diga 'terminei'." Depois **espere**: a notificação da tarefa em background ou a palavra do usuário, o que vier primeiro. Não avance sozinho.
 
 Com a revisão encerrada: leia os comentários (saída do processo ou `crit comments --json`). Para cada um: corrigir via `tedi-dev` (uma rodada com todos os comentários) ou responder no CRIT explicando. Pergunte se ele quer reabrir o CRIT para conferir ou seguir.
 
 ## Etapa 7 — PR
 
-Pergunte: "Quer que eu abra o PR para `develop`?" Só com sim explícito:
+Destino do PR (`<pr-base>`): `develop` quando `<base>` for `main` ou `develop` (o ambiente de teste recebe tudo; a subida para `main` é um PR manual à parte). Se `<base>` for outra branch, pergunte para onde vai o PR (essa branch ou `develop`). Depois pergunte: "Quer que eu abra o PR para `<pr-base>`?" Só com sim explícito:
 
 1. Título, corpo pelo template do repositório, labels mapeadas das labels da issue e assignee = login do usuário, tudo conforme `references/github.md`. Corpo em `.agents/artifacts/PR-GUS-<n>.md`, spec em `.agents/artifacts/pr-GUS-<n>.json`.
-2. `git push -u origin <branch>`; depois `node .claude/skills/do-task/scripts/github-pr.mjs <spec>`. Se `develop` não existir no remoto, o script cria a partir de `main` só se o usuário tiver autorizado na etapa 3 (`createBaseFrom`).
+2. `git push -u origin <branch>`; depois `node .claude/skills/do-task/scripts/github-pr.mjs <spec>`. `base` do spec = `<pr-base>`. Se ela não existir no remoto, o script cria a partir de `main` só se o usuário tiver autorizado (`createBaseFrom`).
 3. Linear: anexar a URL do PR à issue e mover para o estado de revisão do time, se existir.
 4. Relate: link do PR, o que o CI vai rodar, o que o revisor humano deve olhar primeiro, pendências.
 
