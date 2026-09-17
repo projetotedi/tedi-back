@@ -7,15 +7,19 @@ Stack: NestJS 11 + TypeORM 0.3 + PostgreSQL, TypeScript, gerenciado com Yarn. Ar
 ```text
 src/
 ├── main.ts                 bootstrap (ValidationPipe global + Swagger)
-├── app.module.ts           módulo raiz (Config, TypeORM, I18n + módulos de domínio)
+├── app.module.ts           módulo raiz (Config, TypeORM, AuthModule + módulos de domínio; registra APP_FILTER global)
 ├── config/                 (a criar) env validada e tipada
 ├── database/
 │   ├── data-source.ts       DataSource usado pelo Nest e pelo CLI do TypeORM
 │   └── migrations/          migrations geradas pelo CLI — não editar migration já rodada
 ├── shared/                 transversal, sem conhecer domínio
 │   ├── pagination/          pagination.util.ts + __tests__/
-│   ├── swagger/             swagger.util.ts
-│   └── i18n/                módulo nestjs-i18n + locales/{en-US,pt-BR}/common.json
+│   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
+│   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
+│   ├── dto/                 api-error.dto.ts
+│   ├── decorators/          @Roles, @Public, @CurrentUser
+│   ├── enums/               role.enum.ts
+│   └── entities/            base.entity.ts
 └── modules/                um diretório por módulo de domínio (auth, pessoas, turmas, aulas, ...)
     └── <modulo>/
         ├── <modulo>.module.ts
@@ -54,8 +58,8 @@ Use Yarn.
 - **Entidades** ficam em `src/modules/<modulo>/entities/*.entity.ts`. É esse glob que o `data-source.ts` carrega; entidade fora dele não é registrada.
 - Validação de entrada é feita com **class-validator** + **class-transformer**, já plugados globalmente em `main.ts` via `ValidationPipe({ whitelist: true, transform: true })`. Todo DTO novo deve usar decorators do class-validator — não escrever validação manual em controllers/services.
 - **Swagger é contrato.** O frontend gera o cliente com Orval a partir do `openapi.json`. Todo controller tem `@ApiTags('<modulo>')`; toda resposta é tipada com DTO de saída (`*.response.dto.ts`), nunca a entidade. Regras completas em `docs/ARCHITECTURE.md`, seção 6.
-- i18n é feito via `nestjs-i18n`, com `pt-BR` como locale padrão e `en-US` como fallback (`src/shared/i18n/index.ts`). Toda chave nova de tradução deve ser adicionada nos dois locales em `src/shared/i18n/locales/`.
-- Configuração do Swagger é centralizada em `src/shared/swagger/swagger.util.ts` (`setupSwagger`) — não duplicar `DocumentBuilder` em outro lugar.
+- **Sem i18n no backend.** Mensagens de erro (`ApiErrorDto.message`) ficam em inglês literal; o front traduz pelo código estável `error`. `nestjs-i18n` não é usado neste repo.
+- Configuração do Swagger é centralizada em `src/shared/swagger/swagger.util.ts` (`setupSwagger`) — não duplicar `DocumentBuilder` em outro lugar. Erros de rota usam `@ApiStandardErrors()` de `src/shared/swagger/api-standard-errors.decorator.ts`.
 - Alteração de schema exige migration (`yarn migration:create`) — nunca editar uma migration que já rodou em `develop`/`staging`/`main`; criar uma nova em vez disso.
 
 ## Diretrizes de Teste

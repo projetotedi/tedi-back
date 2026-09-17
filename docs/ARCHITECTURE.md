@@ -7,7 +7,7 @@ Monólito modular em NestJS. Um módulo por área do domínio, espelhando os ép
 1. **Um módulo por área do domínio.** Quem lê o Linear encontra a pasta correspondente em `src/modules/`.
 2. **Módulo é uma caixa fechada.** Só o que está em `exports` do `@Module` pode ser usado por outro módulo. Nunca importar entidade, repositório ou service interno de outro módulo.
 3. **Comunicação entre módulos por service exportado ou por evento.** Efeito colateral entre áreas diferentes (ex.: presença confirmada gera horas) usa evento, não chamada direta.
-4. **`shared/` só recebe o que é transversal** e não conhece domínio nenhum: paginação, base entity, guards, filtros, i18n, swagger.
+4. **`shared/` só recebe o que é transversal** e não conhece domínio nenhum: paginação, base entity, guards, filtros, swagger. Sem i18n no backend — mensagens em inglês literal, tradução é responsabilidade do front.
 5. **Nomes de domínio em português, sufixos técnicos em inglês.** `pessoas.controller.ts`, `turmas.service.ts`, `aula.entity.ts`.
 6. **Testes vivem dentro do módulo.** Não existe pasta `test/` global.
 7. **Toda entidade estende `BaseEntity` (`src/shared/entities/base.entity.ts`)**, que já traz `id` UUID v7 gerado no app, `createdAt`, `updatedAt` e `deletedAt` (soft delete).
@@ -50,7 +50,7 @@ A seta só aponta "para baixo". `horas` nunca importa `presencas`; se precisa re
 ```
 src/
 ├── main.ts
-├── app.module.ts                    # importa Config, TypeORM, I18n e os módulos de domínio
+├── app.module.ts                    # importa Config, TypeORM, AuthModule e os módulos de domínio; registra APP_FILTER global
 │
 ├── config/                          # (próximo passo) env validada e tipada
 │
@@ -64,7 +64,6 @@ src/
 │   │   ├── pagination.util.ts
 │   │   └── __tests__/pagination.util.spec.ts
 │   ├── swagger/swagger.util.ts
-│   ├── i18n/                        # módulo nestjs-i18n + locales/{pt-BR,en-US}
 │   ├── entities/base.entity.ts      # id (UUID v7), createdAt, updatedAt, deletedAt
 │   ├── enums/
 │   │   └── role.enum.ts             # enum Role + roleSatisfies()
@@ -73,7 +72,7 @@ src/
 │   │   ├── roles.decorator.ts       # @Roles(minRole) — metadata key 'auth:roles'
 │   │   ├── public.decorator.ts      # @Public() — metadata key 'auth:public'
 │   │   └── current-user.decorator.ts # @CurrentUser() — extrai AuthUser do request
-│   ├── filters/                     # (próximo passo) HttpExceptionFilter → ErroApiDto
+│   ├── filters/                     # HttpExceptionFilter global → ApiErrorDto
 │   ├── interceptors/                # (próximo passo) logging
 │   ├── events/                      # (próximo passo) eventos de domínio compartilhados
 │   └── health/                      # GET /health (marcado com @Public())
@@ -137,15 +136,15 @@ Regras:
 
 O frontend gera o cliente HTTP com **Orval** a partir do `openapi.json` desta API. O que a API não descreve, o front não tem. Regras por endpoint:
 
-| Regra                                                                            | Como                                                                      |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `operationId` = nome do método (`listarPessoas`, não `PessoasController_listar`) | `operationIdFactory` em `shared/swagger/` (próximo passo)                 |
-| `@ApiTags('<modulo>')` no controller, um tag por módulo                          | Tag igual ao nome da pasta em `modules/`. O Orval gera um arquivo por tag |
-| Toda resposta tipada (`@ApiOkResponse({ type })`, `@ApiCreatedResponse`...)      | Sem isso o Orval gera `unknown`                                           |
-| Resposta paginada com `@ApiOkResponsePaginated(Dto)`                             | Decorator em `shared/pagination/` (próximo passo)                         |
-| DTO de saída explícito (`*.response.dto.ts`), nunca a entidade                   | Entidade expõe coluna interna e quebra contrato a cada migration          |
-| Enums de TS exportados e anotados com `@ApiProperty({ enum })`                   | Orval gera o union type                                                   |
-| Erro sempre no formato `ErroApiDto`                                              | Emitido pelo `HttpExceptionFilter` (próximo passo)                        |
+| Regra                                                                            | Como                                                                                                      |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `operationId` = nome do método (`listarPessoas`, não `PessoasController_listar`) | `operationIdFactory` em `shared/swagger/` (próximo passo)                                                 |
+| `@ApiTags('<modulo>')` no controller, um tag por módulo                          | Tag igual ao nome da pasta em `modules/`. O Orval gera um arquivo por tag                                 |
+| Toda resposta tipada (`@ApiOkResponse({ type })`, `@ApiCreatedResponse`...)      | Sem isso o Orval gera `unknown`                                                                           |
+| Resposta paginada com `@ApiOkResponsePaginated(Dto)`                             | Decorator em `shared/pagination/` (próximo passo)                                                         |
+| DTO de saída explícito (`*.response.dto.ts`), nunca a entidade                   | Entidade expõe coluna interna e quebra contrato a cada migration                                          |
+| Enums de TS exportados e anotados com `@ApiProperty({ enum })`                   | Orval gera o union type                                                                                   |
+| Erro sempre no formato `ApiErrorDto`                                             | Emitido pelo `HttpExceptionFilter` global; mensagens em inglês literal (front traduz pelo código `error`) |
 
 `yarn openapi:export` gera `docs/openapi.json` sem subir a API; `yarn openapi:check` falha no CI se o arquivo estiver desatualizado (próximo passo).
 
@@ -165,7 +164,7 @@ Dentro de um módulo, usar import relativo. Entre módulos, usar `@modules/<m>` 
 Fora do escopo deste PR, na ordem sugerida:
 
 1. `config/` com validação de env (Zod ou Joi).
-2. `HttpExceptionFilter` + `ErroApiDto` + `LoggingInterceptor` (GUS-76).
+2. `LoggingInterceptor` em `shared/interceptors/`.
 3. `@nestjs/event-emitter` e `shared/events/` com os primeiros eventos.
 4. Swagger para Orval: `operationIdFactory`, `@ApiOkResponsePaginated`, `scripts/export-openapi.ts`, `openapi:export`/`openapi:check` (GUS-77).
 5. Módulo `auth` — emissão de JWT (login, `/auth/me`, logout) (GUS-78).

@@ -1,10 +1,10 @@
 import "reflect-metadata";
-import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module";
 import { isOriginAllowed, parseCorsOrigins } from "@config/cors";
 import { setupSwagger } from "@shared/swagger/swagger.util";
+import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -17,7 +17,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.use(cookieParser());
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(buildValidationPipe());
   setupSwagger(app);
 
   const port = Number(process.env.PORT ?? 3000);

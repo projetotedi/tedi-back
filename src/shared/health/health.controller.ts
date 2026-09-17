@@ -2,6 +2,7 @@ import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
 import { ApiOkResponse, ApiServiceUnavailableResponse, ApiTags } from "@nestjs/swagger";
 import { DataSource } from "typeorm";
 import { Public } from "@shared/decorators/public.decorator";
+import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { HealthResponseDto } from "./health.response.dto";
 
 /**
@@ -17,6 +18,7 @@ export class HealthController {
   @Public()
   @ApiOkResponse({ type: HealthResponseDto })
   @ApiServiceUnavailableResponse({ description: "Banco de dados indisponível" })
+  @ApiStandardErrors()
   async check(): Promise<HealthResponseDto> {
     const base = {
       uptimeSeconds: Math.round(process.uptime()),
