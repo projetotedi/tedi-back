@@ -1,0 +1,21 @@
+meta {
+  name: me
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/auth/me
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Retorna os dados do usuário autenticado (MeResponseDto) a partir do cookie tedi_session.
+  Requer cookie tedi_session válido; sem ele retorna 401 UNAUTHORIZED.
+  Não inclui passwordHash na resposta.
+}

@@ -1,0 +1,29 @@
+meta {
+  name: login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "ra": "a2210001",
+    "password": "Senha@123"
+  }
+}
+
+docs {
+  Autentica um usuário pelo RA e senha.
+  Retorna MeResponseDto (id, name, ra, email, role) e grava o cookie tedi_session httpOnly.
+  Erros possíveis: 400 VALIDATION_FAILED, 401 INVALID_CREDENTIALS, 401 ACCESS_DISABLED, 429 TOO_MANY_ATTEMPTS.
+}
