@@ -9,6 +9,7 @@
           },
           "name": {
             "example": "Alice Silva",
+            "maxLength": 200,
             "type": "string"
           },
           "password": {

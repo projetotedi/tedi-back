@@ -26,6 +26,27 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * Central validation used by both `getByToken` and `accept` — kept in one
+ * place so future rules (e.g., stricter type filtering) don't drift.
+ * Throws 400 INVALID_INVITE when the invite is missing, used, revoked,
+ * expired, or not of the expected type.
+ */
+function assertUsable(invite: Invite | null, expectedType: InviteType): asserts invite is Invite {
+  if (
+    !invite ||
+    invite.type !== expectedType ||
+    invite.usedAt !== null ||
+    invite.revokedAt !== null ||
+    invite.expiresAt < new Date()
+  ) {
+    throw new HttpException(
+      { error: "INVALID_INVITE", message: "Invalid or expired invite." },
+      400,
+    );
+  }
+}
+
 @Injectable()
 export class InvitesService {
   constructor(
@@ -93,19 +114,7 @@ export class InvitesService {
   async getByToken(token: string): Promise<Invite> {
     const tokenHash = hashToken(token);
     const invite = await this.inviteRepo.findOne({ where: { tokenHash } });
-
-    if (
-      !invite ||
-      invite.usedAt !== null ||
-      invite.revokedAt !== null ||
-      invite.expiresAt < new Date()
-    ) {
-      throw new HttpException(
-        { error: "INVALID_INVITE", message: "Invalid or expired invite." },
-        400,
-      );
-    }
-
+    assertUsable(invite, InviteType.ACCESS);
     return invite;
   }
 
@@ -129,18 +138,7 @@ export class InvitesService {
     await this.dataSource.transaction(async (manager) => {
       const tokenHash = hashToken(dto.token);
       const invite = await manager.findOne(Invite, { where: { tokenHash } });
-
-      if (
-        !invite ||
-        invite.usedAt !== null ||
-        invite.revokedAt !== null ||
-        invite.expiresAt < new Date()
-      ) {
-        throw new HttpException(
-          { error: "INVALID_INVITE", message: "Invalid or expired invite." },
-          400,
-        );
-      }
+      assertUsable(invite, InviteType.ACCESS);
 
       const ra = dto.ra.trim().toLowerCase();
       const email = dto.email.trim().toLowerCase();

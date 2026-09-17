@@ -1,15 +1,16 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { IsEmail, IsString, MinLength } from "class-validator";
+import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
 
 export class AcceptInviteDto {
   @ApiProperty({ example: "eyJ..." })
   @IsString()
   token!: string;
 
-  @ApiProperty({ example: "Alice Silva" })
+  @ApiProperty({ example: "Alice Silva", maxLength: 200 })
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   name!: string;
 
   @ApiProperty({ example: "a2210001" })
