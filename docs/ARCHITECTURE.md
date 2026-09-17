@@ -10,6 +10,7 @@ Monólito modular em NestJS. Um módulo por área do domínio, espelhando os ép
 4. **`shared/` só recebe o que é transversal** e não conhece domínio nenhum: paginação, base entity, guards, filtros, i18n, swagger.
 5. **Nomes de domínio em português, sufixos técnicos em inglês.** `pessoas.controller.ts`, `turmas.service.ts`, `aula.entity.ts`.
 6. **Testes vivem dentro do módulo.** Não existe pasta `test/` global.
+7. **Toda entidade estende `BaseEntity` (`src/shared/entities/base.entity.ts`)**, que já traz `id` UUID v7 gerado no app, `createdAt`, `updatedAt` e `deletedAt` (soft delete).
 
 ## 2. Mapa de módulos
 
@@ -95,7 +96,7 @@ modules/pessoas/
 ├── listeners/                       # se o módulo reage a eventos de outros
 └── __tests__/
     ├── pessoas.service.spec.ts      # unitário (sem banco)
-    ├── pessoas.controller.int.spec.ts   # integração (Postgres real)
+    ├── pessoas.controller.e2e.spec.ts   # e2e (Postgres real)
     └── fixtures/
 ```
 
@@ -111,11 +112,11 @@ Regras:
 | Tipo                | Sufixo          | Onde                                                | Banco | Cobre                                                                                                  |
 | ------------------- | --------------- | --------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------ |
 | Unitário            | `*.spec.ts`     | `modules/<m>/__tests__/` ou `shared/<x>/__tests__/` | Não   | Regras do service com repositórios e outros services mockados (`Test.createTestingModule`)             |
-| Integração          | `*.int.spec.ts` | `modules/<m>/__tests__/`                            | Sim   | Controller até o banco, subindo só o módulo em teste (+ `auth` se a rota é protegida), com `supertest` |
-| Fluxo entre módulos | `*.int.spec.ts` | módulo que **reage** ao evento                      | Sim   | Ex.: `horas/__tests__/presenca-gera-horas.int.spec.ts`                                                 |
+| E2E                 | `*.e2e.spec.ts` | `modules/<m>/__tests__/`                            | Sim   | Controller até o banco, subindo só o módulo em teste (+ `auth` se a rota é protegida), com `supertest` |
+| Fluxo entre módulos | `*.e2e.spec.ts` | módulo que **reage** ao evento                      | Sim   | Ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`                                                 |
 
 - `yarn test` roda só unitários (rápido, sem banco).
-- `yarn test:int` roda só os `*.int.spec.ts`, em série, contra o Postgres do ambiente.
+- `yarn test:e2e` roda só os `*.e2e.spec.ts`, em série, contra o Postgres do ambiente.
 - `yarn test:all` roda tudo.
 - Teste de integração importa apenas o `*.module.ts` dos módulos envolvidos. Nunca arquivos internos de outro módulo.
 - Fixtures são do módulo. Se dois módulos precisam do mesmo dado, o módulo dono exporta uma função; nada vai para `shared/`.

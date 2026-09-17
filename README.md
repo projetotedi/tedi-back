@@ -62,7 +62,7 @@ O schema do banco é versionado por migrations do TypeORM em `src/database/migra
    yarn migration:run
    ```
 
-4. Rode os testes de integração, que usam o banco local: `yarn test:int`.
+4. Rode os testes end-to-end, que usam o banco local: `yarn test:e2e`.
 5. Commite a entidade **e** a migration no mesmo PR, com a label `Migration` e a seção "Migração" do template preenchida.
 
 ### Migration escrita à mão
@@ -102,14 +102,14 @@ Não há passo manual. O `yarn start:prod`, usado pelo Render e pelo `Dockerfile
 
 ## Comandos do dia a dia
 
-| Comando                                           | O que faz                                        |
-| ------------------------------------------------- | ------------------------------------------------ |
-| `yarn dev`                                        | sobe a API em watch mode                         |
-| `yarn test`                                       | testes unitários (sem banco)                     |
-| `yarn test:int`                                   | testes de integração (precisa do Postgres local) |
-| `yarn test:all`                                   | os dois                                          |
-| `yarn lint` / `yarn format` / `yarn format:check` | qualidade                                        |
-| `yarn build`                                      | compila para `dist/`                             |
+| Comando                                           | O que faz                                     |
+| ------------------------------------------------- | --------------------------------------------- |
+| `yarn dev`                                        | sobe a API em watch mode                      |
+| `yarn test`                                       | testes unitários (sem banco)                  |
+| `yarn test:e2e`                                   | testes end-to-end (precisa do Postgres local) |
+| `yarn test:all`                                   | os dois                                       |
+| `yarn lint` / `yarn format` / `yarn format:check` | qualidade                                     |
+| `yarn build`                                      | compila para `dist/`                          |
 
 Antes de abrir PR: `yarn lint && yarn format:check && yarn test && yarn build`, que é o que o CI roda.
 

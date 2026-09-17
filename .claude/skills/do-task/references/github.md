@@ -50,15 +50,15 @@ Rodapé obrigatório em ambos, na última linha:
 
 Os repositórios só têm as labels padrão do GitHub. O script cria as que faltarem, com cor fixa:
 
-| Label da issue no Linear | Label no PR |
-|---|---|
-| Backend | `backend` |
-| Frontend | `frontend` |
-| INFRA | `infra` |
-| Feature | `feature` |
-| Improvement | `improvement` |
-| Bug | `bug` (já existe) |
-| Migration | `migration` |
+| Label da issue no Linear   | Label no PR                 |
+| -------------------------- | --------------------------- |
+| Backend                    | `backend`                   |
+| Frontend                   | `frontend`                  |
+| INFRA                      | `infra`                     |
+| Feature                    | `feature`                   |
+| Improvement                | `improvement`               |
+| Bug                        | `bug` (já existe)           |
+| Migration                  | `migration`                 |
 | prefixo `[docs]` no título | `documentation` (já existe) |
 
 ## Assignee

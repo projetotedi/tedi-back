@@ -2,12 +2,12 @@
 
 Definições em `.claude/agents/` deste repositório (versionadas; valem para quem clonar). O modelo pode ser sobrescrito por chamada (parâmetro `model` da ferramenta Agent), mas o **esforço só vem da definição**; por isso cada papel tem seu arquivo.
 
-| Papel | `subagent_type` | Modelo | Esforço | Edita? |
-|---|---|---|---|---|
-| Planejamento | `tedi-planner` | Opus 5 | high | não (Read/Glob/Grep/Bash, plan) |
-| Planejamento (alternativa) | `tedi-planner-fable` | Fable 5.1 | low | não |
-| Implementação | `tedi-dev` | Sonnet 5 | max | sim (acceptEdits) |
-| Revisão | `tedi-reviewer` | Opus 5 | medium | não |
+| Papel                      | `subagent_type`      | Modelo    | Esforço | Edita?                          |
+| -------------------------- | -------------------- | --------- | ------- | ------------------------------- |
+| Planejamento               | `tedi-planner`       | Opus 5    | high    | não (Read/Glob/Grep/Bash, plan) |
+| Planejamento (alternativa) | `tedi-planner-fable` | Fable 5.1 | low     | não                             |
+| Implementação              | `tedi-dev`           | Sonnet 5  | max     | sim (acceptEdits)               |
+| Revisão                    | `tedi-reviewer`      | Opus 5    | medium  | não                             |
 
 Padrão: `tedi-planner`. Use `tedi-planner-fable` quando o usuário pedir Fable ou quando o Opus não estiver disponível.
 
