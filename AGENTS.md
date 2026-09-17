@@ -33,7 +33,7 @@ Use Yarn.
 - `yarn dev`: sobe o Nest em watch mode (`nest start --watch`).
 - `yarn build`: compila com `nest build` para `dist/`.
 - `yarn test`: testes unitários (`*.spec.ts`, sem banco).
-- `yarn test:e2e`: testes e2e (`*.e2e.spec.ts`, precisa de Postgres).
+- `yarn test:e2e`: testes end-to-end (`*.e2e.spec.ts`, sobem o módulo com Postgres real; precisa do banco).
 - `yarn test:all` / `yarn test:watch` / `yarn test:cov`: tudo, watch, cobertura.
 - `yarn lint`: roda o oxlint.
 - `yarn format` / `yarn format:check`: roda o oxfmt (aplica ou só verifica).
@@ -62,7 +62,7 @@ Use Yarn.
 
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
-- **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`).
+- **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
 - **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`).
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
 - Cada teste e2e limpa as tabelas que tocou.
@@ -84,6 +84,12 @@ Use Yarn.
 - Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
 - Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
 - Desenvolvimento local: `docker compose up -d` sobe só o Postgres (`docker-compose.yml`, credenciais `tedi`/`tedi`, porta 5432); a API roda fora do container com `yarn dev` para manter hot reload. `docker compose down -v` apaga os dados.
+
+## Skills e agentes do repositório
+
+- `.claude/skills/do-task/` — esteira de execução de uma issue do Linear: conectores → leitura do card e do plano de produto → branch `<tipo>/GUS-<n>-<slug>` → plano (agente `tedi-planner`) aprovado pelo humano → implementação (`tedi-dev`) → revisão (`tedi-reviewer`) → revisão manual no CRIT → PR para `develop` com assignee e labels. Invocar com `/do-task GUS-<n>`. Pré-requisitos: MCP do Linear, credencial do GitHub com acesso à org e o binário `crit` (a etapa 0 da skill confere e explica).
+- `.claude/agents/tedi-*.md` — definições dos agentes (modelo e esforço fixos por papel). Não alterar o esforço por conveniência; mudar aqui muda para todo o time.
+- As skills de planejamento (`plan-feature`, `create-task`) ficam no ambiente de quem planeja, não no repositório.
 
 ## Artefatos do Agente
 
