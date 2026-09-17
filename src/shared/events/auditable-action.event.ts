@@ -11,6 +11,18 @@ export const AUDITABLE_ACTION_EVENT = "auditable.action";
 export enum AuditableAction {
   INVITE_CREATED = "INVITE_CREATED",
   ACCESS_CREATED = "ACCESS_CREATED",
+  /** Person's role was changed by a coordinator or superadmin. */
+  ROLE_CHANGED = "ROLE_CHANGED",
+  /** Person's access was re-enabled. */
+  ACCESS_ENABLED = "ACCESS_ENABLED",
+  /** Person's access was disabled. */
+  ACCESS_DISABLED = "ACCESS_DISABLED",
+  /** A password-reset invite was created for a person. */
+  PASSWORD_RESET_CREATED = "PASSWORD_RESET_CREATED",
+  /** An invite was revoked before it could be used. */
+  INVITE_REVOKED = "INVITE_REVOKED",
+  /** A person completed a password reset via invite. */
+  PASSWORD_RESET = "PASSWORD_RESET",
 }
 
 /**
