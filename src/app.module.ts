@@ -1,7 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { EventEmitterModule } from "@nestjs/event-emitter";
 import { APP_FILTER } from "@nestjs/core";
 import { dataSourceOptions } from "@database/data-source";
 import { HealthController } from "@shared/health/health.controller";
@@ -13,7 +12,6 @@ import { PeopleModule } from "@modules/people/people.module";
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(dataSourceOptions),
-    EventEmitterModule.forRoot(),
     AuthModule,
     PeopleModule,
     // Módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md):

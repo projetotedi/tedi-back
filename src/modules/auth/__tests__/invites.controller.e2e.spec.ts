@@ -491,6 +491,49 @@ describe("InvitesController (e2e)", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Case 8: EMAIL_ALREADY_IN_USE — email owned by different person
+  // -------------------------------------------------------------------------
+  describe("email uniqueness check", () => {
+    it("409 EMAIL_ALREADY_IN_USE when email belongs to a different person", async () => {
+      // Pre-create a person who already owns the target email
+      await peopleService.save({
+        name: "Existing",
+        ra: "x9990001",
+        email: "taken@example.com",
+        passwordHash: await passwordService.hashPassword("Senha@123"),
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+
+      const coord = await createCoordinator();
+      const createRes = await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      const url: string = createRes.body.url as string;
+      const token = new URL(url).searchParams.get("token") ?? "";
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/invites/accept")
+        .send({
+          token,
+          name: "New Person",
+          ra: "n1110001",
+          email: "taken@example.com",
+          password: "Senha@123",
+        })
+        .expect(409);
+
+      expect(res.body.error).toBe("EMAIL_ALREADY_IN_USE");
+
+      // Invite must NOT be consumed — still valid for another attempt
+      await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(200);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Validation
   // -------------------------------------------------------------------------
   describe("validation", () => {
