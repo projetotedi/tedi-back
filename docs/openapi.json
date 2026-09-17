@@ -1,6 +1,39 @@
 {
   "components": {
     "schemas": {
+      "AcceptInviteDto": {
+        "properties": {
+          "email": {
+            "example": "alice@example.com",
+            "type": "string"
+          },
+          "name": {
+            "example": "Alice Silva",
+            "type": "string"
+          },
+          "password": {
+            "example": "Senha@123",
+            "minLength": 8,
+            "type": "string"
+          },
+          "ra": {
+            "example": "a2210001",
+            "type": "string"
+          },
+          "token": {
+            "example": "eyJ...",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "name",
+          "ra",
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
       "ApiErrorDto": {
         "properties": {
           "details": {
@@ -47,6 +80,56 @@
         ],
         "type": "object"
       },
+      "CreateInviteDto": {
+        "properties": {
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Role to assign to the invited person. SUPERADMIN is not allowed.",
+            "example": "member"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
+      "CreateInviteResponseDto": {
+        "properties": {
+          "expiresAt": {
+            "example": "2026-09-19T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "example": "01952ef7-0000-7000-8000-000000000001",
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "nullable": true
+          },
+          "url": {
+            "description": "Full URL for the invite page. Includes the plain-text token — share with care.",
+            "example": "https://tedi-front.vercel.app/invite?token=abc123",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "expiresAt",
+          "url"
+        ],
+        "type": "object"
+      },
       "HealthResponseDto": {
         "properties": {
           "database": {
@@ -81,6 +164,43 @@
           "timestamp"
         ],
         "type": "object"
+      },
+      "InviteResponseDto": {
+        "properties": {
+          "expiresAt": {
+            "example": "2026-09-19T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "nullable": true
+          },
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InviteType"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "role",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "InviteType": {
+        "enum": [
+          "access",
+          "password_reset"
+        ],
+        "type": "string"
       },
       "LoginDto": {
         "properties": {
@@ -164,6 +284,160 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/auth/invites/accept": {
+      "post": {
+        "operationId": "acceptInvite",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Invite accepted. Person account provisioned."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/invites/{token}": {
+      "get": {
+        "operationId": "getInvite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/auth/login": {
       "post": {
         "operationId": "login",
@@ -461,6 +735,87 @@
         },
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/invites": {
+      "post": {
+        "operationId": "createInvite",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateInviteResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
         ]
       }
     }
