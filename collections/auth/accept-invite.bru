@@ -1,0 +1,37 @@
+meta {
+  name: accept-invite
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/auth/invites/accept
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "token": "{{inviteToken}}",
+    "name": "Alice Silva",
+    "ra": "a2210001",
+    "email": "alice@example.com",
+    "password": "Senha@123"
+  }
+}
+
+docs {
+  Aceita um convite e provisiona a conta da Person.
+  Rota pública (@Public) — não requer autenticação.
+  Retorna 204 sem corpo em caso de sucesso.
+  Erros possíveis:
+    400 INVALID_INVITE (token inválido/expirado/usado/revogado)
+    400 VALIDATION_FAILED (campos inválidos)
+    409 RA_ALREADY_IN_USE (RA já pertence a uma conta com role)
+    409 EMAIL_ALREADY_IN_USE (e-mail já cadastrado)
+}

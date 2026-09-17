@@ -35,22 +35,42 @@ O que o plano free implica:
 
 ## 3. Variáveis de ambiente
 
-| Variável       | Onde            | Valor                                    |
-| -------------- | --------------- | ---------------------------------------- |
-| `DATABASE_URL` | Render (secret) | string do Neon                           |
-| `DB_SSL`       | Render          | `true` (já no blueprint)                 |
-| `CORS_ORIGINS` | Render          | domínios do front, separados por vírgula |
-| `NODE_ENV`     | Render          | `production` (já no blueprint)           |
-| `NODE_VERSION` | Render          | `22.12.0` (já no blueprint)              |
-| `PORT`         | Render define   | não configurar                           |
+| Variável         | Onde            | Valor                                                        |
+| ---------------- | --------------- | ------------------------------------------------------------ |
+| `DATABASE_URL`   | Render (secret) | string do Neon                                               |
+| `DB_SSL`         | Render          | `true` (já no blueprint)                                     |
+| `CORS_ORIGINS`   | Render (secret) | domínios do front, separados por vírgula                     |
+| `JWT_SECRET`     | Render (secret) | string aleatória segura (`openssl rand -base64 48`)          |
+| `ADMIN_RA`       | Render (secret) | RA da coordenadora inicial (ex.: `a1234567`)                 |
+| `ADMIN_NAME`     | Render (secret) | nome completo da coordenadora inicial                        |
+| `ADMIN_EMAIL`    | Render (secret) | e-mail da coordenadora inicial                               |
+| `ADMIN_PASSWORD` | Render (secret) | senha inicial (mín. 8 chars); trocar após o primeiro login   |
+| `APP_URL`        | Render (secret) | URL base do front-end (ex.: `https://tedi-front.vercel.app`) |
+| `NODE_ENV`       | Render          | `production` (já no blueprint)                               |
+| `NODE_VERSION`   | Render          | `22.12.0` (já no blueprint)                                  |
+| `PORT`           | Render define   | não configurar                                               |
+
+> **`APP_URL` antes do deploy:** se não configurada, o campo `url` retornado por `POST /invites`
+> fica com valor errado. Configure antes do primeiro deploy que usará o endpoint de convite.
 
 Ao adicionar uma variável nova no código: `.env.example`, `render.yaml` (com `sync: false` se for segredo) e esta tabela.
 
-## 4. Migrations em produção
+## 4. Cadeia de boot em produção
 
-- `yarn start:prod` executa `migration:run:prod` (TypeORM lendo `dist/database/data-source.js`) antes de iniciar. Não há passo manual.
-- Para inspecionar: no painel do Render, **Shell** → `yarn migration:show` não funciona (precisa de `ts-node`); usar `node ./node_modules/typeorm/cli.js migration:show -d ./dist/database/data-source.js`.
-- Reverter: mesmo comando com `migration:revert`. Depois, corrigir e fazer novo deploy. Nunca editar migration já aplicada.
+`yarn start:prod` executa a seguinte sequência antes de iniciar a API:
+
+```
+migration:run:prod   → aplica migrations pendentes (TypeORM)
+seed:prod            → cria a coordenadora inicial (idempotente: no-op se já existe)
+node dist/main.js    → sobe a API
+```
+
+O mesmo vale para o `Dockerfile` (que chama `node` diretamente, sem `yarn`).
+
+- **Migrations:** TypeORM lê `dist/database/data-source.js`. Para inspecionar no Render Shell:
+  `node ./node_modules/typeorm/cli.js migration:show -d ./dist/database/data-source.js`
+- **Seed idempotente:** o seed verifica a existência do RA antes de criar. Rodar 2× não duplica.
+- **Reverter migration:** `node ./node_modules/typeorm/cli.js migration:revert -d ./dist/database/data-source.js`. Nunca editar migration já aplicada.
 
 ## 5. Rodando o build de produção localmente
 

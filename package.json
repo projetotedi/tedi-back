@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "nest start --watch",
     "start": "node dist/main.js",
-    "start:prod": "yarn migration:run:prod && node dist/main.js",
+    "start:prod": "yarn migration:run:prod && yarn seed:prod && node dist/main.js",
+    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/initial-coordinator.seed.ts",
+    "seed:prod": "node dist/database/seeds/initial-coordinator.seed.js",
     "build": "nest build",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint .",
@@ -32,6 +34,7 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
+    "@nestjs/event-emitter": "^3.0.0",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "@nestjs/swagger": "^11.0.0",

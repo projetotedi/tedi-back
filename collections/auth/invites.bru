@@ -1,0 +1,30 @@
+meta {
+  name: create-invite
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/invites
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "role": "member"
+  }
+}
+
+docs {
+  Cria um convite de acesso para o role informado.
+  Requer cookie tedi_session com role coordinator ou superadmin.
+  Retorna 201 CreateInviteResponseDto { id, role, expiresAt, url }.
+  O campo url contém o token em texto claro — envie ao destinatário por canal seguro.
+  Erros possíveis: 400 INVALID_ROLE (SUPERADMIN), 400 VALIDATION_FAILED, 401, 403.
+}

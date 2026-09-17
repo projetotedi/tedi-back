@@ -3,16 +3,23 @@ import { Module, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { PeopleModule } from "@modules/people/people.module";
 import { AuthGuard } from "./guards/auth.guard";
 import { AuthController } from "./auth.controller";
+import { InvitesController } from "./invites.controller";
 import { AuthService } from "./services/auth.service";
 import { PasswordService } from "./services/password.service";
+import { InvitesService } from "./services/invites.service";
 import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
+import { Invite } from "./entities/invite.entity";
 
 @Module({
   imports: [
     PeopleModule,
+    TypeOrmModule.forFeature([Invite]),
+    EventEmitterModule.forRoot(),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -28,7 +35,7 @@ import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
       },
     ]),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, InvitesController],
   providers: [
     {
       provide: APP_GUARD,
@@ -37,6 +44,7 @@ import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
     AuthGuard,
     AuthService,
     PasswordService,
+    InvitesService,
     LoginThrottlerGuard,
   ],
   exports: [],
