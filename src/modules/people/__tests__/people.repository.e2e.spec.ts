@@ -54,7 +54,7 @@ describe("people repository (e2e)", () => {
   });
 
   describe("schema", () => {
-    it("has exactly the 12 expected columns", async () => {
+    it("has exactly the 10 expected columns", async () => {
       const rows: Array<{ column_name: string }> = await dataSource.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'people' ORDER BY ordinal_position`,
       );
@@ -71,11 +71,9 @@ describe("people repository (e2e)", () => {
           "password_hash",
           "role",
           "access_enabled",
-          "must_change_password",
-          "is_super_admin",
         ]),
       );
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(10);
     });
   });
 

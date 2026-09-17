@@ -5,7 +5,7 @@ export class CreatePeople1789619814000 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
-      `CREATE TYPE "public"."people_role_enum" AS ENUM('member', 'director', 'coordinator')`,
+      `CREATE TYPE "public"."people_role_enum" AS ENUM('member', 'director', 'coordinator', 'superadmin')`,
     );
 
     await queryRunner.query(`
@@ -20,8 +20,6 @@ export class CreatePeople1789619814000 implements MigrationInterface {
         "password_hash"       varchar(255),
         "role"                "public"."people_role_enum",
         "access_enabled"      boolean       NOT NULL DEFAULT true,
-        "must_change_password" boolean      NOT NULL DEFAULT false,
-        "is_super_admin"      boolean       NOT NULL DEFAULT false,
         CONSTRAINT "PK_people" PRIMARY KEY ("id")
       )
     `);

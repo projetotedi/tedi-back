@@ -36,10 +36,4 @@ export class Person extends BaseEntity {
 
   @Column({ name: "access_enabled", type: "boolean", default: true })
   accessEnabled: boolean;
-
-  @Column({ name: "must_change_password", type: "boolean", default: false })
-  mustChangePassword: boolean;
-
-  @Column({ name: "is_super_admin", type: "boolean", default: false })
-  isSuperAdmin: boolean;
 }
