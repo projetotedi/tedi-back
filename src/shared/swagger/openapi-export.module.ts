@@ -14,16 +14,19 @@
 import { Module } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
+import { InvitesController } from "@modules/auth/invites.controller";
 import { AuthService } from "@modules/auth/services/auth.service";
+import { InvitesService } from "@modules/auth/services/invites.service";
 import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
 
 const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
 
 @Module({
-  controllers: [HealthController, AuthController],
+  controllers: [HealthController, AuthController, InvitesController],
   providers: [
     {
       provide: DataSource,
@@ -32,6 +35,18 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: AuthService,
       useValue: { login: async () => ({}), getMe: async () => ({}) },
+    },
+    {
+      provide: InvitesService,
+      useValue: {
+        create: async () => ({}),
+        getByToken: async () => ({}),
+        accept: async () => undefined,
+      },
+    },
+    {
+      provide: ConfigService,
+      useValue: { getOrThrow: () => "http://localhost:5173" },
     },
     {
       provide: JwtService,
