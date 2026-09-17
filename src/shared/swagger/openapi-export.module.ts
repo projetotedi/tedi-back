@@ -13,15 +13,46 @@
  */
 import { Module } from "@nestjs/common";
 import { DataSource } from "typeorm";
+import { JwtService } from "@nestjs/jwt";
+import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { AuthController } from "@modules/auth/auth.controller";
+import { AuthService } from "@modules/auth/services/auth.service";
+import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
+
+const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
 
 @Module({
-  controllers: [HealthController],
+  controllers: [HealthController, AuthController],
   providers: [
     {
       provide: DataSource,
       useValue: { query: async () => [] },
     },
+    {
+      provide: AuthService,
+      useValue: { login: async () => ({}), getMe: async () => ({}) },
+    },
+    {
+      provide: JwtService,
+      useValue: { signAsync: async () => "" },
+    },
+    {
+      provide: THROTTLER_OPTIONS_TOKEN,
+      useValue: [{ ttl: 900000, limit: 10 }],
+    },
+    {
+      provide: ThrottlerStorage,
+      useValue: {
+        increment: async () => ({
+          totalHits: 0,
+          timeToExpire: 0,
+          isBlocked: false,
+          timeToBlockExpire: 0,
+        }),
+      },
+    },
+    LoginThrottlerGuard,
   ],
 })
 export class OpenApiExportModule {}
