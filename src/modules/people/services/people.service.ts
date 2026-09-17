@@ -21,13 +21,16 @@ export class PeopleService {
   }
 
   save(person: DeepPartial<Person>): Promise<Person> {
-    const data = { ...person };
-    if (data.email != null) {
-      data.email = data.email.trim().toLowerCase();
+    // repository.create() returns a real Person instance, which is what
+    // triggers TypeORM lifecycle hooks like @BeforeInsert on BaseEntity
+    // (the uuid v7 generator). Plain objects don't fire the hooks.
+    const entity = this.repository.create(person);
+    if (entity.email != null) {
+      entity.email = entity.email.trim().toLowerCase();
     }
-    if (data.ra != null) {
-      data.ra = data.ra.trim().toLowerCase();
+    if (entity.ra != null) {
+      entity.ra = entity.ra.trim().toLowerCase();
     }
-    return this.repository.save(data);
+    return this.repository.save(entity);
   }
 }

@@ -7,6 +7,9 @@ import { PeopleService } from "../services/people.service";
 const mockRepository = (): Partial<Repository<Person>> => ({
   findOne: jest.fn(),
   save: jest.fn(),
+  // The service uses repository.create() so the @BeforeInsert hook fires
+  // on the real entity; for unit tests we just echo the input back.
+  create: jest.fn((data) => data) as unknown as Repository<Person>["create"],
 });
 
 describe("PeopleService", () => {
