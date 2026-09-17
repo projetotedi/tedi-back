@@ -51,11 +51,6 @@ describe("BaseEntity", () => {
     it("registers the expected column names via getMetadataArgsStorage", () => {
       // The metadata is registered at class-definition time via decorators.
       const storage = getMetadataArgsStorage();
-      const columns = storage.columns.filter(
-        (c) =>
-          c.target === BaseEntity || c.target === (BaseEntity as unknown as Function).prototype,
-      );
-
       const allColumns = storage.columns.filter((c) => {
         const target = c.target as Function;
         return target === BaseEntity || target.prototype instanceof BaseEntity;
@@ -66,16 +61,8 @@ describe("BaseEntity", () => {
       expect(names).toContain("updated_at");
       expect(names).toContain("deleted_at");
 
-      // id is registered as a PrimaryColumn
-      const primaryCols = storage.columns.filter((c) => {
-        const target = c.target as Function;
-        return (
-          (target === BaseEntity || target.prototype instanceof BaseEntity) &&
-          c.propertyName === "id"
-        );
-      });
+      const primaryCols = allColumns.filter((c) => c.propertyName === "id");
       expect(primaryCols.length).toBeGreaterThan(0);
-      void columns;
     });
   });
 });
