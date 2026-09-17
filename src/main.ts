@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module";
 import { isOriginAllowed, parseCorsOrigins } from "@config/cors";
 import { setupSwagger } from "@shared/swagger/swagger.util";
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
 
+  app.use(cookieParser());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   setupSwagger(app);
 
