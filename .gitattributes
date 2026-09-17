@@ -1,0 +1,4 @@
+# Contratos gerados: linhas terminam em LF em qualquer plataforma.
+# Sem isso, checkout em Windows com core.autocrlf=true converte para CRLF
+# e o yarn openapi:check confia numa normalização in-memory frágil.
+docs/openapi.json text eol=lf
