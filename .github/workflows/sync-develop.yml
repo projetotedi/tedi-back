@@ -69,4 +69,5 @@ jobs:
 
       - name: Summary
         if: always()
-        run: echo "Resultado: ${{ steps.merge.outputs.result }}" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Resultado: ${{ steps.merge.outputs.result }}" >> "$GITHUB_STEP_SUMMARY"
