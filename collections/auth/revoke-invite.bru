@@ -1,0 +1,26 @@
+meta {
+  name: revoke-invite
+  type: http
+  seq: 12
+}
+
+delete {
+  url: {{baseUrl}}/invites/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Revoga um convite pendente, invalidando o token imediatamente.
+  Requer cookie tedi_session com role coordinator ou superadmin.
+  Retorna 204 sem corpo em caso de sucesso.
+  Erros possíveis: 401, 403, 404, 409 INVITE_ALREADY_USED, 409 INVITE_ALREADY_REVOKED.
+}
