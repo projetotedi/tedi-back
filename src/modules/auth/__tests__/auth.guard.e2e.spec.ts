@@ -3,7 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ConfigModule } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
-import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { INestApplication } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { join } from "node:path";
 import cookieParser from "cookie-parser";
@@ -12,6 +12,8 @@ import { TestModule } from "./test-support/test.module";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import { SESSION_COOKIE_NAME } from "../auth.constants";
+import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
+import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 
 // ---------------------------------------------------------------------------
 // DB configuration — same defaults as people.repository.e2e.spec.ts
@@ -68,7 +70,8 @@ describe("AuthGuard (e2e)", () => {
 
     app = module.createNestApplication();
     app.use(cookieParser());
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(buildValidationPipe());
+    app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
 
     jwtService = module.get(JwtService);
@@ -97,9 +100,9 @@ describe("AuthGuard (e2e)", () => {
   // CA2: Unprotected route — requires valid session
   // -----------------------------------------------------------------------
   describe("unprotected route requires a valid session", () => {
-    // TODO(GUS-76): once ApiErrorDto lands, assert body.error === 'Unauthorized' instead.
     it("GET /test/open returns 401 without a cookie", async () => {
-      await request(app.getHttpServer()).get("/test/open").expect(401);
+      const res = await request(app.getHttpServer()).get("/test/open").expect(401);
+      expect(res.body.error).toBe("UNAUTHORIZED");
     });
 
     it("GET /test/open returns 200 with a valid cookie for any role", async () => {
@@ -261,9 +264,9 @@ describe("AuthGuard (e2e)", () => {
         }
       });
 
-      // TODO(GUS-76): assert body.error === 'Unauthorized' once ApiErrorDto is in place.
       it("GET /test/open returns 401 without cookie even with DEV_FAKE_ROLE set", async () => {
-        await request(app.getHttpServer()).get("/test/open").expect(401);
+        const res = await request(app.getHttpServer()).get("/test/open").expect(401);
+        expect(res.body.error).toBe("UNAUTHORIZED");
       });
     });
   });
