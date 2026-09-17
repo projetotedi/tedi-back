@@ -1,31 +1,42 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 
+/**
+ * DTO for accepting an invite.
+ *
+ * `token` and `password` are always required.
+ * `name`, `ra`, and `email` are optional at the DTO level because their
+ * necessity depends on the invite type — PASSWORD_RESET ignores them,
+ * ACCESS requires them (enforced in InvitesService.accept).
+ */
 export class AcceptInviteDto {
   @ApiProperty({ example: "eyJ..." })
   @IsString()
   token!: string;
 
-  @ApiProperty({ example: "Alice Silva", maxLength: 200 })
+  @ApiPropertyOptional({ example: "Alice Silva", maxLength: 200 })
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
-  name!: string;
+  name?: string;
 
-  @ApiProperty({ example: "a2210001" })
+  @ApiPropertyOptional({ example: "a2210001" })
+  @IsOptional()
   @IsString()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === "string" ? value.trim().toLowerCase() : value,
   )
-  ra!: string;
+  ra?: string;
 
-  @ApiProperty({ example: "alice@example.com" })
+  @ApiPropertyOptional({ example: "alice@example.com" })
+  @IsOptional()
   @IsEmail()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === "string" ? value.trim().toLowerCase() : value,
   )
-  email!: string;
+  email?: string;
 
   @ApiProperty({ example: "Senha@123", minLength: 8 })
   @IsString()
