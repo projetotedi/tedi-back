@@ -6,7 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from "@nestjs/common";
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import { ValidationError } from "class-validator";
 import type { ApiErrorDto, ApiFieldErrorDto } from "@shared/dto/api-error.dto";
 

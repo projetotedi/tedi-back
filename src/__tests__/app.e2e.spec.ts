@@ -30,4 +30,13 @@ describe("AppModule", () => {
     const res = await request(app!.getHttpServer()).get("/health").expect(200);
     expect(res.body).toMatchObject({ status: "ok", database: "up" });
   });
+
+  it("unknown route returns 404 with NOT_FOUND payload", async () => {
+    const res = await request(app!.getHttpServer()).get("/does-not-exist").expect(404);
+    expect(res.body).toMatchObject({
+      statusCode: 404,
+      message: "Resource not found.",
+      error: "NOT_FOUND",
+    });
+  });
 });
