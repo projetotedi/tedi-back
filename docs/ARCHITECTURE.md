@@ -10,6 +10,7 @@ Monólito modular em NestJS. Um módulo por área do domínio, espelhando os ép
 4. **`shared/` só recebe o que é transversal** e não conhece domínio nenhum: paginação, base entity, guards, filtros, i18n, swagger.
 5. **Nomes de domínio em português, sufixos técnicos em inglês.** `pessoas.controller.ts`, `turmas.service.ts`, `aula.entity.ts`.
 6. **Testes vivem dentro do módulo.** Não existe pasta `test/` global.
+7. **Toda entidade estende `BaseEntity` (`src/shared/entities/base.entity.ts`)**, que já traz `id` UUID v7 gerado no app, `createdAt`, `updatedAt` e `deletedAt` (soft delete).
 
 ## 2. Mapa de módulos
 
