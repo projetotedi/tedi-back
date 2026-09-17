@@ -28,6 +28,7 @@ jobs:
       - run: yarn lint
       - run: yarn format:check
       - run: yarn typecheck
+      - run: yarn openapi:check
 
   testes-unitarios:
     name: Testes unitários

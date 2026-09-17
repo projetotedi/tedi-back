@@ -138,7 +138,7 @@ O frontend gera o cliente HTTP com **Orval** a partir do `openapi.json` desta AP
 
 | Regra                                                                            | Como                                                                                                      |
 | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `operationId` = nome do método (`listarPessoas`, não `PessoasController_listar`) | `operationIdFactory` em `shared/swagger/` (próximo passo)                                                 |
+| `operationId` = nome do método (`listarPessoas`, não `PessoasController_listar`) | `operationIdFactory: (_c, m) => m` em `shared/swagger/swagger.util.ts` (implementado em GUS-77)           |
 | `@ApiTags('<modulo>')` no controller, um tag por módulo                          | Tag igual ao nome da pasta em `modules/`. O Orval gera um arquivo por tag                                 |
 | Toda resposta tipada (`@ApiOkResponse({ type })`, `@ApiCreatedResponse`...)      | Sem isso o Orval gera `unknown`                                                                           |
 | Resposta paginada com `@ApiOkResponsePaginated(Dto)`                             | Decorator em `shared/pagination/` (próximo passo)                                                         |
@@ -146,7 +146,7 @@ O frontend gera o cliente HTTP com **Orval** a partir do `openapi.json` desta AP
 | Enums de TS exportados e anotados com `@ApiProperty({ enum })`                   | Orval gera o union type                                                                                   |
 | Erro sempre no formato `ApiErrorDto`                                             | Emitido pelo `HttpExceptionFilter` global; mensagens em inglês literal (front traduz pelo código `error`) |
 
-`yarn openapi:export` gera `docs/openapi.json` sem subir a API; `yarn openapi:check` falha no CI se o arquivo estiver desatualizado (próximo passo).
+`yarn openapi:export` gera `docs/openapi.json` sem subir a API; `yarn openapi:check` falha no CI se o arquivo estiver desatualizado (implementado em GUS-77).
 
 ## 7. Aliases de import
 
@@ -166,7 +166,7 @@ Fora do escopo deste PR, na ordem sugerida:
 1. `config/` com validação de env (Zod ou Joi).
 2. `LoggingInterceptor` em `shared/interceptors/`.
 3. `@nestjs/event-emitter` e `shared/events/` com os primeiros eventos.
-4. Swagger para Orval: `operationIdFactory`, `@ApiOkResponsePaginated`, `scripts/export-openapi.ts`, `openapi:export`/`openapi:check` (GUS-77).
+4. ~~Swagger para Orval: `operationIdFactory`, `scripts/export-openapi.ts`, `openapi:export`/`openapi:check`~~ (entregue em GUS-77; `@ApiOkResponsePaginated` vem com o primeiro endpoint paginado).
 5. Módulo `auth` — emissão de JWT (login, `/auth/me`, logout) (GUS-78).
 6. `auditoria` como referência para os demais.
 7. `dependency-cruiser` no CI para falhar quando um módulo importar interno de outro.
