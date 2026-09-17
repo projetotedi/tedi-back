@@ -38,7 +38,7 @@ jobs:
       - run: yarn test
 
   build:
-    name: BUILD
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -51,7 +51,7 @@ jobs:
       - run: yarn build
 
   teste-e2e:
-    name: Teste e2e
+    name: Testes e2e
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -87,7 +87,7 @@ jobs:
       - run: yarn test:e2e
 
   entidades-migrations:
-    name: Entidades x Migrations
+    name: Entidades × migrations
     runs-on: ubuntu-latest
     services:
       postgres:
