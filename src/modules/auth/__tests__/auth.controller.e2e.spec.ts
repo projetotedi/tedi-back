@@ -245,35 +245,22 @@ describe("AuthController (e2e)", () => {
         accessEnabled: true,
       });
 
-      // Login
-      const loginRes = await request(app.getHttpServer())
-        .post("/auth/login")
-        .send({ ra: "a2210006", password: "Senha@123" })
-        .expect(200);
+      // Use an agent so the cookie jar is maintained across requests.
+      // When the server sends Max-Age=0 / Expires on logout, the agent drops
+      // the cookie and the follow-up GET /auth/me has no session → 401.
+      const agent = request.agent(app.getHttpServer());
 
-      const rawCookies = loginRes.headers["set-cookie"] as string | string[] | undefined;
-      const cookieStr = Array.isArray(rawCookies) ? rawCookies[0] : rawCookies;
-      const cookieValue = cookieStr?.split(";")[0] ?? "";
+      await agent.post("/auth/login").send({ ra: "a2210006", password: "Senha@123" }).expect(200);
 
-      // Logout
-      const logoutRes = await request(app.getHttpServer())
-        .post("/auth/logout")
-        .set("Cookie", cookieValue)
-        .expect(204);
+      // Confirm /auth/me works while logged in
+      await agent.get("/auth/me").expect(200);
 
-      // CA5: response clears the cookie (Max-Age=0 or Expires in past)
-      const clearCookieHeader = logoutRes.headers["set-cookie"] as string[] | string | undefined;
-      expect(clearCookieHeader).toBeDefined();
-      const clearCookieStr = Array.isArray(clearCookieHeader)
-        ? clearCookieHeader[0]
-        : clearCookieHeader;
-      expect(clearCookieStr).toContain(SESSION_COOKIE_NAME);
+      // Logout — server clears the cookie
+      await agent.post("/auth/logout").expect(204);
 
-      // Subsequent /auth/me should fail with 401
-      await request(app.getHttpServer()).get("/auth/me").set("Cookie", cookieValue).expect(200);
-      // Note: supertest keeps the cookie but the server will still honor it
-      // Real browser behavior: the browser discards cleared cookie.
-      // We test the clear-cookie header was sent correctly.
+      // After logout the agent's cookie jar no longer has tedi_session → 401
+      const finalRes = await agent.get("/auth/me").expect(401);
+      expect(finalRes.body.error).toBe("UNAUTHORIZED");
     });
   });
 
