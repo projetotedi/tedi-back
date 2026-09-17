@@ -6,10 +6,53 @@ on:
   pull_request:
     branches: [main, staging, develop]
 
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+env:
+  NODE_VERSION: 22
 
+jobs:
+  qualidade:
+    name: Qualidade
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint
+      - run: yarn format:check
+
+  testes-unitarios:
+    name: Testes unitários
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn test
+
+  build:
+    name: BUILD
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
+
+  teste-e2e:
+    name: Teste e2e
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16-alpine
@@ -24,7 +67,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
       NODE_ENV: test
       PORT: 3000
@@ -33,30 +75,58 @@ jobs:
       DB_USERNAME: tedi
       DB_PASSWORD: tedi
       DB_DATABASE: tedi
-
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: yarn
           cache-dependency-path: yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn migration:run
+      - run: yarn test:e2e
 
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
-
-      - name: Lint
-        run: yarn lint
-
-      - name: Format check
-        run: yarn format:check
-
-      - name: Run migrations
+  entidades-migrations:
+    name: Entidades x Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tedi
+          POSTGRES_PASSWORD: tedi
+          POSTGRES_DB: tedi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tedi"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: tedi
+      DB_PASSWORD: tedi
+      DB_DATABASE: tedi
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+          cache-dependency-path: yarn.lock
+      - run: yarn install --frozen-lockfile
+      - name: Aplica todas as migrations (up)
         run: yarn migration:run
-
-      - name: Test
-        run: yarn test
-
-      - name: Build
-        run: yarn build
+      - name: Reverte a última migration (down funciona)
+        run: yarn migration:revert
+      - name: Reaplica (ciclo up/down/up íntegro)
+        run: yarn migration:run
+      # Nota: TypeORM 0.3 tem bug com enums PG — migration:generate sempre
+      # emite uma migration idempotente de rename, então não serve como
+      # detector de drift entidade↔schema. O ciclo up/down/up prova que
+      # as migrations aplicam e revertem sem erro, que é o que o CA4 do
+      # card GUS-74 exige neste momento.
