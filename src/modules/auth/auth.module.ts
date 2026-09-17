@@ -4,6 +4,7 @@ import { JwtModule } from "@nestjs/jwt";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { PeopleModule } from "@modules/people/people.module";
 import { AuthGuard } from "./guards/auth.guard";
 import { AuthController } from "./auth.controller";
@@ -18,6 +19,7 @@ import { Invite } from "./entities/invite.entity";
   imports: [
     PeopleModule,
     TypeOrmModule.forFeature([Invite]),
+    EventEmitterModule.forRoot(),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
