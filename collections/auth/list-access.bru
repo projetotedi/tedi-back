@@ -1,0 +1,31 @@
+meta {
+  name: list-access
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/access
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  page: 1
+  limit: 20
+  ~search: Alice
+  ~role: coordinator
+  ~enabled: true
+}
+
+docs {
+  Lista as pessoas com acesso ao sistema (role IS NOT NULL), com paginação.
+  Requer cookie tedi_session com role coordinator ou superadmin.
+  Suporta filtros: ?page, ?limit, ?search (nome ou RA), ?role, ?enabled.
+  Retorna { data: AccessResponseDto[], total, page, limit }.
+  Erros possíveis: 401, 403.
+}

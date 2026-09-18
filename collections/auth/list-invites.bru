@@ -1,0 +1,27 @@
+meta {
+  name: list-invites
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/invites
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  ~status: pending
+}
+
+docs {
+  Lista todos os convites, nunca incluindo tokenHash.
+  Requer cookie tedi_session com role coordinator ou superadmin.
+  Status calculado: pending | used | expired | revoked.
+  Filtro opcional: ?status=pending|used|expired|revoked.
+  Erros possíveis: 401, 403.
+}

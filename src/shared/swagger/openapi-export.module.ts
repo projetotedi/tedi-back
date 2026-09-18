@@ -19,14 +19,16 @@ import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
+import { AccessController } from "@modules/auth/access.controller";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
+import { AccessService } from "@modules/auth/services/access.service";
 import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
 
 const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
 
 @Module({
-  controllers: [HealthController, AuthController, InvitesController],
+  controllers: [HealthController, AuthController, InvitesController, AccessController],
   providers: [
     {
       provide: DataSource,
@@ -42,6 +44,18 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         create: async () => ({}),
         getByToken: async () => ({}),
         accept: async () => undefined,
+        list: async () => [],
+        revoke: async () => undefined,
+        createPasswordReset: async () => ({}),
+      },
+    },
+    {
+      provide: AccessService,
+      useValue: {
+        listAccess: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        updateRole: async () => ({}),
+        updateEnabled: async () => ({}),
+        createPasswordReset: async () => ({}),
       },
     },
     {

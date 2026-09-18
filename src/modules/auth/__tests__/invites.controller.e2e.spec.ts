@@ -558,4 +558,197 @@ describe("InvitesController (e2e)", () => {
       expect(res.body.error).toBe("VALIDATION_FAILED");
     });
   });
+
+  // -------------------------------------------------------------------------
+  // CA81-2: GET /invites — list sem tokenHash, status calculado
+  // -------------------------------------------------------------------------
+  describe("CA81-2: GET /invites — no tokenHash, computed status", () => {
+    it("GET /invites returns list without tokenHash", async () => {
+      const coord = await createCoordinator();
+
+      // Create a couple of invites
+      await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get("/invites")
+        .set("Cookie", coord.cookie)
+        .expect(200);
+
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body.length).toBeGreaterThanOrEqual(1);
+
+      for (const invite of res.body as Array<Record<string, unknown>>) {
+        expect(invite).not.toHaveProperty("tokenHash");
+        expect(invite).toHaveProperty("status");
+        expect(invite).toHaveProperty("type");
+        expect(invite).toHaveProperty("id");
+      }
+    });
+
+    it("GET /invites with ?status=pending returns only pending invites", async () => {
+      const coord = await createCoordinator();
+
+      await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      const res = await request(app.getHttpServer())
+        .get("/invites?status=pending")
+        .set("Cookie", coord.cookie)
+        .expect(200);
+
+      for (const invite of res.body as Array<{ status: string }>) {
+        expect(invite.status).toBe("pending");
+      }
+    });
+
+    it("403 for member on GET /invites", async () => {
+      const member = await createMember();
+      await request(app.getHttpServer()).get("/invites").set("Cookie", member.cookie).expect(403);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // CA81-8: Revogar convite
+  // -------------------------------------------------------------------------
+  describe("CA81-8: revogar convite pendente/usado", () => {
+    it("DELETE /invites/:id revokes pending invite → GET /auth/invites/:token returns 400", async () => {
+      const coord = await createCoordinator();
+
+      const createRes = await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      const url: string = createRes.body.url as string;
+      const token = new URL(url).searchParams.get("token") ?? "";
+
+      // Extract invite id from list
+      const listRes = await request(app.getHttpServer())
+        .get("/invites?status=pending")
+        .set("Cookie", coord.cookie)
+        .expect(200);
+
+      const inviteId = (listRes.body as Array<{ id: string }>)[0].id;
+
+      // Revoke
+      await request(app.getHttpServer())
+        .delete(`/invites/${inviteId}`)
+        .set("Cookie", coord.cookie)
+        .expect(204);
+
+      // GET /auth/invites/:token should now return 400
+      const getRes = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(400);
+      expect(getRes.body.error).toBe("INVALID_INVITE");
+    });
+
+    it("DELETE /invites/:id on used invite → 409 INVITE_ALREADY_USED", async () => {
+      const coord = await createCoordinator();
+
+      const createRes = await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      const url: string = createRes.body.url as string;
+      const token = new URL(url).searchParams.get("token") ?? "";
+
+      // Accept the invite to mark as used
+      await request(app.getHttpServer())
+        .post("/auth/invites/accept")
+        .send({
+          token,
+          name: "Alice",
+          ra: "alice001",
+          email: "alice@example.com",
+          password: "Senha@123",
+        })
+        .expect(204);
+
+      // Get invite id
+      const listRes = await request(app.getHttpServer())
+        .get("/invites?status=used")
+        .set("Cookie", coord.cookie)
+        .expect(200);
+
+      const inviteId = (listRes.body as Array<{ id: string }>)[0].id;
+
+      // Trying to revoke used invite → 409
+      const res = await request(app.getHttpServer())
+        .delete(`/invites/${inviteId}`)
+        .set("Cookie", coord.cookie)
+        .expect(409);
+
+      expect(res.body.error).toBe("INVITE_ALREADY_USED");
+    });
+
+    it("DELETE /invites/:id on already revoked invite → 409 INVITE_ALREADY_REVOKED", async () => {
+      const coord = await createCoordinator();
+
+      const createRes = await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      // Get invite id from list
+      const listRes = await request(app.getHttpServer())
+        .get("/invites?status=pending")
+        .set("Cookie", coord.cookie)
+        .expect(200);
+
+      const inviteId = (listRes.body as Array<{ id: string }>)[0].id;
+      void createRes;
+
+      // First revoke
+      await request(app.getHttpServer())
+        .delete(`/invites/${inviteId}`)
+        .set("Cookie", coord.cookie)
+        .expect(204);
+
+      // Second revoke → 409 INVITE_ALREADY_REVOKED
+      const res = await request(app.getHttpServer())
+        .delete(`/invites/${inviteId}`)
+        .set("Cookie", coord.cookie)
+        .expect(409);
+
+      expect(res.body.error).toBe("INVITE_ALREADY_REVOKED");
+    });
+
+    it("CA81-9: DELETE /invites/:id emits INVITE_REVOKED event", async () => {
+      const coord = await createCoordinator();
+      const events: AuditableActionEvent[] = [];
+      eventEmitter.on(AUDITABLE_ACTION_EVENT, (e: AuditableActionEvent) => events.push(e));
+
+      await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+
+      const listRes = await request(app.getHttpServer())
+        .get("/invites?status=pending")
+        .set("Cookie", coord.cookie)
+        .expect(200);
+
+      const inviteId = (listRes.body as Array<{ id: string }>)[0].id;
+
+      await request(app.getHttpServer())
+        .delete(`/invites/${inviteId}`)
+        .set("Cookie", coord.cookie)
+        .expect(204);
+
+      const inviteRevoked = events.find((e) => e.action === AuditableAction.INVITE_REVOKED);
+      expect(inviteRevoked).toBeDefined();
+      expect(inviteRevoked!.targetId).toBe(inviteId);
+    });
+  });
 });

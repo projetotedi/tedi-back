@@ -1,0 +1,34 @@
+meta {
+  name: update-access-enabled
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/access/:id/enabled
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "enabled": false
+  }
+}
+
+docs {
+  Ativa ou desativa o acesso de uma pessoa ao sistema.
+  Requer cookie tedi_session com role coordinator ou superadmin.
+  Retorna 200 AccessResponseDto com o novo estado de accessEnabled.
+  A desativação tem efeito imediato: a próxima request da pessoa retorna 401.
+  Erros possíveis: 403 OWN_ACCOUNT, 403 (sem permissão), 404, 409 LAST_COORDINATOR.
+}

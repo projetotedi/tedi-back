@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query } from "@nestjs/common";
 import { ApiCreatedResponse, ApiNoContentResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
@@ -12,6 +12,8 @@ import { CreateInviteDto } from "./dto/create-invite.dto";
 import { CreateInviteResponseDto } from "./dto/create-invite-response.dto";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
 import { InviteResponseDto } from "./dto/invite-response.dto";
+import { InviteListItemDto } from "./dto/invite-list-item.dto";
+import { ListInvitesQueryDto } from "./dto/list-invites-query.dto";
 
 /**
  * InvitesController — routes for invite lifecycle.
@@ -20,8 +22,10 @@ import { InviteResponseDto } from "./dto/invite-response.dto";
  * path prefixes (/invites and /auth/invites) without nesting modules.
  *
  *  POST   /invites               — create invite (COORDINATOR only)
- *  GET    /auth/invites/:token   — inspect invite without consuming it
- *  POST   /auth/invites/accept   — accept invite and provision Person
+ *  GET    /invites               — list invites (COORDINATOR only)
+ *  GET    /auth/invites/:token   — inspect invite without consuming it (public)
+ *  POST   /auth/invites/accept   — accept invite and provision Person (public)
+ *  DELETE /invites/:id           — revoke invite (COORDINATOR only)
  */
 @ApiTags("auth")
 @Controller()
@@ -56,6 +60,17 @@ export class InvitesController {
   }
 
   /**
+   * Lists all invites, optionally filtered by computed status.
+   * Never exposes tokenHash.
+   */
+  @Get("invites")
+  @Roles(Role.COORDINATOR)
+  @ApiOkResponse({ type: [InviteListItemDto] })
+  async listInvites(@Query() query: ListInvitesQueryDto): Promise<InviteListItemDto[]> {
+    return this.invitesService.list(query.status);
+  }
+
+  /**
    * Returns invite metadata for the given raw token.
    * Does NOT consume the invite (usedAt remains null).
    * Public — called by the front-end invite acceptance page before the user
@@ -85,5 +100,19 @@ export class InvitesController {
   @ApiNoContentResponse({ description: "Invite accepted. Person account provisioned." })
   async acceptInvite(@Body() dto: AcceptInviteDto): Promise<void> {
     await this.invitesService.accept(dto);
+  }
+
+  /**
+   * Revokes a pending invite.
+   * Returns 204 No Content on success.
+   * 409 INVITE_ALREADY_USED if already used.
+   * 409 INVITE_ALREADY_REVOKED if already revoked.
+   */
+  @Delete("invites/:id")
+  @Roles(Role.COORDINATOR)
+  @HttpCode(204)
+  @ApiNoContentResponse({ description: "Invite revoked." })
+  async revokeInvite(@Param("id") id: string, @CurrentUser() actor: AuthUser): Promise<void> {
+    await this.invitesService.revoke(id, actor.id);
   }
 }

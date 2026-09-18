@@ -9,9 +9,11 @@ import { PeopleModule } from "@modules/people/people.module";
 import { AuthGuard } from "./guards/auth.guard";
 import { AuthController } from "./auth.controller";
 import { InvitesController } from "./invites.controller";
+import { AccessController } from "./access.controller";
 import { AuthService } from "./services/auth.service";
 import { PasswordService } from "./services/password.service";
 import { InvitesService } from "./services/invites.service";
+import { AccessService } from "./services/access.service";
 import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
 import { Invite } from "./entities/invite.entity";
 
@@ -35,7 +37,7 @@ import { Invite } from "./entities/invite.entity";
       },
     ]),
   ],
-  controllers: [AuthController, InvitesController],
+  controllers: [AuthController, InvitesController, AccessController],
   providers: [
     {
       provide: APP_GUARD,
@@ -45,6 +47,7 @@ import { Invite } from "./entities/invite.entity";
     AuthService,
     PasswordService,
     InvitesService,
+    AccessService,
     LoginThrottlerGuard,
   ],
   exports: [],
