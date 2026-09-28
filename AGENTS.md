@@ -19,8 +19,9 @@ src/
 │   ├── dto/                 api-error.dto.ts
 │   ├── decorators/          @Roles, @Public, @CurrentUser
 │   ├── enums/               role.enum.ts
+│   ├── events/              auditable-action.event.ts
 │   └── entities/            base.entity.ts
-└── modules/                um diretório por módulo de domínio (auth, pessoas, turmas, aulas, ...)
+└── modules/                um diretório por módulo de domínio (auth, people, classes, lessons, ...)
     └── <modulo>/
         ├── <modulo>.module.ts
         ├── controllers/  services/  entities/  dto/  enums/  listeners/
@@ -49,12 +50,13 @@ Use Yarn.
 
 - Linter/formatter: oxlint + oxfmt (sem `.oxlintrc.json` próprio — usa config padrão do oxlint).
 - TypeScript: `strictNullChecks`, `noImplicitAny`, `strictBindCallApply`, `noFallthroughCasesInSwitch` ativados; decorators habilitados (`experimentalDecorators` + `emitDecoratorMetadata`) para Nest, TypeORM e class-validator funcionarem.
-- Nomes de arquivo: kebab-case com sufixo de tipo (`pessoas.controller.ts`, `pessoas.service.ts`, `pessoa.entity.ts`, `criar-pessoa.dto.ts`, `*.spec.ts`, `*.e2e.spec.ts`).
-- Nomes de domínio em português, sufixos técnicos em inglês. Classes/DTOs/Entities em PascalCase, seguindo a convenção padrão do Nest.
+- Nomes de arquivo: kebab-case com sufixo de tipo (`people.controller.ts`, `people.service.ts`, `person.entity.ts`, `create-person.dto.ts`, `*.spec.ts`, `*.e2e.spec.ts`).
+- **Código em inglês** (decisão 35 da E9.a): módulos, entidades, colunas, enums, DTOs, métodos, variáveis e nomes de teste. Classes/DTOs/Entities em PascalCase, seguindo a convenção padrão do Nest. Documentação, commits e PRs seguem em português.
 
 ## Regras do Projeto
 
 - **Módulo é caixa fechada.** Só o que está em `exports` do `@Module` pode ser usado por outro módulo. Nunca importar entidade, repositório ou service interno de outro módulo. Efeito colateral entre módulos usa evento (ver `docs/ARCHITECTURE.md`, seção 3).
+- **Módulos não importam `auth`.** O `AuthGuard` é global (`APP_GUARD`); os endpoints usam `@Roles(minRole)` / `@Public()` / `@CurrentUser()` de `src/shared/decorators/`. O grafo é `auth → people` (ver `docs/ARCHITECTURE.md`, seções 3 e 9).
 - **Entidades** ficam em `src/modules/<modulo>/entities/*.entity.ts`. É esse glob que o `data-source.ts` carrega; entidade fora dele não é registrada.
 - Validação de entrada é feita com **class-validator** + **class-transformer**, já plugados globalmente em `main.ts` via `ValidationPipe({ whitelist: true, transform: true })`. Todo DTO novo deve usar decorators do class-validator — não escrever validação manual em controllers/services.
 - **Swagger é contrato.** O frontend gera o cliente com Orval a partir do `openapi.json`. Todo controller tem `@ApiTags('<modulo>')`; toda resposta é tipada com DTO de saída (`*.response.dto.ts`), nunca a entidade. Regras completas em `docs/ARCHITECTURE.md`, seção 6.
@@ -67,7 +69,7 @@ Use Yarn.
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
 - **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
-- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`).
+- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `hours/__tests__/attendance-creates-hours.e2e.spec.ts`).
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
 - Cada teste e2e limpa as tabelas que tocou.
 
@@ -85,7 +87,7 @@ Use Yarn.
 
 ## Dicas de Segurança e Configuração
 
-- Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
+- Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Auth: `JWT_SECRET` (obrigatório em produção), `APP_URL` (base dos links de convite) e `ADMIN_RA`, `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` (seed da primeira coordenadora). Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
 - Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
 - Desenvolvimento local: `docker compose up -d` sobe só o Postgres (`docker-compose.yml`, credenciais `tedi`/`tedi`, porta 5432); a API roda fora do container com `yarn dev` para manter hot reload. `docker compose down -v` apaga os dados.
 

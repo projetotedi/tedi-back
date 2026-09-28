@@ -8,42 +8,44 @@ Monólito modular em NestJS. Um módulo por área do domínio, espelhando os ép
 2. **Módulo é uma caixa fechada.** Só o que está em `exports` do `@Module` pode ser usado por outro módulo. Nunca importar entidade, repositório ou service interno de outro módulo.
 3. **Comunicação entre módulos por service exportado ou por evento.** Efeito colateral entre áreas diferentes (ex.: presença confirmada gera horas) usa evento, não chamada direta.
 4. **`shared/` só recebe o que é transversal** e não conhece domínio nenhum: paginação, base entity, guards, filtros, swagger. Sem i18n no backend — mensagens em inglês literal, tradução é responsabilidade do front.
-5. **Nomes de domínio em português, sufixos técnicos em inglês.** `pessoas.controller.ts`, `turmas.service.ts`, `aula.entity.ts`.
+5. **Todo código em inglês** (decisão 35 da E9.a). Módulos, entidades, colunas, enums, DTOs, métodos e nomes de teste: `people.controller.ts`, `classes.service.ts`, `lesson.entity.ts`. Documentação, mensagens de commit e template de PR seguem em pt-BR.
 6. **Testes vivem dentro do módulo.** Não existe pasta `test/` global.
 7. **Toda entidade estende `BaseEntity` (`src/shared/entities/base.entity.ts`)**, que já traz `id` UUID v7 gerado no app, `createdAt`, `updatedAt` e `deletedAt` (soft delete).
 
 ## 2. Mapa de módulos
 
-| Módulo         | Épico   | Conteúdo                                                                                            |
-| -------------- | ------- | --------------------------------------------------------------------------------------------------- |
-| `auth`         | E9      | Login, sessão JWT, perfis, guards, gestão de usuários                                               |
-| `pessoas`      | E1      | Pessoa, Membro, Aluno, busca, duplicidade, inativação                                               |
-| `importacao`   | E2      | Upload CSV/XLSX, mapeamento de colunas, pré-visualização, fila de pré-inscrição, formulário público |
-| `turmas`       | E3      | Edição, Turma, Matrícula                                                                            |
-| `aulas`        | E4, E10 | Aula, geração em série, status, calendário, catálogo de conteúdo                                    |
-| `alocacoes`    | E5      | Candidatura, alocação, cobertura, agenda do membro                                                  |
-| `presencas`    | E6      | Chamada de alunos, presença de membros, frequência                                                  |
-| `horas`        | E7      | Lançamento de horas, validação, extrato, consolidado                                                |
-| `relatorios`   | E8      | Relatórios, PDF, exportações                                                                        |
-| `auditoria`    | E9      | Log de auditoria, consentimento LGPD, anonimização                                                  |
-| `notificacoes` | E11     | Só se for priorizado                                                                                |
+| Módulo          | Épico   | Conteúdo                                                                                            |
+| --------------- | ------- | --------------------------------------------------------------------------------------------------- |
+| `auth`          | E9      | Login, sessão (cookie httpOnly + JWT), guard global, convites por link, gestão de acessos           |
+| `people`        | E1      | `Person` (com credenciais e perfil), membro, aluno, busca, duplicidade, inativação                  |
+| `imports`       | E2      | Upload CSV/XLSX, mapeamento de colunas, pré-visualização, fila de pré-inscrição, formulário público |
+| `classes`       | E3      | Edição, turma, matrícula                                                                            |
+| `lessons`       | E4, E10 | Aula, geração em série, status, calendário, catálogo de conteúdo                                    |
+| `assignments`   | E5      | Candidatura, alocação, cobertura, agenda do membro                                                  |
+| `attendance`    | E6      | Chamada de alunos, presença de membros, frequência                                                  |
+| `hours`         | E7      | Lançamento de horas, validação, extrato, consolidado                                                |
+| `reports`       | E8      | Relatórios, PDF, exportações                                                                        |
+| `audit`         | E9      | Log de auditoria, consentimento LGPD, anonimização                                                  |
+| `notifications` | E11     | Só se for priorizado                                                                                |
+
+Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuário separada (decisões 1 e 6). Convite e redefinição de senha são links de uso único gerados pelo sistema, que a coordenadora repassa; o MVP não tem provedor de e-mail (decisões 31 a 34).
 
 ## 3. Dependências permitidas
 
 ```
 auth       → people   (o guard carrega a Person do banco a cada request)
-pessoas    ← turmas, alocacoes, horas, importacao
-turmas     ← aulas, presencas
-aulas      ← alocacoes, presencas
-alocacoes  ← presencas
-presencas  ──evento──▶ horas        (PresencaMembroConfirmada / PresencaMembroRevertida)
-horas      ← relatorios
-auditoria  ← ninguém importa. Ouve eventos (AcaoAuditavel) de qualquer módulo.
+people       ← classes, assignments, hours, imports
+classes      ← lessons, attendance
+lessons      ← assignments, attendance
+assignments  ← attendance
+attendance   ──evento──▶ hours        (MemberAttendanceConfirmed / MemberAttendanceReverted)
+hours        ← reports
+audit        ← ninguém importa. Ouve eventos (AuditableActionEvent) de qualquer módulo.
 ```
 
-A seta só aponta "para baixo". `horas` nunca importa `presencas`; se precisa reagir a algo de lá, escuta o evento.
+A seta só aponta "para baixo". `hours` nunca importa `attendance`; se precisa reagir a algo de lá, escuta o evento.
 
-**Regra do AuthModule:** nenhum outro módulo importa `AuthModule`. O guard é global (registrado como `APP_GUARD`) e protege todos os endpoints automaticamente. Se um módulo precisar de funcionalidade de `auth`, a solução é exportar o necessário do módulo que detém a informação (ex.: `PeopleModule` exporta `PeopleService`), não importar `AuthModule`.
+**Regra do AuthModule (decisão 6):** `auth` importa `PeopleModule`, e nenhum outro módulo importa `AuthModule`. O guard é global (registrado como `APP_GUARD`) e protege todos os endpoints automaticamente. Se um módulo precisar de funcionalidade de `auth`, a solução é exportar o necessário do módulo que detém a informação (ex.: `PeopleModule` exporta `PeopleService`), não importar `AuthModule`.
 
 ## 4. Estrutura de pastas
 
@@ -74,7 +76,7 @@ src/
 │   │   └── current-user.decorator.ts # @CurrentUser() — extrai AuthUser do request
 │   ├── filters/                     # HttpExceptionFilter global → ApiErrorDto
 │   ├── interceptors/                # (próximo passo) logging
-│   ├── events/                      # (próximo passo) eventos de domínio compartilhados
+│   ├── events/                      # eventos compartilhados (auditable-action.event.ts)
 │   └── health/                      # GET /health (marcado com @Public())
 │
 └── modules/
@@ -84,26 +86,60 @@ src/
 ### 4.1 Template de um módulo
 
 ```
-modules/pessoas/
-├── pessoas.module.ts                # único *.module.ts; declara imports, providers, exports
+modules/people/
+├── people.module.ts                 # único *.module.ts; declara imports, providers, exports
 ├── controllers/
-│   ├── pessoas.controller.ts        # @ApiTags('pessoas'); só traduz HTTP → service
-│   └── membros.controller.ts
+│   ├── people.controller.ts         # @ApiTags('people'); @Roles/@Public por endpoint; só traduz HTTP → service
+│   └── members.controller.ts
 ├── services/
-│   ├── pessoas.service.ts           # regras de negócio; usa repositórios TypeORM injetados
-│   └── duplicidade.service.ts
+│   ├── people.service.ts            # regras de negócio; usa repositórios TypeORM injetados
+│   └── duplicates.service.ts
 ├── entities/
-│   ├── pessoa.entity.ts             # *.entity.ts é o que o DataSource carrega
-│   └── membro.entity.ts
+│   ├── person.entity.ts             # *.entity.ts é o que o DataSource carrega
+│   └── member.entity.ts
 ├── dto/
-│   ├── criar-pessoa.dto.ts          # entrada: class-validator
-│   └── pessoa.response.dto.ts       # saída: nunca devolver entidade
+│   ├── create-person.dto.ts         # entrada: class-validator
+│   └── person.response.dto.ts       # saída: nunca devolver entidade
 ├── enums/
 ├── listeners/                       # se o módulo reage a eventos de outros
 └── __tests__/
-    ├── pessoas.service.spec.ts      # unitário (sem banco)
-    ├── pessoas.controller.e2e.spec.ts   # e2e (HTTP + Postgres real)
+    ├── people.service.spec.ts       # unitário (sem banco)
+    ├── people.controller.e2e.spec.ts    # e2e (HTTP + Postgres real)
     └── fixtures/
+```
+
+Controller de exemplo, com o contrato de autorização (seção 9):
+
+```ts
+import { Roles } from "@shared/decorators/roles.decorator";
+import { Public } from "@shared/decorators/public.decorator";
+import { CurrentUser } from "@shared/decorators/current-user.decorator";
+import { AuthUser } from "@shared/decorators/auth-user.type";
+import { Role } from "@shared/enums/role.enum";
+
+@ApiTags("people")
+@Controller("people")
+export class PeopleController {
+  constructor(private readonly peopleService: PeopleService) {}
+
+  @Get()
+  @Roles(Role.DIRECTOR) // director, coordinator ou superadmin
+  listPeople(@Query() query: ListPeopleQueryDto) {
+    return this.peopleService.list(query);
+  }
+
+  @Post()
+  @Roles(Role.COORDINATOR)
+  createPerson(@Body() dto: CreatePersonDto, @CurrentUser() user: AuthUser) {
+    return this.peopleService.create(dto, user);
+  }
+
+  @Get("public-form")
+  @Public() // sem cookie
+  getPublicForm() {
+    return this.peopleService.publicForm();
+  }
+}
 ```
 
 Regras:
@@ -120,7 +156,7 @@ Regras:
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------ |
 | Unitário                                                                                                                                                                                                                                                                                                                                                                                                                                        | `*.spec.ts`     | `modules/<m>/__tests__/` ou `shared/<x>/__tests__/` | Não   | Regras do service com repositórios e outros services mockados (`Test.createTestingModule`)             |
 | E2E                                                                                                                                                                                                                                                                                                                                                                                                                                             | `*.e2e.spec.ts` | `modules/<m>/__tests__/`                            | Sim   | Controller até o banco, subindo só o módulo em teste (+ `auth` se a rota é protegida), com `supertest` |
-| Fluxo entre módulos                                                                                                                                                                                                                                                                                                                                                                                                                             | `*.e2e.spec.ts` | módulo que **reage** ao evento                      | Sim   | Ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`                                                 |
+| Fluxo entre módulos                                                                                                                                                                                                                                                                                                                                                                                                                             | `*.e2e.spec.ts` | módulo que **reage** ao evento                      | Sim   | Ex.: `hours/__tests__/attendance-creates-hours.e2e.spec.ts`                                            |
 | **O que "e2e" significa aqui.** É o vocabulário do NestJS: o teste sobe o módulo (ou a aplicação) com Postgres real e exercita por HTTP com `supertest`, do controller ao banco. Não existe e2e de navegador no projeto; o front tem só unitários. A pergunta que cada tipo responde: unitário, "a regra está certa?"; e2e, "o endpoint funciona com o banco?"; smoke, "está de pé?" (coberto pelo health check do deploy e pelo teste abaixo). |
 
 **Exceção única à regra "teste mora no módulo":** `src/__tests__/app.e2e.spec.ts` sobe o `AppModule` inteiro e chama `/health`. O objeto dele é a montagem da aplicação, não um módulo: pega módulo esquecido no `AppModule` e configuração global quebrada.
@@ -136,15 +172,15 @@ Regras:
 
 O frontend gera o cliente HTTP com **Orval** a partir do `openapi.json` desta API. O que a API não descreve, o front não tem. Regras por endpoint:
 
-| Regra                                                                            | Como                                                                                                      |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `operationId` = nome do método (`listarPessoas`, não `PessoasController_listar`) | `operationIdFactory: (_c, m) => m` em `shared/swagger/swagger.util.ts` (implementado em GUS-77)           |
-| `@ApiTags('<modulo>')` no controller, um tag por módulo                          | Tag igual ao nome da pasta em `modules/`. O Orval gera um arquivo por tag                                 |
-| Toda resposta tipada (`@ApiOkResponse({ type })`, `@ApiCreatedResponse`...)      | Sem isso o Orval gera `unknown`                                                                           |
-| Resposta paginada com `@ApiOkResponsePaginated(Dto)`                             | Decorator em `shared/pagination/` (próximo passo)                                                         |
-| DTO de saída explícito (`*.response.dto.ts`), nunca a entidade                   | Entidade expõe coluna interna e quebra contrato a cada migration                                          |
-| Enums de TS exportados e anotados com `@ApiProperty({ enum })`                   | Orval gera o union type                                                                                   |
-| Erro sempre no formato `ApiErrorDto`                                             | Emitido pelo `HttpExceptionFilter` global; mensagens em inglês literal (front traduz pelo código `error`) |
+| Regra                                                                       | Como                                                                                                      |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `operationId` = nome do método (`listPeople`, não `PeopleController_list`)  | `operationIdFactory: (_c, m) => m` em `shared/swagger/swagger.util.ts` (implementado em GUS-77)           |
+| `@ApiTags('<modulo>')` no controller, um tag por módulo                     | Tag igual ao nome da pasta em `modules/`. O Orval gera um arquivo por tag                                 |
+| Toda resposta tipada (`@ApiOkResponse({ type })`, `@ApiCreatedResponse`...) | Sem isso o Orval gera `unknown`                                                                           |
+| Resposta paginada com `@ApiOkResponsePaginated(Dto)`                        | Decorator em `shared/pagination/` (próximo passo)                                                         |
+| DTO de saída explícito (`*.response.dto.ts`), nunca a entidade              | Entidade expõe coluna interna e quebra contrato a cada migration                                          |
+| Enums de TS exportados e anotados com `@ApiProperty({ enum })`              | Orval gera o union type                                                                                   |
+| Erro sempre no formato `ApiErrorDto`                                        | Emitido pelo `HttpExceptionFilter` global; mensagens em inglês literal (front traduz pelo código `error`) |
 
 `yarn openapi:export` gera `docs/openapi.json` sem subir a API; `yarn openapi:check` falha no CI se o arquivo estiver desatualizado (implementado em GUS-77).
 
@@ -165,10 +201,10 @@ Fora do escopo deste PR, na ordem sugerida:
 
 1. `config/` com validação de env (Zod ou Joi).
 2. `LoggingInterceptor` em `shared/interceptors/`.
-3. `@nestjs/event-emitter` e `shared/events/` com os primeiros eventos.
+3. ~~`@nestjs/event-emitter` e `shared/events/` com os primeiros eventos.~~ (`AuditableActionEvent` entregue na E9.a; persistência fica para E9.b).
 4. ~~Swagger para Orval: `operationIdFactory`, `scripts/export-openapi.ts`, `openapi:export`/`openapi:check`~~ (entregue em GUS-77; `@ApiOkResponsePaginated` vem com o primeiro endpoint paginado).
-5. Módulo `auth` — emissão de JWT (login, `/auth/me`, logout) (GUS-78).
-6. `auditoria` como referência para os demais.
+5. ~~Módulo `auth` — emissão de JWT (login, `/auth/me`, logout)~~ (entregue em GUS-78; convites e gestão de acessos em GUS-80/81).
+6. `audit` como referência para os demais.
 7. `dependency-cruiser` no CI para falhar quando um módulo importar interno de outro.
 
 ## 9. Contrato de autorização
