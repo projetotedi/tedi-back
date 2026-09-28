@@ -10,7 +10,7 @@ Ambiente de **testes no ar** com custo zero: banco no **Neon** (Postgres gerenci
 2. **New project** → nome `tedi`, Postgres 16, região **AWS US East (Ohio)** (a mais próxima do Render Oregon entre as gratuitas; não há Brasil no free).
 3. Em **Connection details**, escolher **Pooled connection** desligado (a API usa conexão direta com TypeORM) e copiar a string. Formato:
    ```
-   postgresql://<usuario>:<senha>@<host>.neon.tech/neondb?sslmode=require
+   postgresql://<user>:<password>@<host>.neon.tech/neondb?sslmode=require
    ```
 4. Guardar como `DATABASE_URL`. Não commitar.
 
