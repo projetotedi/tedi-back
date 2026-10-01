@@ -42,8 +42,8 @@ Fonte única: `src/shared/permissions/permission-matrix.ts`. O `GET /auth/me` de
 | Permissão | Ação | Membro | Diretor | Coordenação |
 | -- | -- | -- | -- | -- |
 | `catalog.view` | Ver cursos e planos de aula (listagem, detalhe, material) | ✅ | ✅ | ✅ |
-| `lessonPlans.manage` | Criar, editar e excluir plano de aula | ❌ | ✅ | ✅ |
-| `courses.manage` | Criar, editar e excluir curso; montar sequência | ❌ | ✅ | ✅ |
+| `lessonPlans.manage` | Criar, editar, duplicar e arquivar plano de aula | ❌ | ✅ | ✅ |
+| `courses.manage` | Criar e editar curso; montar sequência | ❌ | ✅ | ✅ |
 | `courses.duplicateArchive` | Duplicar e arquivar curso | ❌ | ✅ | ✅ |
 
 ## Turmas e matrículas
@@ -51,7 +51,7 @@ Fonte única: `src/shared/permissions/permission-matrix.ts`. O `GET /auth/me` de
 | Permissão | Ação | Membro | Diretor | Coordenação |
 | -- | -- | -- | -- | -- |
 | `classes.view` | Ver turmas (listagem e detalhe) | ✅ | ✅ | ✅ |
-| `classes.manage` | Criar, editar e excluir turma; gerar aulas | ❌ | ✅ | ✅ |
+| `classes.manage` | Criar, editar e arquivar turma; gerar aulas | ❌ | ✅ | ✅ |
 | `enrollments.manage` | Matricular, alterar situação e remover matrícula | ❌ | ✅ | ✅ |
 
 ## Aulas
@@ -77,7 +77,7 @@ Fonte única: `src/shared/permissions/permission-matrix.ts`. O `GET /auth/me` de
 | -- | -- | -- | -- | -- |
 | `students.view` | Ver listagem e ficha de alunos | ✅ | ✅ | ✅ |
 | `students.manage` | Cadastrar e editar aluno | ❌ | ✅ | ✅ |
-| `students.delete` | Excluir ou anonimizar aluno (LGPD) | ❌ | ❌ | ✅ |
+| `students.archive` | Arquivar e reativar aluno | ❌ | ❌ | ✅ |
 
 ## Horas
 

@@ -62,11 +62,11 @@ export const PERMISSION_CATALOG: Readonly<
   },
   [Permission.LESSON_PLANS_MANAGE]: {
     section: "Catálogo",
-    action: "Criar, editar e excluir plano de aula",
+    action: "Criar, editar, duplicar e arquivar plano de aula",
   },
   [Permission.COURSES_MANAGE]: {
     section: "Catálogo",
-    action: "Criar, editar e excluir curso; montar sequência",
+    action: "Criar e editar curso; montar sequência",
   },
   [Permission.COURSES_DUPLICATE_ARCHIVE]: {
     section: "Catálogo",
@@ -78,7 +78,7 @@ export const PERMISSION_CATALOG: Readonly<
   },
   [Permission.CLASSES_MANAGE]: {
     section: "Turmas e matrículas",
-    action: "Criar, editar e excluir turma; gerar aulas",
+    action: "Criar, editar e arquivar turma; gerar aulas",
   },
   [Permission.ENROLLMENTS_MANAGE]: {
     section: "Turmas e matrículas",
@@ -117,9 +117,9 @@ export const PERMISSION_CATALOG: Readonly<
     action: "Ver listagem e ficha de alunos",
   },
   [Permission.STUDENTS_MANAGE]: { section: "Alunos", action: "Cadastrar e editar aluno" },
-  [Permission.STUDENTS_DELETE]: {
+  [Permission.STUDENTS_ARCHIVE]: {
     section: "Alunos",
-    action: "Excluir ou anonimizar aluno (LGPD)",
+    action: "Arquivar e reativar aluno",
   },
   [Permission.HOURS_VIEW_OTHERS]: {
     section: "Horas",

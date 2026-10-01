@@ -35,7 +35,7 @@ const EXPECTED: [Permission, Scope, Scope, Scope][] = [
   [Permission.ATTENDANCE_CORRECT, "none", "all", "all"],
   [Permission.STUDENTS_VIEW, "all", "all", "all"],
   [Permission.STUDENTS_MANAGE, "none", "all", "all"],
-  [Permission.STUDENTS_DELETE, "none", "none", "all"],
+  [Permission.STUDENTS_ARCHIVE, "none", "none", "all"],
   [Permission.HOURS_VIEW_OTHERS, "none", "department", "all"],
   [Permission.HOURS_LOG_FOR_OTHERS, "none", "department", "all"],
   [Permission.HOURS_REVIEW, "none", "none", "all"],

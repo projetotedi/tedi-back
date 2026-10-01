@@ -27,7 +27,7 @@ export enum Permission {
   ATTENDANCE_CORRECT = "attendance.correct",
   STUDENTS_VIEW = "students.view",
   STUDENTS_MANAGE = "students.manage",
-  STUDENTS_DELETE = "students.delete",
+  STUDENTS_ARCHIVE = "students.archive",
   HOURS_VIEW_OTHERS = "hours.viewOthers",
   HOURS_LOG_FOR_OTHERS = "hours.logForOthers",
   HOURS_REVIEW = "hours.review",

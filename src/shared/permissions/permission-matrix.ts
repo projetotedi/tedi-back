@@ -52,7 +52,7 @@ export const PERMISSION_MATRIX: Readonly<Record<Permission, Readonly<Record<Matr
     // Students
     [Permission.STUDENTS_VIEW]: row("all", "all", "all"),
     [Permission.STUDENTS_MANAGE]: row("none", "all", "all"),
-    [Permission.STUDENTS_DELETE]: row("none", "none", "all"),
+    [Permission.STUDENTS_ARCHIVE]: row("none", "none", "all"),
     // Hours
     [Permission.HOURS_VIEW_OTHERS]: row("none", "department", "all"),
     [Permission.HOURS_LOG_FOR_OTHERS]: row("none", "department", "all"),

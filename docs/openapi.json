@@ -567,7 +567,7 @@
               }
             ]
           },
-          "students.delete": {
+          "students.archive": {
             "allOf": [
               {
                 "$ref": "#/components/schemas/Scope"
@@ -614,7 +614,7 @@
           "attendance.correct",
           "students.view",
           "students.manage",
-          "students.delete",
+          "students.archive",
           "hours.viewOthers",
           "hours.logForOthers",
           "hours.review",
