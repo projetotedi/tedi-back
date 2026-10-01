@@ -69,8 +69,15 @@ src/
 │   ├── entities/base.entity.ts      # id (UUID v7), createdAt, updatedAt, deletedAt
 │   ├── enums/
 │   │   └── role.enum.ts             # enum Role + roleSatisfies()
+│   ├── permissions/                 # matriz de permissões (perfil × ação × escopo), ver seção 9
+│   │   ├── permission.enum.ts       # enum Permission (uma entrada por ação da matriz)
+│   │   ├── permission-matrix.ts     # PERMISSION_MATRIX + scopeFor() + buildPermissionMap()
+│   │   ├── permission.policy.ts     # PermissionPolicy: can, assertCan, assertCanAny, listFilter
+│   │   ├── require-permission.decorator.ts # @RequirePermission(permission) — metadata key 'auth:permission'
+│   │   ├── permissions.module.ts    # PermissionsModule (exporta a policy)
+│   │   └── __tests__/
 │   ├── decorators/
-│   │   ├── auth-user.type.ts        # interface AuthUser { id, role, accessEnabled }
+│   │   ├── auth-user.type.ts        # interface AuthUser { id, role, accessEnabled, departmentIds? }
 │   │   ├── roles.decorator.ts       # @Roles(minRole) — metadata key 'auth:roles'
 │   │   ├── public.decorator.ts      # @Public() — metadata key 'auth:public'
 │   │   └── current-user.decorator.ts # @CurrentUser() — extrai AuthUser do request
@@ -89,7 +96,7 @@ src/
 modules/people/
 ├── people.module.ts                 # único *.module.ts; declara imports, providers, exports
 ├── controllers/
-│   ├── people.controller.ts         # @ApiTags('people'); @Roles/@Public por endpoint; só traduz HTTP → service
+│   ├── people.controller.ts         # @ApiTags('people'); @RequirePermission/@Public por endpoint; só traduz HTTP → service
 │   └── members.controller.ts
 ├── services/
 │   ├── people.service.ts            # regras de negócio; usa repositórios TypeORM injetados
@@ -111,11 +118,11 @@ modules/people/
 Controller de exemplo, com o contrato de autorização (seção 9):
 
 ```ts
-import { Roles } from "@shared/decorators/roles.decorator";
+import { RequirePermission } from "@shared/permissions/require-permission.decorator";
+import { Permission } from "@shared/permissions/permission.enum";
 import { Public } from "@shared/decorators/public.decorator";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { AuthUser } from "@shared/decorators/auth-user.type";
-import { Role } from "@shared/enums/role.enum";
 
 @ApiTags("people")
 @Controller("people")
@@ -123,13 +130,13 @@ export class PeopleController {
   constructor(private readonly peopleService: PeopleService) {}
 
   @Get()
-  @Roles(Role.DIRECTOR) // director, coordinator ou superadmin
-  listPeople(@Query() query: ListPeopleQueryDto) {
-    return this.peopleService.list(query);
+  @RequirePermission(Permission.MEMBERS_LIST) // o guard nega quando o escopo do perfil é "none"
+  listPeople(@Query() query: ListPeopleQueryDto, @CurrentUser() user: AuthUser) {
+    return this.peopleService.list(query, user); // o service filtra na consulta (policy.listFilter)
   }
 
   @Post()
-  @Roles(Role.COORDINATOR)
+  @RequirePermission(Permission.MEMBERS_EDIT)
   createPerson(@Body() dto: CreatePersonDto, @CurrentUser() user: AuthUser) {
     return this.peopleService.create(dto, user);
   }
@@ -148,7 +155,7 @@ Regras:
 - `entities/` pertence ao módulo. Outro módulo que precisa dos dados chama o service exportado.
 - Eventos compartilhados vivem em `shared/events/` como classes com payload tipado, publicados via `@nestjs/event-emitter`.
 - Registrar o módulo em `app.module.ts`.
-- **Módulo protegido não importa `AuthModule`.** O guard é global; anotar os endpoints com `@Roles()` ou `@Public()` de `shared/decorators/` é suficiente. Se o módulo precisar do usuário logado, use o parâmetro decorado com `@CurrentUser()`.
+- **Módulo protegido não importa `AuthModule`.** O guard é global; anotar os endpoints com `@RequirePermission()` (de `shared/permissions/`) ou `@Public()` (de `shared/decorators/`) é suficiente. Se o módulo precisar do usuário logado, use o parâmetro decorado com `@CurrentUser()`.
 
 ## 5. Testes
 
@@ -217,3 +224,19 @@ O contrato de autorização é definido em `src/shared/decorators/` e aplicado p
 - **Sem decorator** — o endpoint exige que o usuário esteja autenticado (cookie `tedi_session` com JWT válido), mas aceita qualquer role.
 - **Revogação imediata** — o guard consulta `PeopleService.findById` a cada requisição; se `accessEnabled` for `false`, o guard retorna 401 mesmo com JWT válido (decisão 19).
 - **Bypass de desenvolvimento** — com `NODE_ENV !== 'production'` e `DEV_FAKE_ROLE=<role>`, o guard injeta um usuário fake sem exigir cookie. Em produção a variável é ignorada e um aviso é emitido no boot.
+
+### 9.1 Permissões por perfil e escopo (GUS-114)
+
+A matriz de permissões (quem pode fazer o quê, e dentro de qual escopo) vive em um único lugar: `src/shared/permissions/permission-matrix.ts`. O documento legível `docs/PERMISSIONS.md` é gerado dela (`yarn permissions:export`) e um teste falha se ele ficar desatualizado.
+
+- **`Permission`** — enum com uma entrada por ação da matriz (`members.view`, `hours.viewOthers`, `attendance.takeStudents`...). O valor é a chave estável que o front lê.
+- **`Scope`** — `all | own | department | allocated | lessonTeacher | none`. `PERMISSION_MATRIX` mapeia `Permission × Role` para um `Scope`. `Role.SUPERADMIN` tem `all` em tudo (função `scopeFor`), exceto a regra de própria presença.
+- **`@RequirePermission(Permission.X)`** — o `AuthGuard` nega com 403 `FORBIDDEN` quando o escopo do perfil é `none`. Só olha o perfil; o escopo fino é do service.
+- **`PermissionPolicy`** (exportada por `PermissionsModule`, que cada módulo de domínio importa; não é global):
+  - `can(user, permission, target?)` e `assertCan(...)`: resolvem `own`, `department`, `allocated` e `lessonTeacher` contra os fatos do alvo (`PermissionTarget`: `personId`, `departmentIds`, `lessonTeacherIds`, `lessonMonitorIds`). A policy não consulta o domínio: o service carrega os fatos e os passa. Faltou dado, nega.
+  - `assertCanAny(user, permissions, target?)`: passa se qualquer uma cobre o alvo (ex.: horas próprias ou de outro membro).
+  - `listFilter(user, permission)`: devolve o `ListScopeFilter` que o service traduz no `WHERE` da consulta. Listagem com escopo `department` filtra na consulta, nunca depois de carregar.
+- **Erros** (todos 403, no formato `ApiErrorDto`): `FORBIDDEN` (guard: o perfil não tem a permissão), `FORBIDDEN_SCOPE` (policy: tem a permissão, mas o alvo está fora do escopo) e `SELF_ATTENDANCE_NOT_ALLOWED` (policy: `attendance.confirmMember` sobre a própria pessoa, em qualquer perfil, inclusive coordenação e superadmin).
+- **Departamento** — `AuthUser.departmentIds` é opcional e será preenchido pelo guard a partir da GUS-91. Enquanto estiver ausente, o escopo `department` nega terceiros.
+- **`GET /auth/me` e `POST /auth/login`** devolvem `permissions: { [permission]: scope }` do perfil logado (`MeResponseDto.permissions`), para o front não repetir a matriz.
+- **`@Roles` continua funcionando** (os dois decorators coexistem e os dois precisam passar), mas as rotas novas usam `@RequirePermission`. As rotas de acessos e convites já foram migradas.

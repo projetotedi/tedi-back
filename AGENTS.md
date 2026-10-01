@@ -18,6 +18,7 @@ src/
 │   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
 │   ├── dto/                 api-error.dto.ts
 │   ├── decorators/          @Roles, @Public, @CurrentUser
+│   ├── permissions/         matriz de permissões, @RequirePermission, PermissionPolicy
 │   ├── enums/               role.enum.ts
 │   ├── events/              auditable-action.event.ts
 │   └── entities/            base.entity.ts
@@ -56,7 +57,8 @@ Use Yarn.
 ## Regras do Projeto
 
 - **Módulo é caixa fechada.** Só o que está em `exports` do `@Module` pode ser usado por outro módulo. Nunca importar entidade, repositório ou service interno de outro módulo. Efeito colateral entre módulos usa evento (ver `docs/ARCHITECTURE.md`, seção 3).
-- **Módulos não importam `auth`.** O `AuthGuard` é global (`APP_GUARD`); os endpoints usam `@Roles(minRole)` / `@Public()` / `@CurrentUser()` de `src/shared/decorators/`. O grafo é `auth → people` (ver `docs/ARCHITECTURE.md`, seções 3 e 9).
+- **Módulos não importam `auth`.** O `AuthGuard` é global (`APP_GUARD`); os endpoints usam `@RequirePermission(permission)` (de `src/shared/permissions/`), `@Roles(minRole)` / `@Public()` / `@CurrentUser()` (de `src/shared/decorators/`). O grafo é `auth → people` (ver `docs/ARCHITECTURE.md`, seções 3 e 9).
+- **Escopo é checado no service.** `own`, `department` e `allocated` são resolvidos com `PermissionPolicy` (`assertCan`, importando o `PermissionsModule`); listagem filtra na consulta via `listFilter`, nunca depois de carregar. A matriz é `src/shared/permissions/permission-matrix.ts`; `docs/PERMISSIONS.md` é gerado dela (`yarn permissions:export`).
 - **Entidades** ficam em `src/modules/<modulo>/entities/*.entity.ts`. É esse glob que o `data-source.ts` carrega; entidade fora dele não é registrada.
 - Validação de entrada é feita com **class-validator** + **class-transformer**, já plugados globalmente em `main.ts` via `ValidationPipe({ whitelist: true, transform: true })`. Todo DTO novo deve usar decorators do class-validator — não escrever validação manual em controllers/services.
 - **Swagger é contrato.** O frontend gera o cliente com Orval a partir do `openapi.json`. Todo controller tem `@ApiTags('<modulo>')`; toda resposta é tipada com DTO de saída (`*.response.dto.ts`), nunca a entidade. Regras completas em `docs/ARCHITECTURE.md`, seção 6.
