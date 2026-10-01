@@ -3,6 +3,7 @@ import {
   ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiParam,
   ApiTags,
@@ -24,6 +25,8 @@ import { StudentsService, studentNotFound } from "../services/students.service";
  * Without the pipe, Postgres would reject the value and the answer would be a 500.
  */
 const STUDENT_ID = new ParseUUIDPipe({ exceptionFactory: () => studentNotFound() });
+
+const STUDENT_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "STUDENT_NOT_FOUND" };
 
 const STUDENT_ID_PARAM = { name: "id", format: "uuid", description: "Person id of the student." };
 
@@ -64,6 +67,7 @@ export class StudentsController {
   @RequirePermission(Permission.STUDENTS_MANAGE)
   @ApiParam(STUDENT_ID_PARAM)
   @ApiOkResponse({ type: StudentResponseDto })
+  @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
   @ApiConflictResponse({
     type: ApiErrorDto,
     description: "STUDENT_ARCHIVED | EMAIL_ALREADY_IN_USE",
@@ -86,6 +90,7 @@ export class StudentsController {
   @ApiParam(STUDENT_ID_PARAM)
   @ApiBody({ type: ArchiveDto, required: false })
   @ApiOkResponse({ type: StudentResponseDto })
+  @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
   archiveStudent(
     @Param("id", STUDENT_ID) id: string,
     @Body() dto: ArchiveDto,
@@ -99,6 +104,7 @@ export class StudentsController {
   @RequirePermission(Permission.STUDENTS_ARCHIVE)
   @ApiParam(STUDENT_ID_PARAM)
   @ApiOkResponse({ type: StudentResponseDto })
+  @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
   unarchiveStudent(
     @Param("id", STUDENT_ID) id: string,
     @CurrentUser() actor: AuthUser,

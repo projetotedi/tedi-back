@@ -304,6 +304,7 @@ O corpo comum das rotas de arquivar é `ArchiveDto` (`src/shared/dto/archive.dto
 - `PATCH /<recurso>/:id/archive` com `ArchiveDto` (corpo opcional) e `PATCH /<recurso>/:id/unarchive`, sem corpo. Não existe `DELETE`.
 - Respondem **200 com o DTO do recurso**. Repetir a operação é no-op: arquivar quem já está arquivado ou reativar quem está ativo responde 200 sem escrever e sem emitir evento.
 - Editar um recurso arquivado responde **409 `<ENTITY>_ARCHIVED`** (`STUDENT_ARCHIVED`, por exemplo).
+- O 404 de recurso de domínio é **`<ENTITY>_NOT_FOUND`** (`STUDENT_NOT_FOUND`, por exemplo), criado por um helper único no service do recurso (`studentNotFound()`), que o pipe de id do controller e as rotas de leitura reaproveitam. O 404 do roteador (rota que não existe, como um `DELETE`) continua `NOT_FOUND`. Documente o código com `@ApiNotFoundResponse({ type: ApiErrorDto, description: "<ENTITY>_NOT_FOUND" })`.
 - A **listagem padrão filtra na consulta**: `where: { archive: { archivedAt: IsNull() } }` com o repositório, ou `archived_at IS NULL` no query builder. Quem precisa dos arquivados (histórico, ficha) pede explicitamente.
 - Evento `AuditableActionEvent` `<ENTITY>_ARCHIVED` e `<ENTITY>_UNARCHIVED`, depois do commit e só quando houve mudança. O motivo do arquivamento (`archiveReason`) entra no evento; não registre informação de saúde nele (RNF-13).
 - Regras que impedem arquivar (por exemplo, aluno com matrícula ativa) respondem 409 com código próprio e ficam no service do recurso.

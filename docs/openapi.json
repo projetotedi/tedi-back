@@ -2328,7 +2328,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "STUDENT_NOT_FOUND"
           },
           "409": {
             "content": {
@@ -2430,7 +2430,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "STUDENT_NOT_FOUND"
           },
           "500": {
             "content": {
@@ -2512,7 +2512,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "STUDENT_NOT_FOUND"
           },
           "500": {
             "content": {
