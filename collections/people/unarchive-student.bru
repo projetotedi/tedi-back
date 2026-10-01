@@ -1,0 +1,28 @@
+meta {
+  name: unarchive-student
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/students/:id/unarchive
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Reativa um aluno arquivado. O :id é o id da Person do aluno.
+  Requer cookie tedi_session e a permissão students.archive (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  Limpa archivedAt, archivedById e archiveReason; o histórico fica no evento de auditoria STUDENT_UNARCHIVED.
+  Aluno que não está arquivado responde 200 sem alterar nada.
+  Retorna 200 StudentResponseDto.
+  Erros possíveis: 401, 403 FORBIDDEN, 404 NOT_FOUND.
+}

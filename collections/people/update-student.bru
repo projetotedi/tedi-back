@@ -1,0 +1,37 @@
+meta {
+  name: update-student
+  type: http
+  seq: 2
+}
+
+patch {
+  url: {{baseUrl}}/students/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "phone": "43911112222",
+    "classNeeds": null
+  }
+}
+
+docs {
+  Edita os dados de um aluno. O :id é o id da Person do aluno.
+  Requer cookie tedi_session e a permissão students.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Todos os campos são opcionais: omitir não altera, null limpa o campo. name, birthDate e accessibilityNeed podem ser omitidos, mas nunca enviados como null (400).
+  Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada.
+  Aluno arquivado é somente leitura: 409 STUDENT_ARCHIVED (reative antes de editar).
+  Retorna 200 StudentResponseDto, com age calculada na data de hoje.
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 NOT_FOUND (id inexistente, mal formado ou de pessoa sem perfil de aluno), 409 STUDENT_ARCHIVED, 409 EMAIL_ALREADY_IN_USE.
+}
