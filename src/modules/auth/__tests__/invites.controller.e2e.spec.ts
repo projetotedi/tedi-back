@@ -9,6 +9,10 @@
  * CA80-6: RA with role=null → reuses Person (RN-09); RA with role !== null → 409 no invite consumption.
  * CA80-7: GET /invites (listing) does not leak token — OUT OF SCOPE (GUS-81).
  * Events: INVITE_CREATED/ACCESS_CREATED emitted via EventEmitter2.
+ *
+ * GUS-112: GET /auth/invites/:token returns `person` ({ name, ra }) only for password_reset
+ * invites (usable token); access invites get `person: null`; unusable tokens get 400 INVALID_INVITE
+ * with no person data.
  */
 import "reflect-metadata";
 import { Test, TestingModule } from "@nestjs/testing";
@@ -749,6 +753,92 @@ describe("InvitesController (e2e)", () => {
       const inviteRevoked = events.find((e) => e.action === AuditableAction.INVITE_REVOKED);
       expect(inviteRevoked).toBeDefined();
       expect(inviteRevoked!.targetId).toBe(inviteId);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // GUS-112: GET /auth/invites/:token exposes the account only on password_reset
+  // -------------------------------------------------------------------------
+  describe("GUS-112: GET /auth/invites/:token exposes the account only on password_reset", () => {
+    async function createPasswordResetToken(): Promise<string> {
+      const coord = await createCoordinator();
+      const passwordHash = await passwordService.hashPassword("Senha@123");
+      const person = await peopleService.save({
+        name: "Beatriz Nunes Carvalho",
+        ra: "202400003",
+        email: "beatriz@example.com",
+        passwordHash,
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+
+      const res = await request(app.getHttpServer())
+        .post(`/access/${person.id}/password-reset`)
+        .set("Cookie", coord.cookie)
+        .expect(201);
+
+      return new URL(res.body.url as string).searchParams.get("token") ?? "";
+    }
+
+    function expectNoPersonData(res: { body: unknown }): void {
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain("Beatriz");
+      expect(raw).not.toContain("202400003");
+    }
+
+    it("returns person null, not omitted, for an access invite", async () => {
+      const coord = await createCoordinator();
+      const createRes = await request(app.getHttpServer())
+        .post("/invites")
+        .set("Cookie", coord.cookie)
+        .send({ role: "member" })
+        .expect(201);
+      const token = new URL(createRes.body.url as string).searchParams.get("token") ?? "";
+
+      const res = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(200);
+
+      expect(res.body).toStrictEqual({
+        type: "access",
+        role: "member",
+        expiresAt: expect.any(String),
+        person: null,
+      });
+    });
+
+    it("returns the account name and RA for a password_reset invite", async () => {
+      const token = await createPasswordResetToken();
+
+      const res = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(200);
+
+      expect(res.body).toStrictEqual({
+        type: "password_reset",
+        role: null,
+        expiresAt: expect.any(String),
+        person: { name: "Beatriz Nunes Carvalho", ra: "202400003" },
+      });
+    });
+
+    it("returns 400 INVALID_INVITE without person data for a used password_reset invite", async () => {
+      const token = await createPasswordResetToken();
+      await request(app.getHttpServer())
+        .post("/auth/invites/accept")
+        .send({ token, password: "NovaSenh@456" })
+        .expect(204);
+
+      const res = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(400);
+
+      expect(res.body.error).toBe("INVALID_INVITE");
+      expectNoPersonData(res);
+    });
+
+    it("returns 400 INVALID_INVITE without person data for an expired password_reset invite", async () => {
+      const token = await createPasswordResetToken();
+      await dataSource.query("UPDATE invites SET expires_at = now() - interval '1 hour'");
+
+      const res = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(400);
+
+      expect(res.body.error).toBe("INVALID_INVITE");
+      expectNoPersonData(res);
     });
   });
 });
