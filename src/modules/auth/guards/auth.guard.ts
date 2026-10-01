@@ -15,6 +15,7 @@ import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { Permission } from "@shared/permissions/permission.enum";
 import { scopeFor } from "@shared/permissions/permission-matrix";
+import { Scope } from "@shared/permissions/scope.type";
 import { Role, roleSatisfies } from "@shared/enums/role.enum";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { PeopleService } from "@modules/people/services/people.service";
@@ -149,7 +150,9 @@ export class AuthGuard implements CanActivate {
 
     if (permission === undefined) return true;
 
-    if (scopeFor(user.role, permission) === "none") {
+    // A role outside the matrix has no scope at all: deny (fail closed).
+    const scope: Scope | undefined = scopeFor(user.role, permission);
+    if (scope === undefined || scope === "none") {
       throw new ForbiddenException();
     }
 

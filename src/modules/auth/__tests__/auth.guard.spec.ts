@@ -277,6 +277,12 @@ describe("AuthGuard", () => {
       await expect(run(Role.DIRECTOR, { permission: Permission.MEMBERS_VIEW })).resolves.toBe(true);
     });
 
+    it("throws ForbiddenException on @RequirePermission for a role outside the matrix", async () => {
+      await expect(
+        run("unknown-role" as unknown as Role, { permission: Permission.CATALOG_VIEW }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
     it("allows superadmin on any @RequirePermission", async () => {
       for (const permission of Object.values(Permission)) {
         await expect(run(Role.SUPERADMIN, { permission })).resolves.toBe(true);
