@@ -14,7 +14,7 @@
 import "reflect-metadata";
 import { INestApplication } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { EventEmitter2, EventEmitterModule } from "@nestjs/event-emitter";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { JwtService } from "@nestjs/jwt";
 import { Test, TestingModule } from "@nestjs/testing";
 import { TypeOrmModule } from "@nestjs/typeorm";
@@ -117,7 +117,9 @@ describe("StudentsController (e2e)", () => {
     module = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true }),
-        EventEmitterModule.forRoot(),
+        // No EventEmitterModule.forRoot() here: AuthModule already registers the global one.
+        // A second forRoot() creates a second EventEmitter2, and the service would emit on a
+        // different instance than the one this test listens to (module.get).
         TypeOrmModule.forRoot({
           type: "postgres",
           ...dbConnection,
