@@ -23,6 +23,14 @@ export enum AuditableAction {
   INVITE_REVOKED = "INVITE_REVOKED",
   /** A person completed a password reset via invite. */
   PASSWORD_RESET = "PASSWORD_RESET",
+  /** A student was registered (Person + StudentProfile). */
+  STUDENT_CREATED = "STUDENT_CREATED",
+  /** Student data changed. Payload carries only non-sensitive values plus changedFields. */
+  STUDENT_UPDATED = "STUDENT_UPDATED",
+  /** A student was archived instead of deleted (RN-27). */
+  STUDENT_ARCHIVED = "STUDENT_ARCHIVED",
+  /** An archived student was reactivated. */
+  STUDENT_UNARCHIVED = "STUDENT_UNARCHIVED",
 }
 
 /**

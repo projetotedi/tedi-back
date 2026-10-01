@@ -1,0 +1,44 @@
+meta {
+  name: create-student
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/students
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Maria Silva Santos",
+    "birthDate": "1958-04-12",
+    "email": "maria.santos@example.com",
+    "phone": "(43) 99999-0000",
+    "education": "Ensino fundamental completo",
+    "hasSmartphone": true,
+    "hasComputer": false,
+    "howFoundUs": "Indicação de uma amiga",
+    "emergencyContactName": "Ana Santos",
+    "emergencyContactPhone": "43988887777",
+    "accessibilityNeed": "visual",
+    "supportResource": "Fonte ampliada",
+    "classNeeds": "Sentar perto do projetor"
+  }
+}
+
+docs {
+  Cadastra um aluno (pessoa + perfil de aluno) em uma única transação.
+  Requer cookie tedi_session e a permissão students.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Obrigatórios: name e birthDate (YYYY-MM-DD, data real, de 1900-01-01 até hoje em America/Sao_Paulo). Os demais campos são opcionais; null ou "" significa "não informado".
+  phone e emergencyContactPhone aceitam máscara e são gravados só com dígitos (10 a 13). email é gravado em minúsculas e é único entre as pessoas.
+  accessibilityNeed: none (padrão) | visual | hearing | motor | cognitive | other. Registra a necessidade em aula, nunca diagnóstico (RNF-13).
+  Retorna 201 StudentResponseDto, com age calculada na data de hoje (não é gravada). O id do aluno é o id da Person.
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 401, 403 FORBIDDEN, 409 EMAIL_ALREADY_IN_USE.
+}

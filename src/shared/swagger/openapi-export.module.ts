@@ -20,15 +20,23 @@ import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
+import { StudentsController } from "@modules/people/controllers/students.controller";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
+import { StudentsService } from "@modules/people/services/students.service";
 import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
 
 const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
 
 @Module({
-  controllers: [HealthController, AuthController, InvitesController, AccessController],
+  controllers: [
+    HealthController,
+    AuthController,
+    InvitesController,
+    AccessController,
+    StudentsController,
+  ],
   providers: [
     {
       provide: DataSource,
@@ -57,6 +65,16 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         updateRole: async () => ({}),
         updateEnabled: async () => ({}),
         createPasswordReset: async () => ({}),
+      },
+    },
+    {
+      provide: StudentsService,
+      useValue: {
+        create: async () => ({}),
+        update: async () => ({}),
+        archive: async () => ({}),
+        unarchive: async () => ({}),
+        findByIds: async () => [],
       },
     },
     {

@@ -66,7 +66,16 @@ src/
 │   │   ├── pagination.util.ts
 │   │   └── __tests__/pagination.util.spec.ts
 │   ├── swagger/swagger.util.ts
-│   ├── entities/base.entity.ts      # id (UUID v7), createdAt, updatedAt, deletedAt
+│   ├── entities/
+│   │   ├── base.entity.ts           # id (UUID v7), createdAt, updatedAt, deletedAt
+│   │   └── archivable.columns.ts    # archivedAt, archivedById, archiveReason reutilizáveis (RN-27), ver seção 10
+│   ├── dto/
+│   │   ├── api-error.dto.ts         # ApiErrorDto, formato único de erro
+│   │   ├── archive.dto.ts           # corpo comum de PATCH .../archive ({ reason? })
+│   │   └── transforms.ts            # trim, trimToNull, trimLowerToNull (class-transformer)
+│   ├── dates/
+│   │   ├── calendar-date.ts         # APP_TIME_ZONE, todayInAppTimeZone, ageOn, isValidCalendarDate
+│   │   └── clock.ts                 # Clock injetável: service testável com um instante fixo
 │   ├── enums/
 │   │   └── role.enum.ts             # enum Role + roleSatisfies()
 │   ├── permissions/                 # matriz de permissões (perfil × ação × escopo), ver seção 9
@@ -174,6 +183,7 @@ Regras:
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Nunca arquivos internos de outro módulo.
 - Fixtures são do módulo. Se dois módulos precisam do mesmo dado, o módulo dono exporta uma função; nada vai para `shared/`.
 - Cada teste e2e limpa as tabelas que tocou.
+- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é um e2e de schema, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram; o primeiro é `people/__tests__/people.repository.e2e.spec.ts`. Cada módulo mantém o próprio e2e de schema no seu `__tests__`, com o mesmo padrão de comparação (o módulo não edita o e2e de outro).
 
 ## 6. Swagger como contrato
 
@@ -240,3 +250,62 @@ A matriz de permissões (quem pode fazer o quê, e dentro de qual escopo) vive e
 - **Departamento** — `AuthUser.departmentIds` é opcional e será preenchido pelo guard a partir da GUS-91. Enquanto estiver ausente, o escopo `department` nega terceiros.
 - **`GET /auth/me` e `POST /auth/login`** devolvem `permissions: { [permission]: scope }` do perfil logado (`MeResponseDto.permissions`), para o front não repetir a matriz.
 - **`@Roles` continua funcionando** (os dois decorators coexistem e os dois precisam passar), mas as rotas novas usam `@RequirePermission`. As rotas de acessos e convites já foram migradas.
+
+## 10. Arquivar em vez de excluir (RN-27)
+
+Aluno, plano de aula, curso e turma não são excluídos: são **arquivados**. O arquivado sai das listagens padrão e das listas de disponíveis (por exemplo, alunos disponíveis na matrícula), continua acessível por id e vira somente leitura. Criado na GUS-105 (alunos); GUS-94, GUS-116 e GUS-101 reutilizam.
+
+### 10.1 Colunas
+
+`src/shared/entities/archivable.columns.ts` define a classe `ArchivableColumns`, um _embedded_ do TypeORM (sem herança múltipla):
+
+| Propriedade     | Coluna           | Tipo          | Nulo |
+| --------------- | ---------------- | ------------- | ---- |
+| `archivedAt`    | `archived_at`    | `timestamptz` | sim  |
+| `archivedById`  | `archived_by_id` | `uuid`        | sim  |
+| `archiveReason` | `archive_reason` | `text`        | sim  |
+
+Na entidade, use `prefix: false` (o nome no banco é exatamente o de cada `@Column`) e declare o FK de `archived_by_id` **na classe**. `@ForeignKey` em propriedade do embedded é ignorado pelo TypeORM, e o alvo é a string `"people"` porque o módulo dono da entidade não importa `Person` (seção 1, item 2). A string só resolve se o DataSource carregar a entidade `Person`: o e2e de um módulo que usa `ArchivableColumns` precisa carregar o glob de todas as entidades (`join(__dirname, "..", "..", "..", "**", "*.entity.{ts,js}")`), não só as do próprio módulo.
+
+```ts
+@Entity({ name: "student_profiles" })
+@ForeignKey("people", ["archived_by_id"], ["id"], { name: "fk_student_profiles_archived_by_id" })
+export class StudentProfile extends BaseEntity {
+  // ...demais colunas...
+
+  @Column(() => ArchivableColumns, { prefix: false })
+  archive: ArchivableColumns;
+}
+```
+
+Na migration (escrita à mão; o nome do FK é `fk_<tabela>_archived_by_id`):
+
+```sql
+"archived_at"    TIMESTAMP WITH TIME ZONE,
+"archived_by_id" uuid,
+"archive_reason" text,
+-- ...
+ALTER TABLE "<tabela>" ADD CONSTRAINT "fk_<tabela>_archived_by_id"
+  FOREIGN KEY ("archived_by_id") REFERENCES "people"("id") ON DELETE NO ACTION ON UPDATE NO ACTION
+```
+
+### 10.2 Helpers
+
+No mesmo arquivo, funções puras sobre o embedded:
+
+- `isArchived(columns)`: `archivedAt != null`.
+- `markArchived(columns, actorId, reason, now)`: preenche as três colunas e devolve `true`. Se já estava arquivado não mexe em nada e devolve `false`: o primeiro arquivamento vale.
+- `markUnarchived(columns)`: zera as três colunas e devolve `true`; se não estava arquivado, devolve `false`.
+
+O corpo comum das rotas de arquivar é `ArchiveDto` (`src/shared/dto/archive.dto.ts`, `{ reason?: string | null }`, até 500 caracteres). Um tipo só no cliente gerado pelo Orval.
+
+### 10.3 Contrato padrão das rotas
+
+- `PATCH /<recurso>/:id/archive` com `ArchiveDto` (corpo opcional) e `PATCH /<recurso>/:id/unarchive`, sem corpo. Não existe `DELETE`.
+- Respondem **200 com o DTO do recurso**. Repetir a operação é no-op: arquivar quem já está arquivado ou reativar quem está ativo responde 200 sem escrever e sem emitir evento.
+- Editar um recurso arquivado responde **409 `<ENTITY>_ARCHIVED`** (`STUDENT_ARCHIVED`, por exemplo).
+- O 404 de recurso de domínio é **`<ENTITY>_NOT_FOUND`** (`STUDENT_NOT_FOUND`, por exemplo), criado por um helper único no service do recurso (`studentNotFound()`), que o pipe de id do controller e as rotas de leitura reaproveitam. O 404 do roteador (rota que não existe, como um `DELETE`) continua `NOT_FOUND`. Documente o código com `@ApiNotFoundResponse({ type: ApiErrorDto, description: "<ENTITY>_NOT_FOUND" })`.
+- A **listagem padrão filtra na consulta**: `where: { archive: { archivedAt: IsNull() } }` com o repositório, ou `archived_at IS NULL` no query builder. Quem precisa dos arquivados (histórico, ficha) pede explicitamente.
+- Evento `AuditableActionEvent` `<ENTITY>_ARCHIVED` e `<ENTITY>_UNARCHIVED`, depois do commit e só quando houve mudança. O motivo do arquivamento (`archiveReason`) entra no evento; não registre informação de saúde nele (RNF-13).
+- Regras que impedem arquivar (por exemplo, aluno com matrícula ativa) respondem 409 com código próprio e ficam no service do recurso.
+- Permissão por `@RequirePermission`: arquivar e reativar costumam ser mais restritos que editar (alunos: `students.archive`, só coordenação).

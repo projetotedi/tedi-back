@@ -36,4 +36,15 @@ export class Person extends BaseEntity {
 
   @Column({ name: "access_enabled", type: "boolean", default: true })
   accessEnabled: boolean;
+
+  /**
+   * RF-001. Calendar date "YYYY-MM-DD" (TypeORM hydrates `date` as string, never a Date).
+   * Required for students; members get it in GUS-91, so existing people have none.
+   */
+  @Column({ name: "birth_date", type: "date", nullable: true, default: null })
+  birthDate: string | null;
+
+  /** RF-001. Digits only (10 to 13). Personal data: never logged. */
+  @Column({ name: "phone", type: "varchar", length: 20, nullable: true, default: null })
+  phone: string | null;
 }
