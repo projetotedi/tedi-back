@@ -3,6 +3,7 @@ import { PeopleService } from "@modules/people/services/people.service";
 import { LoginDto } from "../dto/login.dto";
 import { MeResponseDto } from "../dto/me-response.dto";
 import { PasswordService } from "./password.service";
+import { buildPermissionMap } from "@shared/permissions/permission-matrix";
 
 @Injectable()
 export class AuthService {
@@ -71,6 +72,7 @@ export class AuthService {
       ra: person.ra,
       email: person.email,
       role: person.role,
+      permissions: buildPermissionMap(person.role),
     };
   }
 
@@ -91,6 +93,7 @@ export class AuthService {
       ra: person.ra,
       email: person.email,
       role: person.role,
+      permissions: buildPermissionMap(person.role),
     };
   }
 }

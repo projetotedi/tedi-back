@@ -4,6 +4,7 @@ import { PasswordService } from "../services/password.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
+import { buildPermissionMap } from "@shared/permissions/permission-matrix";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,6 +61,14 @@ describe("AuthService", () => {
         email: "alice@example.com",
         role: Role.MEMBER,
       });
+    });
+
+    it("login returns the permission map of the person's role", async () => {
+      const service = makeService({ person: makePerson({ role: Role.MEMBER }) });
+      const result = await service.login(VALID_DTO);
+      expect(result.permissions).toEqual(buildPermissionMap(Role.MEMBER));
+      expect(result.permissions["members.list"]).toBe("none");
+      expect(result.permissions["account.manageOwn"]).toBe("own");
     });
 
     it("CA1: does not include passwordHash in the response", async () => {
@@ -160,6 +169,14 @@ describe("AuthService", () => {
   });
 
   describe("getMe", () => {
+    it("getMe returns the permission map of the person's role", async () => {
+      const service = makeService({ person: makePerson({ role: Role.DIRECTOR }) });
+      const result = await service.getMe("uuid-1");
+      expect(result.permissions["members.view"]).toBe("department");
+      expect(result.permissions["members.deactivate"]).toBe("none");
+      expect(result.permissions).toEqual(buildPermissionMap(Role.DIRECTOR));
+    });
+
     it("CA4: returns MeResponseDto without passwordHash", async () => {
       const service = makeService({});
       const result = await service.getMe("uuid-1");

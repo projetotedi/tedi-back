@@ -10,6 +10,7 @@ import request from "supertest";
 import { PeopleService } from "@modules/people/services/people.service";
 import { PasswordService } from "../services/password.service";
 import { Role } from "@shared/enums/role.enum";
+import { buildPermissionMap } from "@shared/permissions/permission-matrix";
 import { SESSION_COOKIE_NAME } from "../auth.constants";
 import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
@@ -110,6 +111,7 @@ describe("AuthController (e2e)", () => {
         role: Role.MEMBER,
       });
       expect(res.body).not.toHaveProperty("passwordHash");
+      expect(res.body.permissions).toBeDefined();
 
       // CA1: Set-Cookie header with httpOnly
       const setCookieHeader = res.headers["set-cookie"] as string[] | string | undefined;
@@ -228,6 +230,36 @@ describe("AuthController (e2e)", () => {
         role: Role.DIRECTOR,
       });
       expect(meRes.body).not.toHaveProperty("passwordHash");
+    });
+
+    it("GET /auth/me returns the permission map of the director role", async () => {
+      const passwordHash = await passwordService.hashPassword("Senha@123");
+      await peopleService.save({
+        name: "Dora",
+        ra: "a2210007",
+        email: "dora@example.com",
+        passwordHash,
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+      });
+
+      const loginRes = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "a2210007", password: "Senha@123" })
+        .expect(200);
+
+      const rawCookies = loginRes.headers["set-cookie"] as string | string[] | undefined;
+      const cookieStr = Array.isArray(rawCookies) ? rawCookies[0] : rawCookies;
+      const cookieValue = cookieStr?.split(";")[0] ?? "";
+
+      const meRes = await request(app.getHttpServer())
+        .get("/auth/me")
+        .set("Cookie", cookieValue)
+        .expect(200);
+
+      expect(meRes.body.permissions).toEqual(buildPermissionMap(Role.DIRECTOR));
+      expect(meRes.body.permissions["members.view"]).toBe("department");
+      expect(meRes.body.permissions["members.deactivate"]).toBe("none");
     });
 
     it("CA4: GET /auth/me without cookie returns 401 UNAUTHORIZED", async () => {
