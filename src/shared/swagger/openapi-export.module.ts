@@ -75,6 +75,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
         findByIds: async () => [],
+        findDetail: async () => ({}),
       },
     },
     {
