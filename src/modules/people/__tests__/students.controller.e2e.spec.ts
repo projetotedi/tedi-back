@@ -466,7 +466,7 @@ describe("StudentsController (e2e)", () => {
       expect(rows[0].phone).toBe("43999990000");
     });
 
-    it("returns 404 NOT_FOUND for a person without a student profile and for a malformed id", async () => {
+    it("returns 404 STUDENT_NOT_FOUND for a person without a student profile and for a malformed id", async () => {
       // The member is a Person but has no StudentProfile.
       for (const id of [member.id, UNKNOWN_ID, "not-a-uuid"]) {
         const res = await request(app.getHttpServer())
@@ -475,7 +475,7 @@ describe("StudentsController (e2e)", () => {
           .send({ name: "Outro Nome" })
           .expect(404);
 
-        expect(res.body.error).toBe("NOT_FOUND");
+        expect(res.body.error).toBe("STUDENT_NOT_FOUND");
         expect(res.body.message).toBe("Student not found.");
       }
     });
@@ -574,14 +574,14 @@ describe("StudentsController (e2e)", () => {
       expect(fieldsOf(res.body)).toEqual(["reason"]);
     });
 
-    it("returns 404 NOT_FOUND for an unknown student", async () => {
+    it("returns 404 STUDENT_NOT_FOUND for an unknown student", async () => {
       const res = await request(app.getHttpServer())
         .patch(`/students/${UNKNOWN_ID}/archive`)
         .set("Cookie", coordinator.cookie)
         .send({})
         .expect(404);
 
-      expect(res.body.error).toBe("NOT_FOUND");
+      expect(res.body.error).toBe("STUDENT_NOT_FOUND");
     });
 
     it("returns 403 FORBIDDEN for a director", async () => {

@@ -32,5 +32,5 @@ docs {
   Aluno arquivado sai da listagem padrão e da lista de alunos disponíveis na matrícula; a ficha continua acessível, só para leitura.
   Arquivar de novo um aluno já arquivado responde 200 sem alterar nada: vale o primeiro arquivamento.
   Retorna 200 StudentResponseDto com archivedAt, archivedById e archiveReason preenchidos.
-  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 NOT_FOUND, 409 STUDENT_HAS_ACTIVE_ENROLLMENTS a partir da GUS-108 (aluno com matrícula ativa).
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 STUDENT_NOT_FOUND, 409 STUDENT_HAS_ACTIVE_ENROLLMENTS a partir da GUS-108 (aluno com matrícula ativa).
 }

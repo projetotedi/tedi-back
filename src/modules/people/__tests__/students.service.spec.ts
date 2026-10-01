@@ -324,15 +324,31 @@ describe("StudentsService", () => {
   });
 
   describe("update()", () => {
-    it("returns 404 NOT_FOUND when the person has no student profile", async () => {
+    it("returns 404 STUDENT_NOT_FOUND when the person has no student profile", async () => {
       state.profile = null;
 
       const failure = await httpFailure(service.update(STUDENT_ID, { name: "Outro" }, ACTOR_ID));
 
       expect(failure.getStatus()).toBe(404);
-      expect(failure.getResponse()).toEqual({ error: "NOT_FOUND", message: "Student not found." });
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_NOT_FOUND",
+        message: "Student not found.",
+      });
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 STUDENT_NOT_FOUND when the person was soft-deleted", async () => {
+      state.person = null;
+
+      const failure = await httpFailure(service.update(STUDENT_ID, { name: "Outro" }, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_NOT_FOUND",
+        message: "Student not found.",
+      });
+      expect(manager.save).not.toHaveBeenCalled();
     });
 
     it("locks the profile row for the whole edit", async () => {
@@ -496,13 +512,16 @@ describe("StudentsService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
-    it("returns 404 NOT_FOUND for an unknown student", async () => {
+    it("returns 404 STUDENT_NOT_FOUND for an unknown student", async () => {
       state.profile = null;
 
       const failure = await httpFailure(service.archive(STUDENT_ID, {}, ACTOR_ID));
 
       expect(failure.getStatus()).toBe(404);
-      expect(failure.getResponse()).toEqual({ error: "NOT_FOUND", message: "Student not found." });
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_NOT_FOUND",
+        message: "Student not found.",
+      });
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
@@ -541,12 +560,16 @@ describe("StudentsService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
-    it("returns 404 NOT_FOUND for an unknown student", async () => {
+    it("returns 404 STUDENT_NOT_FOUND for an unknown student", async () => {
       state.profile = null;
 
       const failure = await httpFailure(service.unarchive(STUDENT_ID, ACTOR_ID));
 
       expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_NOT_FOUND",
+        message: "Student not found.",
+      });
     });
   });
 
@@ -567,6 +590,20 @@ describe("StudentsService", () => {
       const where = profileRepository.find.mock.calls[0][0].where;
       expect(where.personId).toBeInstanceOf(FindOperator);
       expect(where.personId.value).toEqual([STUDENT_ID, OTHER_ID]);
+    });
+
+    it("ignores ids that are not uuids instead of failing", async () => {
+      profileRepository.find.mockResolvedValue([]);
+
+      await service.findByIds(["not-a-uuid", STUDENT_ID, "123", ""]);
+      const where = profileRepository.find.mock.calls[0][0].where;
+      expect(where.personId.value).toEqual([STUDENT_ID]);
+
+      // Nothing valid left: no query at all.
+      profileRepository.find.mockClear();
+      await expect(service.findByIds(["not-a-uuid", "123"])).resolves.toEqual([]);
+      expect(profileRepository.find).not.toHaveBeenCalled();
+      expect(dataSource.getRepository).toHaveBeenCalledTimes(1);
     });
 
     it("filters archived students only when excludeArchived is true", async () => {

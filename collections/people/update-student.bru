@@ -33,5 +33,5 @@ docs {
   Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada.
   Aluno arquivado é somente leitura: 409 STUDENT_ARCHIVED (reative antes de editar).
   Retorna 200 StudentResponseDto, com age calculada na data de hoje.
-  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 NOT_FOUND (id inexistente, mal formado ou de pessoa sem perfil de aluno), 409 STUDENT_ARCHIVED, 409 EMAIL_ALREADY_IN_USE.
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 STUDENT_NOT_FOUND (id inexistente, mal formado ou de pessoa sem perfil de aluno), 409 STUDENT_ARCHIVED, 409 EMAIL_ALREADY_IN_USE.
 }

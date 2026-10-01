@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  NotFoundException,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-} from "@nestjs/common";
+import { Body, Controller, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
 import {
   ApiBody,
   ApiConflictResponse,
@@ -25,16 +17,13 @@ import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator
 import { CreateStudentDto } from "../dto/create-student.dto";
 import { StudentResponseDto } from "../dto/student.response.dto";
 import { UpdateStudentDto } from "../dto/update-student.dto";
-import { StudentsService } from "../services/students.service";
+import { StudentsService, studentNotFound } from "../services/students.service";
 
 /**
  * A malformed id is a student that does not exist: same 404 as an unknown id.
  * Without the pipe, Postgres would reject the value and the answer would be a 500.
  */
-const STUDENT_ID = new ParseUUIDPipe({
-  exceptionFactory: () =>
-    new NotFoundException({ error: "NOT_FOUND", message: "Student not found." }),
-});
+const STUDENT_ID = new ParseUUIDPipe({ exceptionFactory: () => studentNotFound() });
 
 const STUDENT_ID_PARAM = { name: "id", format: "uuid", description: "Person id of the student." };
 

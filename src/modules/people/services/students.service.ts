@@ -1,5 +1,6 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
+import { isUUID } from "class-validator";
 import { DataSource, EntityManager, In, IsNull, QueryFailedError } from "typeorm";
 import { ArchiveDto } from "@shared/dto/archive.dto";
 import { Clock } from "@shared/dates/clock";
@@ -36,6 +37,15 @@ const PROFILE_FIELDS = [
 ] as const;
 
 const STUDENT_TARGET_TYPE = "student";
+
+/**
+ * The one place that builds the "student not found" error: an unknown id, a malformed id and a
+ * person without a student profile all answer the same 404 STUDENT_NOT_FOUND. Used by this
+ * service, by the id pipe of the controller and by the read route of GUS-107.
+ */
+export function studentNotFound(): HttpException {
+  return new HttpException({ error: "STUDENT_NOT_FOUND", message: "Student not found." }, 404);
+}
 
 /** Values changed by an update. Raw values stay local: events only get the allow-listed ones. */
 interface FieldChanges {
@@ -233,7 +243,8 @@ export class StudentsService {
 
   /**
    * Batch lookup by Person id, for other modules (classes, GUS-108).
-   * Unknown ids are ignored and the order is not guaranteed: callers index by `id`.
+   * Unknown ids and ids that are not uuids are ignored (no error) and the order is not
+   * guaranteed: callers index by `id`.
    * Archived students are included unless `excludeArchived` is true: enrollment history
    * must still resolve them, while the list of available students must not offer them.
    */
@@ -241,7 +252,8 @@ export class StudentsService {
     ids: readonly string[],
     options: { excludeArchived?: boolean } = {},
   ): Promise<StudentResponseDto[]> {
-    const unique = [...new Set(ids)];
+    // A value that is not a uuid cannot be a student; sending it to Postgres would fail (22P02).
+    const unique = [...new Set(ids)].filter((id) => isUUID(id));
     if (unique.length === 0) return [];
 
     const profiles = await this.dataSource.getRepository(StudentProfile).find({
@@ -272,7 +284,7 @@ export class StudentsService {
    * Loads the student of a Person id inside a transaction, locking the profile row so
    * concurrent edits and archives of the same student run one at a time.
    * The lookup has no relations: Postgres rejects FOR UPDATE on the nullable side of a join.
-   * 404 NOT_FOUND covers unknown ids and people that have no student profile.
+   * 404 STUDENT_NOT_FOUND covers unknown ids and people that have no student profile.
    */
   private async loadStudent(
     manager: EntityManager,
@@ -285,7 +297,7 @@ export class StudentsService {
     const person = profile ? await manager.findOne(Person, { where: { id } }) : null;
 
     if (profile === null || person === null) {
-      throw new HttpException({ error: "NOT_FOUND", message: "Student not found." }, 404);
+      throw studentNotFound();
     }
 
     return { person, profile };
