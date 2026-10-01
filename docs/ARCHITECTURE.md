@@ -183,7 +183,7 @@ Regras:
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Nunca arquivos internos de outro módulo.
 - Fixtures são do módulo. Se dois módulos precisam do mesmo dado, o módulo dono exporta uma função; nada vai para `shared/`.
 - Cada teste e2e limpa as tabelas que tocou.
-- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é o e2e de schema em `people/__tests__/people.repository.e2e.spec.ts`, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram. Tabela nova acrescenta a sua comparação ali.
+- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é um e2e de schema, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram; o primeiro é `people/__tests__/people.repository.e2e.spec.ts`. Cada módulo mantém o próprio e2e de schema no seu `__tests__`, com o mesmo padrão de comparação (o módulo não edita o e2e de outro).
 
 ## 6. Swagger como contrato
 
@@ -265,7 +265,7 @@ Aluno, plano de aula, curso e turma não são excluídos: são **arquivados**. O
 | `archivedById`  | `archived_by_id` | `uuid`        | sim  |
 | `archiveReason` | `archive_reason` | `text`        | sim  |
 
-Na entidade, use `prefix: false` (o nome no banco é exatamente o de cada `@Column`) e declare o FK de `archived_by_id` **na classe**. `@ForeignKey` em propriedade do embedded é ignorado pelo TypeORM, e o alvo é a string `"people"` porque o módulo dono da entidade não importa `Person` (seção 1, item 2):
+Na entidade, use `prefix: false` (o nome no banco é exatamente o de cada `@Column`) e declare o FK de `archived_by_id` **na classe**. `@ForeignKey` em propriedade do embedded é ignorado pelo TypeORM, e o alvo é a string `"people"` porque o módulo dono da entidade não importa `Person` (seção 1, item 2). A string só resolve se o DataSource carregar a entidade `Person`: o e2e de um módulo que usa `ArchivableColumns` precisa carregar o glob de todas as entidades (`join(__dirname, "..", "..", "..", "**", "*.entity.{ts,js}")`), não só as do próprio módulo.
 
 ```ts
 @Entity({ name: "student_profiles" })
