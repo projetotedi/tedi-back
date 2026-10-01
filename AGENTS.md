@@ -16,12 +16,13 @@ src/
 │   ├── pagination/          pagination.util.ts + __tests__/
 │   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
 │   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
-│   ├── dto/                 api-error.dto.ts
+│   ├── dto/                 api-error.dto.ts, archive.dto.ts (corpo de PATCH .../archive), transforms.ts
+│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn), clock.ts
 │   ├── decorators/          @Roles, @Public, @CurrentUser
 │   ├── permissions/         matriz de permissões, @RequirePermission, PermissionPolicy
 │   ├── enums/               role.enum.ts
 │   ├── events/              auditable-action.event.ts
-│   └── entities/            base.entity.ts
+│   └── entities/            base.entity.ts, archivable.columns.ts (arquivar em vez de excluir, ver docs/ARCHITECTURE.md seção 10)
 └── modules/                um diretório por módulo de domínio (auth, people, classes, lessons, ...)
     └── <modulo>/
         ├── <modulo>.module.ts
@@ -83,7 +84,7 @@ Use Yarn.
 
 ## Diretrizes de Commit e Pull Request
 
-- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **e2e** (Postgres → migration:run → `yarn test:e2e`), **schema-drift** (migrations num banco limpo + `migration:generate` deve não gerar nada) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
+- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **e2e** (Postgres → migration:run → `yarn test:e2e`), **schema-drift** (job "Entidades × migrations": migrations up/down/up num banco limpo; **não** roda `migration:generate`, que o bug de enums do TypeORM torna inutilizável, ver `ci.yml`; o guarda entidade × migration é o e2e de schema em `people/__tests__/people.repository.e2e.spec.ts`) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
 - Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:e2e`.
 - Usar o template em `.github/pull_request_template.md` (em português): Resumo, Impacto funcional, Migração (indicar se houve/foi necessário rodar), Validações (checklist de lint/format/test/build), Observações.
 
