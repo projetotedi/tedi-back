@@ -12,6 +12,9 @@ import { Request } from "express";
 import { SESSION_COOKIE_NAME, REQUEST_USER_KEY } from "../auth.constants";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
+import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
+import { Permission } from "@shared/permissions/permission.enum";
+import { scopeFor } from "@shared/permissions/permission-matrix";
 import { Role, roleSatisfies } from "@shared/enums/role.enum";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { PeopleService } from "@modules/people/services/people.service";
@@ -45,7 +48,7 @@ export class AuthGuard implements CanActivate {
     const fakeUser = this.resolveFakeUser();
     if (fakeUser !== null) {
       request[REQUEST_USER_KEY] = fakeUser;
-      return this.checkRoles(ctx, fakeUser);
+      return this.checkRoles(ctx, fakeUser) && this.checkPermission(ctx, fakeUser);
     }
 
     // Step 3: Require cookie tedi_session.
@@ -90,8 +93,8 @@ export class AuthGuard implements CanActivate {
     };
     request[REQUEST_USER_KEY] = authUser;
 
-    // Steps 9–10: Check @Roles if present.
-    return this.checkRoles(ctx, authUser);
+    // Steps 9–10: Check @Roles and @RequirePermission if present (both must pass).
+    return this.checkRoles(ctx, authUser) && this.checkPermission(ctx, authUser);
   }
 
   /**
@@ -127,6 +130,26 @@ export class AuthGuard implements CanActivate {
     if (minRole === undefined) return true;
 
     if (!roleSatisfies(user.role, minRole)) {
+      throw new ForbiddenException();
+    }
+
+    return true;
+  }
+
+  /**
+   * Applies @RequirePermission(): the scope of the user's role must not be "none".
+   * Fine-grained scope (own, department, allocated) is the service's job (PermissionPolicy).
+   * If no @RequirePermission decorator is present, any logged-in user passes.
+   */
+  private checkPermission(ctx: ExecutionContext, user: AuthUser): boolean {
+    const permission = this.reflector.getAllAndOverride<Permission | undefined>(PERMISSION_KEY, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ]);
+
+    if (permission === undefined) return true;
+
+    if (scopeFor(user.role, permission) === "none") {
       throw new ForbiddenException();
     }
 
