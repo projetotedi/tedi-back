@@ -27,7 +27,7 @@ body:json {
 
 docs {
   Altera o perfil de uma pessoa no sistema.
-  Requer cookie tedi_session com role coordinator ou superadmin.
+  Requer cookie tedi_session e a permissão access.manage (@RequirePermission; coordenação e superadmin). Sem ela: 403 FORBIDDEN.
   Retorna 200 AccessResponseDto com o novo role.
   Erros possíveis: 400 INVALID_ROLE (SUPERADMIN), 403 OWN_ACCOUNT,
     403 (sem permissão), 404, 409 LAST_COORDINATOR.
