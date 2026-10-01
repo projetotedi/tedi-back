@@ -174,6 +174,27 @@ describe("PermissionPolicy", () => {
       },
     );
 
+    it.each([Role.COORDINATOR, Role.SUPERADMIN])(
+      "denies attendance.confirmMember without target.personId with FORBIDDEN_SCOPE for %s",
+      (role) => {
+        const user = makeUser("actor-1", role);
+        for (const target of [undefined, {}, { lessonTeacherIds: [user.id] }]) {
+          expect(policy.can(user, Permission.ATTENDANCE_CONFIRM_MEMBER, target)).toBe(false);
+          expect(
+            errorCodeOf(() => policy.assertCan(user, Permission.ATTENDANCE_CONFIRM_MEMBER, target)),
+          ).toBe(FORBIDDEN_SCOPE);
+        }
+      },
+    );
+
+    it("assertCanAny: denies attendance.confirmMember without target.personId (FORBIDDEN_SCOPE)", () => {
+      expect(
+        errorCodeOf(() =>
+          policy.assertCanAny(coordinator, [Permission.ATTENDANCE_CONFIRM_MEMBER], {}),
+        ),
+      ).toBe(FORBIDDEN_SCOPE);
+    });
+
     it("director confirms the lesson teacher (scope all)", () => {
       expect(
         policy.can(techDirector, Permission.ATTENDANCE_CONFIRM_MEMBER, {
@@ -199,6 +220,31 @@ describe("PermissionPolicy", () => {
           personId: member.id,
         }),
       ).not.toThrow();
+    });
+
+    it("assertCanAny: director passes [ACCOUNT_MANAGE_OWN, MEMBERS_VIEW] on a member of the same department", () => {
+      expect(() =>
+        policy.assertCanAny(
+          techDirector,
+          [Permission.ACCOUNT_MANAGE_OWN, Permission.MEMBERS_VIEW],
+          {
+            personId: "member-tech",
+            departmentIds: ["tech"],
+          },
+        ),
+      ).not.toThrow();
+    });
+
+    it("assertCanAny: director gets FORBIDDEN_SCOPE on [ACCOUNT_MANAGE_OWN, MEMBERS_VIEW] for another department", () => {
+      expect(
+        errorCodeOf(() =>
+          policy.assertCanAny(
+            techDirector,
+            [Permission.ACCOUNT_MANAGE_OWN, Permission.MEMBERS_VIEW],
+            { personId: "member-comms", departmentIds: ["comms"] },
+          ),
+        ),
+      ).toBe(FORBIDDEN_SCOPE);
     });
 
     it("assertCanAny: throws FORBIDDEN_SCOPE when none passes", () => {

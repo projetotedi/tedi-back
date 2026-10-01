@@ -19,6 +19,11 @@ export class PermissionPolicy {
 
   can(user: AuthUser, permission: Permission, target?: PermissionTarget): boolean {
     if (this.isSelfAttendance(user, permission, target)) return false;
+    // Fail closed: confirming member attendance needs to know who is being confirmed,
+    // otherwise the self-attendance rule cannot be checked (not even for scope "all").
+    if (permission === Permission.ATTENDANCE_CONFIRM_MEMBER && target?.personId === undefined) {
+      return false;
+    }
 
     switch (this.scopeOf(user, permission)) {
       case "none":
