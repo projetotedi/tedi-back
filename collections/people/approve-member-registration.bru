@@ -1,0 +1,42 @@
+meta {
+  name: approve-member-registration
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/member-registrations/:id/approve
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01999a3e-7c1b-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "role": "member",
+    "departmentId": "01999a3e-1111-7000-8000-000000000001",
+    "mainFunction": "Monitora de informática",
+    "joinedAt": "2026-10-01",
+    "note": "Documentos conferidos."
+  }
+}
+
+docs {
+  Aprova um cadastro "A validar" (RN-08): a coordenação define o perfil de acesso, o departamento, a função principal e a data de entrada, e o acesso é liberado. O :id é o id da Person.
+  Requer cookie tedi_session e a permissão invites.manage (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  role: member | director | coordinator (superadmin responde 400 INVALID_ROLE).
+  departmentId: obrigatório para member e director, opcional para coordinator; precisa ser um departamento existente (list-departments).
+  mainFunction: texto de 1 a 100 caracteres. joinedAt: YYYY-MM-DD, data real, de 2000-01-01 até hoje em America/Sao_Paulo.
+  note: observação opcional da validação (até 500 caracteres), guardada no evento de auditoria. Não registre dado sensível nela.
+  Depois da aprovação o login libera e AuthUser.departmentIds passa a trazer o departamento. Aprovar de novo responde 409.
+  Retorna 200 MemberRegistrationResponseDto e registra o evento MEMBER_REGISTRATION_APPROVED (sem CPF, endereço, telefone nem e-mails).
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 400 INVALID_ROLE, 400 DEPARTMENT_NOT_FOUND, 401, 403 FORBIDDEN, 404 MEMBER_REGISTRATION_NOT_FOUND, 409 REGISTRATION_NOT_PENDING.
+}

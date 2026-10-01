@@ -26,5 +26,6 @@ docs {
   Autentica um usuário pelo RA e senha.
   Retorna MeResponseDto (id, name, ra, email, role, permissions) e grava o cookie tedi_session httpOnly.
   permissions é o mapa { [permissão]: escopo } do perfil (all, own, department, allocated, lessonTeacher, none), igual ao do /auth/me; a matriz está em docs/PERMISSIONS.md.
-  Erros possíveis: 400 VALIDATION_FAILED, 401 INVALID_CREDENTIALS, 401 ACCESS_DISABLED, 429 TOO_MANY_ATTEMPTS.
+  Cadastro de membro ainda não aprovado (GUS-91, RN-08): com a senha certa, 401 REGISTRATION_PENDING ("Registration awaiting validation.") para o cadastro "A validar" e 401 REGISTRATION_REJECTED ("Registration rejected. Contact coordination.") para o recusado. Com a senha errada a resposta é sempre INVALID_CREDENTIALS: nada sobre a conta aparece antes da senha certa.
+  Erros possíveis: 400 VALIDATION_FAILED, 401 INVALID_CREDENTIALS, 401 REGISTRATION_PENDING, 401 REGISTRATION_REJECTED, 401 ACCESS_DISABLED, 429 TOO_MANY_ATTEMPTS.
 }

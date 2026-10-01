@@ -18,20 +18,43 @@ headers {
 body:json {
   {
     "token": "{{inviteToken}}",
-    "name": "Alice Silva",
-    "ra": "a2210001",
-    "email": "alice@example.com",
-    "password": "Senha@123"
+    "password": "Senha@123",
+    "registration": {
+      "name": "Ana Torres",
+      "ra": "a2210001",
+      "personalEmail": "ana.torres@example.com",
+      "birthDate": "1999-07-22",
+      "cpf": "529.982.247-25",
+      "phone": "(11) 98181-3030",
+      "address": "Rua das Acácias, 120, apto 42",
+      "city": "São Paulo",
+      "state": "SP",
+      "institutionalEmail": "ana.torres@example.edu",
+      "course": "Sistemas de Informação",
+      "semester": 7,
+      "className": "SI-2024-N",
+      "departmentId": "01999a3e-1111-7000-8000-000000000001",
+      "volunteerTermUrl": "https://drive.google.com/file/d/exemplo/view"
+    }
   }
 }
 
 docs {
-  Aceita um convite e provisiona a conta da Person.
+  Aceita um convite.
   Rota pública (@Public) — não requer autenticação.
-  Retorna 204 sem corpo em caso de sucesso.
+  Convite de acesso (type = access): exige o objeto registration (cadastro completo do membro, RF-004). Cria o cadastro "A validar" (RN-08): a Person nasce SEM acesso (role null, accessEnabled false) e o login desse RA responde 401 REGISTRATION_PENDING até a coordenação aprovar (approve-member-registration). Sem registration: 400 VALIDATION_FAILED com details[0].field = "registration".
+  Convite de redefinição de senha (type = password_reset): manda só token e password; registration é ignorado.
+  Corpo: token e password (mínimo 8) sempre; registration só no convite de acesso.
+  registration, obrigatórios: name, ra, personalEmail (vira o e-mail da pessoa, único), birthDate (YYYY-MM-DD), cpf (com ou sem máscara; dígitos verificadores conferidos), phone (10 a 13 dígitos), institutionalEmail, course, semester (inteiro de 1 a 20) e className (turma).
+  registration, opcionais (null ou "" = não informado): address, city, state (UF, uma das 27), departmentId (sugestão; a coordenação decide na aprovação; escolha uma de departments em get-invite) e volunteerTermUrl (link https do termo de voluntariado no Drive).
+  CPF, endereço e telefone são dados pessoais (RNF-13/14): não aparecem em log nem em evento; só a coordenação vê o CPF.
+  Recusado antes? O mesmo RA volta a "A validar" com um novo convite (reenvio). Cadastro "A validar" ou aprovado não pode ser sobrescrito.
+  Retorna 204 sem corpo em caso de sucesso e registra o evento MEMBER_REGISTRATION_SUBMITTED (sem dados pessoais).
+  Nos erros 400 e 409 o convite NÃO é consumido.
   Erros possíveis:
     400 INVALID_INVITE (token inválido/expirado/usado/revogado)
-    400 VALIDATION_FAILED (campos inválidos)
-    409 RA_ALREADY_IN_USE (RA já pertence a uma conta com role)
-    409 EMAIL_ALREADY_IN_USE (e-mail já cadastrado)
+    400 VALIDATION_FAILED (campos inválidos; os do cadastro vêm como registration.<campo>, por exemplo registration.cpf)
+    400 DEPARTMENT_NOT_FOUND (departmentId não existe)
+    409 RA_ALREADY_IN_USE (RA já pertence a uma conta com role ou a um cadastro "A validar"/aprovado)
+    409 EMAIL_ALREADY_IN_USE (o e-mail pessoal já pertence a outra pessoa, inclusive a um aluno cadastrado sem RA)
 }

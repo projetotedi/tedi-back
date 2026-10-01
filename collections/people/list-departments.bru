@@ -1,0 +1,24 @@
+meta {
+  name: list-departments
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/departments
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Lista os departamentos do projeto (Tecnologia, Comunicação...), ordenados por nome.
+  Requer cookie tedi_session e a permissão invites.manage (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  A lista é dado, não código: a coordenação cadastra os departamentos em create-department. O departamento do membro vem do cadastro aprovado e dá o escopo department das permissões.
+  O formulário público de cadastro recebe a mesma lista em get-invite (campo departments), sem precisar desta rota.
+  Retorna 200 DepartmentResponseDto[] ({ id, name }); [] enquanto não houver departamento.
+  Erros possíveis: 401, 403 FORBIDDEN.
+}
