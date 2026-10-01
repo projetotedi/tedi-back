@@ -5,10 +5,12 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { randomBytes, createHash } from "node:crypto";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
+import { PeopleService } from "@modules/people/services/people.service";
 import { PasswordService } from "./password.service";
 import { Invite, InviteType } from "../entities/invite.entity";
 import { CreateInviteDto } from "../dto/create-invite.dto";
 import { AcceptInviteDto } from "../dto/accept-invite.dto";
+import { InviteResponseDto } from "../dto/invite-response.dto";
 import {
   AUDITABLE_ACTION_EVENT,
   AuditableAction,
@@ -55,11 +57,15 @@ function assertUsable(invite: Invite | null): asserts invite is Invite {
     invite.revokedAt !== null ||
     invite.expiresAt < new Date()
   ) {
-    throw new HttpException(
-      { error: "INVALID_INVITE", message: "Invalid or expired invite." },
-      400,
-    );
+    throw invalidInvite();
   }
+}
+
+/**
+ * Builds the 400 INVALID_INVITE error shared by every "this link is not usable" path.
+ */
+function invalidInvite(): HttpException {
+  return new HttpException({ error: "INVALID_INVITE", message: "Invalid or expired invite." }, 400);
 }
 
 export interface InviteListItemDto {
@@ -80,6 +86,7 @@ export class InvitesService {
     private readonly dataSource: DataSource,
     private readonly passwordService: PasswordService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly peopleService: PeopleService,
   ) {}
 
   /**
@@ -267,6 +274,36 @@ export class InvitesService {
     const invite = await this.inviteRepo.findOne({ where: { tokenHash } });
     assertUsable(invite);
     return invite;
+  }
+
+  /**
+   * Public view of an invite for `GET /auth/invites/:token`.
+   *
+   * The invite is validated first (`getByToken`), so no Person is ever read for
+   * a used, revoked, expired or unknown token.
+   *
+   * `person` is `null` for ACCESS invites. For PASSWORD_RESET invites it carries
+   * only the name and RA of the account (explicit projection), so the reset
+   * screen can show whose password is being changed.
+   * A PASSWORD_RESET invite without a person, or whose person was deleted,
+   * answers 400 INVALID_INVITE (same rule as `accept`). A person without an RA
+   * also answers 400 INVALID_INVITE, but that rule exists only on this GET:
+   * the reset screen needs an RA to show, and `accept` does not check it.
+   */
+  async getPublicView(token: string): Promise<InviteResponseDto> {
+    const invite = await this.getByToken(token);
+    const base = { type: invite.type, role: invite.role, expiresAt: invite.expiresAt };
+
+    if (invite.type !== InviteType.PASSWORD_RESET) {
+      return { ...base, person: null };
+    }
+
+    if (invite.personId === null) throw invalidInvite();
+
+    const person = await this.peopleService.findById(invite.personId);
+    if (person === null || !person.ra) throw invalidInvite();
+
+    return { ...base, person: { name: person.name, ra: person.ra } };
   }
 
   /**

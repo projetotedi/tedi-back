@@ -262,12 +262,39 @@
         ],
         "type": "object"
       },
+      "InvitePersonDto": {
+        "properties": {
+          "name": {
+            "example": "Beatriz Nunes Carvalho",
+            "type": "string"
+          },
+          "ra": {
+            "example": "202400003",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "ra"
+        ],
+        "type": "object"
+      },
       "InviteResponseDto": {
         "properties": {
           "expiresAt": {
             "example": "2026-09-19T12:00:00.000Z",
             "format": "date-time",
             "type": "string"
+          },
+          "person": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvitePersonDto"
+              }
+            ],
+            "description": "Account owner. Only on password_reset invites; always null on access invites.",
+            "nullable": true,
+            "type": "object"
           },
           "role": {
             "allOf": [
@@ -288,7 +315,8 @@
         "required": [
           "type",
           "role",
-          "expiresAt"
+          "expiresAt",
+          "person"
         ],
         "type": "object"
       },

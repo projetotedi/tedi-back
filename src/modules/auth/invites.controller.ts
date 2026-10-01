@@ -75,18 +75,14 @@ export class InvitesController {
    * Does NOT consume the invite (usedAt remains null).
    * Public — called by the front-end invite acceptance page before the user
    * fills in their registration form.
+   * `person` (name and RA only) is returned for password_reset invites and is
+   * always null for access invites.
    */
   @Get("auth/invites/:token")
   @Public()
   @ApiOkResponse({ type: InviteResponseDto })
   async getInvite(@Param("token") token: string): Promise<InviteResponseDto> {
-    const invite = await this.invitesService.getByToken(token);
-
-    return {
-      type: invite.type,
-      role: invite.role,
-      expiresAt: invite.expiresAt,
-    };
+    return this.invitesService.getPublicView(token);
   }
 
   /**
