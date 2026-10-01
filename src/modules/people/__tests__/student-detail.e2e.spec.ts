@@ -229,7 +229,7 @@ describe("GET /students/:id (e2e)", () => {
         .set("Cookie", coordinator.cookie)
         .expect(404);
 
-      expect(res.body.error).toBe("STUDENT_NOT_FOUND");
+      expect(res.body).toEqual(NOT_FOUND_BODY);
     });
 
     it("returns 404 STUDENT_NOT_FOUND in the ApiErrorDto format for a random uuid and for a malformed id", async () => {
@@ -295,6 +295,21 @@ describe("GET /students/:id (e2e)", () => {
     it("returns 404 STUDENT_NOT_FOUND when the student's person was soft-deleted", async () => {
       const studentId = await registerMaria();
       await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [studentId]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/students/${studentId}`)
+        .set("Cookie", coordinator.cookie)
+        .expect(404);
+
+      expect(res.body).toEqual(NOT_FOUND_BODY);
+    });
+
+    it("returns 404 STUDENT_NOT_FOUND when the student profile was soft-deleted", async () => {
+      const studentId = await registerMaria();
+      await dataSource.query(
+        `UPDATE student_profiles SET deleted_at = now() WHERE person_id = $1`,
+        [studentId],
+      );
 
       const res = await request(app.getHttpServer())
         .get(`/students/${studentId}`)

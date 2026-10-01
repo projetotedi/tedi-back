@@ -735,6 +735,22 @@ describe("StudentsService", () => {
       });
     });
 
+    it("throws 404 STUDENT_NOT_FOUND for an id that is not a uuid, without querying the database", async () => {
+      for (const id of ["not-a-uuid", "123", ""]) {
+        const failure = await httpFailure(service.findDetail(id));
+
+        expect(failure.getStatus()).toBe(404);
+        expect(failure.getResponse()).toEqual({
+          error: "STUDENT_NOT_FOUND",
+          message: "Student not found.",
+        });
+      }
+
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+      expect(profileRepository.findOne).not.toHaveBeenCalled();
+      expect(personRepository.find).not.toHaveBeenCalled();
+    });
+
     it("keeps an archived student readable", async () => {
       profileRepository.findOne.mockResolvedValue(
         buildProfile({

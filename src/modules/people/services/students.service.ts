@@ -284,8 +284,13 @@ export class StudentsService {
    * createdBy is null when the Person who registered the student was soft-deleted:
    * TypeORM's default find skips soft-deleted rows, the same rule the AuthGuard and the
    * invites apply. A soft-deleted student is a 404.
+   * An id that is not a uuid is a 404 without touching the database (the service is exported
+   * and other modules call it; Postgres would reject the value with 22P02), same guard as
+   * findByIds.
    */
   async findDetail(id: string): Promise<StudentDetailDto> {
+    if (!isUUID(id)) throw studentNotFound();
+
     const profile = await this.dataSource
       .getRepository(StudentProfile)
       .findOne({ where: { personId: id } });
