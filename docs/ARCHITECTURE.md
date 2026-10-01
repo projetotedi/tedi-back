@@ -335,6 +335,8 @@ Ninguém vira membro sem a aprovação da coordenação (RN-08). O aceite de um 
 | Situação, observação, quem validou e quando                | `registrationStatus`, `reviewNote`, `reviewedById`, `reviewedAt` | Ciclo da validação do vínculo                                                         |
 | Perfil de acesso                                           | `Person.role`                                                    | Fica nulo até a aprovação; o perfil do convite vai para `MemberProfile.requestedRole` |
 
+O nome do departamento é único sem diferenciar maiúsculas: `uq_departments_name` é um índice único sobre `LOWER("name")`, criado só na migration (o TypeORM não declara índice de expressão na entidade; o e2e de schema o confere em `pg_indexes`). A violação (23505) vira 409 `DEPARTMENT_ALREADY_EXISTS`.
+
 CPF, endereço e telefone são dados pessoais (RNF-13/14): nunca em log, nunca em evento (`MEMBER_AUDIT_FIELDS` é uma allow-list) e o CPF completo só aparece em `GET /member-registrations/:id`, que é da coordenação. A listagem da fila não traz CPF, endereço, telefone nem e-mails.
 
 ### 11.2 Situação × acesso

@@ -32,7 +32,12 @@ export class CreateMemberProfiles1790836110251 implements MigrationInterface {
         CONSTRAINT "PK_departments" PRIMARY KEY ("id")
       )
     `);
-    await queryRunner.query(`CREATE UNIQUE INDEX "uq_departments_name" ON "departments" ("name")`);
+    // Unique ignoring case: the name is promised as unique that way (DTO and Swagger) and the
+    // pre-check of DepartmentsService is not enough against two concurrent requests. An expression
+    // index cannot be declared in the TypeORM entity (see Department); the schema e2e checks it.
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "uq_departments_name" ON "departments" (LOWER("name"))`,
+    );
 
     await queryRunner.query(
       `CREATE TYPE "public"."member_profiles_registration_status_enum" AS ENUM('pending', 'approved', 'rejected')`,

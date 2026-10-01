@@ -172,6 +172,24 @@ describe("DepartmentsController (e2e)", () => {
       expect(Number(rows[0].count)).toBe(1);
     });
 
+    it("answers 409 DEPARTMENT_ALREADY_EXISTS for the loser of two simultaneous requests that differ only in case", async () => {
+      // The pre-check can pass for both; the unique index on lower(name) decides, and its 23505
+      // is mapped to the same 409 (no 500).
+      const results = await Promise.all([
+        createDepartment("Tecnologia"),
+        createDepartment("tecnologia"),
+      ]);
+
+      expect(results.map((res) => res.status).sort()).toEqual([201, 409]);
+      const loser = results.find((res) => res.status === 409);
+      expect(loser?.body.error).toBe("DEPARTMENT_ALREADY_EXISTS");
+
+      const rows = (await dataSource.query("SELECT count(*) FROM departments")) as Array<{
+        count: string;
+      }>;
+      expect(Number(rows[0].count)).toBe(1);
+    });
+
     it("returns 400 VALIDATION_FAILED with field name for a blank name", async () => {
       for (const name of ["", "   ", undefined, "a".repeat(101)]) {
         const res = await createDepartment(name).expect(400);

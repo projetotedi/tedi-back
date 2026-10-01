@@ -305,9 +305,23 @@ describe("people repository (e2e)", () => {
       expect(profileIndex).toHaveLength(1);
       expect(profileIndex[0]).toContain("CREATE UNIQUE INDEX");
       expect(profileIndex[0]).toContain("(person_id)");
+      // The name is unique ignoring case: the index is on lower(name), not on name. It is an
+      // expression index, which the Department entity cannot declare (see its JSDoc), so this
+      // is where it is checked.
       expect(departmentIndex).toHaveLength(1);
       expect(departmentIndex[0]).toContain("CREATE UNIQUE INDEX");
-      expect(departmentIndex[0]).toContain("(name)");
+      expect(departmentIndex[0]).toMatch(/lower\(.*name.*\)/i);
+    });
+
+    it("rejects two department names that differ only in case with 23505 on uq_departments_name", async () => {
+      const repository = dataSource.getRepository(Department);
+      await repository.save(repository.create({ name: "Tecnologia" }));
+
+      await expect(
+        repository.save(repository.create({ name: "TECNOLOGIA" })),
+      ).rejects.toMatchObject({ code: "23505", constraint: "uq_departments_name" });
+      // A different name is fine.
+      await repository.save(repository.create({ name: "Comunicação" }));
     });
 
     it("has the three named foreign keys of member_profiles", async () => {

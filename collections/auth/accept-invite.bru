@@ -43,7 +43,7 @@ docs {
   Aceita um convite.
   Rota pública (@Public) — não requer autenticação.
   Convite de acesso (type = access): exige o objeto registration (cadastro completo do membro, RF-004). Cria o cadastro "A validar" (RN-08): a Person nasce SEM acesso (role null, accessEnabled false) e o login desse RA responde 401 REGISTRATION_PENDING até a coordenação aprovar (approve-member-registration). Sem registration: 400 VALIDATION_FAILED com details[0].field = "registration".
-  Convite de redefinição de senha (type = password_reset): manda só token e password; registration é ignorado.
+  Convite de redefinição de senha (type = password_reset): manda só token e password; o service ignora registration. Mas o objeto, se vier, é validado antes (ValidationPipe, aninhado): um registration malformado também é recusado com 400 VALIDATION_FAILED (registration.<campo>) na redefinição de senha. Na redefinição, não mande registration.
   Corpo: token e password (mínimo 8) sempre; registration só no convite de acesso.
   registration, obrigatórios: name, ra, personalEmail (vira o e-mail da pessoa, único), birthDate (YYYY-MM-DD), cpf (com ou sem máscara; dígitos verificadores conferidos), phone (10 a 13 dígitos), institutionalEmail, course, semester (inteiro de 1 a 20) e className (turma).
   registration, opcionais (null ou "" = não informado): address, city, state (UF, uma das 27), departmentId (sugestão; a coordenação decide na aprovação; escolha uma de departments em get-invite) e volunteerTermUrl (link https do termo de voluntariado no Drive).
