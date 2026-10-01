@@ -33,7 +33,7 @@ Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuár
 ## 3. Dependências permitidas
 
 ```
-auth       → people   (o guard carrega a Person do banco a cada request)
+auth       → people   (o guard carrega a Person e a situação do cadastro de membro a cada request)
 people       ← classes, assignments, hours, imports
 classes      ← lessons, attendance
 lessons      ← assignments, attendance
@@ -230,9 +230,9 @@ O contrato de autorização é definido em `src/shared/decorators/` e aplicado p
 
 - **`@Roles(minRole: Role)`** — declara o nível mínimo para acessar o endpoint. O `AuthGuard` usa `roleSatisfies(userRole, minRole)` para verificar. `Role.SUPERADMIN` satisfaz qualquer `@Roles`.
 - **`@Public()`** — marca o endpoint como público; o guard devolve `true` imediatamente, sem exigir cookie ou JWT.
-- **`@CurrentUser()`** — parâmetro do handler que retorna `AuthUser { id, role, accessEnabled }` depois que o guard validou a requisição.
+- **`@CurrentUser()`** — parâmetro do handler que retorna `AuthUser { id, role, accessEnabled, departmentIds? }` depois que o guard validou a requisição.
 - **Sem decorator** — o endpoint exige que o usuário esteja autenticado (cookie `tedi_session` com JWT válido), mas aceita qualquer role.
-- **Revogação imediata** — o guard consulta `PeopleService.findById` a cada requisição; se `accessEnabled` for `false`, o guard retorna 401 mesmo com JWT válido (decisão 19).
+- **Revogação imediata** — o guard consulta `PeopleService.findById` e `MembersService.findAccessFacts` a cada requisição; se `accessEnabled` for `false`, o guard retorna 401 mesmo com JWT válido (decisão 19). O mesmo vale para o cadastro de membro `pending` ou `rejected` (GUS-91, seção 11): responde 401, e a mesma consulta traz o departamento do `AuthUser`.
 - **Bypass de desenvolvimento** — com `NODE_ENV !== 'production'` e `DEV_FAKE_ROLE=<role>`, o guard injeta um usuário fake sem exigir cookie. Em produção a variável é ignorada e um aviso é emitido no boot.
 
 ### 9.1 Permissões por perfil e escopo (GUS-114)
@@ -247,7 +247,11 @@ A matriz de permissões (quem pode fazer o quê, e dentro de qual escopo) vive e
   - `assertCanAny(user, permissions, target?)`: passa se qualquer uma cobre o alvo (ex.: horas próprias ou de outro membro).
   - `listFilter(user, permission)`: devolve o `ListScopeFilter` que o service traduz no `WHERE` da consulta. Listagem com escopo `department` filtra na consulta, nunca depois de carregar.
 - **Erros** (todos 403, no formato `ApiErrorDto`): `FORBIDDEN` (guard: o perfil não tem a permissão), `FORBIDDEN_SCOPE` (policy: tem a permissão, mas o alvo está fora do escopo) e `SELF_ATTENDANCE_NOT_ALLOWED` (policy: `attendance.confirmMember` sobre a própria pessoa, em qualquer perfil, inclusive coordenação e superadmin).
-- **Departamento** — `AuthUser.departmentIds` é opcional e será preenchido pelo guard a partir da GUS-91. Enquanto estiver ausente, o escopo `department` nega terceiros.
+- **Departamento** (GUS-91) — o escopo `department` funciona de verdade:
+  - `AuthUser.departmentIds` vem do perfil de membro **aprovado** da pessoa (0 ou 1 id), preenchido pelo guard. Vazio quer dizer sem departamento: o escopo `department` nega terceiros. O departamento sugerido no cadastro nunca dá escopo antes da aprovação. O campo continua opcional no tipo, para não quebrar os literais de `AuthUser` nos testes e o usuário do `DEV_FAKE_ROLE`.
+  - Os departamentos são a tabela `departments`, gerida pela coordenação em `GET/POST /departments`. A lista é dado, não código.
+  - O service de domínio carrega os departamentos do **alvo** com `MembersService.findAccessFacts(targetId).departmentIds` e os passa à `PermissionPolicy` em `PermissionTarget.departmentIds`.
+  - A listagem com escopo `department` filtra na consulta: `member_profiles.department_id IN (:...departmentIds)`, com os `departmentIds` do `ListScopeFilter`.
 - **`GET /auth/me` e `POST /auth/login`** devolvem `permissions: { [permission]: scope }` do perfil logado (`MeResponseDto.permissions`), para o front não repetir a matriz.
 - **`@Roles` continua funcionando** (os dois decorators coexistem e os dois precisam passar), mas as rotas novas usam `@RequirePermission`. As rotas de acessos e convites já foram migradas.
 
@@ -309,3 +313,47 @@ O corpo comum das rotas de arquivar é `ArchiveDto` (`src/shared/dto/archive.dto
 - Evento `AuditableActionEvent` `<ENTITY>_ARCHIVED` e `<ENTITY>_UNARCHIVED`, depois do commit e só quando houve mudança. O motivo do arquivamento (`archiveReason`) entra no evento; não registre informação de saúde nele (RNF-13).
 - Regras que impedem arquivar (por exemplo, aluno com matrícula ativa) respondem 409 com código próprio e ficam no service do recurso.
 - Permissão por `@RequirePermission`: arquivar e reativar costumam ser mais restritos que editar (alunos: `students.archive`, só coordenação).
+
+## 11. Cadastro de membro e validação (GUS-91)
+
+Ninguém vira membro sem a aprovação da coordenação (RN-08). O aceite de um convite de acesso (`POST /auth/invites/accept`) manda o objeto `registration` com os dados do RF-004 e cria o cadastro **A validar**: a `Person` nasce sem acesso (`role` nulo, `accessEnabled` falso). Só a aprovação, em `PATCH /member-registrations/:id/approve`, define o perfil de acesso, o departamento, a função principal e a data de entrada e libera o login.
+
+`member_profiles` é a tabela do vínculo de membro, 1:1 com `people` (como `student_profiles` é a do aluno). Não existe card da E1.b: os cards futuros de membro (inativação com data de saída, edição) estendem essa tabela em vez de criar outra.
+
+### 11.1 Onde cada campo mora
+
+| Campo                                                      | Onde                                                             | Por quê                                                                               |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Nome, RA                                                   | `Person.name`, `Person.ra`                                       | O RA é o login e a chave do reuso (RN-09)                                             |
+| Data de nascimento, telefone                               | `Person.birthDate`, `Person.phone`                               | Contato comum a aluno e membro (GUS-105); nada duplicado                              |
+| E-mail pessoal                                             | `Person.email` (único)                                           | Mesmo significado do e-mail do aluno                                                  |
+| CPF                                                        | `MemberProfile.cpf`                                              | Só o membro coleta (minimização, RNF-10). Um lugar só para restringir (RNF-14)        |
+| Endereço, cidade, UF                                       | `MemberProfile`                                                  | Só o cadastro de membro coleta                                                        |
+| E-mail institucional, curso, período, turma, link do termo | `MemberProfile`                                                  | Dado acadêmico do vínculo (RF-004, RF-011)                                            |
+| Departamento                                               | `MemberProfile.departmentId` → `departments`                     | Sugerido no aceite, decidido na aprovação; é chave de autorização                     |
+| Função principal, data de entrada                          | `MemberProfile.mainFunction`, `joinedAt`                         | Definidas pela coordenação na aprovação                                               |
+| Situação, observação, quem validou e quando                | `registrationStatus`, `reviewNote`, `reviewedById`, `reviewedAt` | Ciclo da validação do vínculo                                                         |
+| Perfil de acesso                                           | `Person.role`                                                    | Fica nulo até a aprovação; o perfil do convite vai para `MemberProfile.requestedRole` |
+
+CPF, endereço e telefone são dados pessoais (RNF-13/14): nunca em log, nunca em evento (`MEMBER_AUDIT_FIELDS` é uma allow-list) e o CPF completo só aparece em `GET /member-registrations/:id`, que é da coordenação. A listagem da fila não traz CPF, endereço, telefone nem e-mails.
+
+### 11.2 Situação × acesso
+
+A situação mora no perfil; o acesso continua na `Person`.
+
+| Situação                                                 | `Person.role`                           | `Person.accessEnabled`                          | Login (senha certa)                     | Guard                      | Em `/access`         |
+| -------------------------------------------------------- | --------------------------------------- | ----------------------------------------------- | --------------------------------------- | -------------------------- | -------------------- |
+| sem perfil de membro (seed, coordenação, contas antigas) | o que tiver                             | o que tiver                                     | como antes                              | como antes                 | se `role` não é nulo |
+| `pending`                                                | nulo (o pedido fica em `requestedRole`) | falso                                           | 401 `REGISTRATION_PENDING`              | 401                        | não                  |
+| `approved`                                               | o escolhido na aprovação                | verdadeiro; a coordenação pode desativar depois | 200, ou `ACCESS_DISABLED` se desativado | passa, com `departmentIds` | sim                  |
+| `rejected`                                               | nulo                                    | falso                                           | 401 `REGISTRATION_REJECTED`             | 401                        | não                  |
+
+- **Sem perfil de membro = fora da validação.** O seed da coordenadora roda depois das migrations e não tem perfil; as fixtures de e2e e as contas anteriores à GUS-91 também não. A migration `CreateMemberProfiles` faz o backfill: quem tinha `role` `member` ou `director` ganha um perfil `approved` (`reviewedAt` nulo marca "aprovado antes da validação existir"). Coordenação e superadmin ficam sem perfil. A coluna nasce com `DEFAULT 'pending'`, o lado seguro.
+- **Login:** primeiro a senha, depois a situação (decisão 29). Com senha errada a resposta é sempre `INVALID_CREDENTIALS`; `REGISTRATION_PENDING` e `REGISTRATION_REJECTED` (401, como `ACCESS_DISABLED`) só aparecem com a senha certa.
+- **Aceite:** RA de pessoa com perfil de acesso, ou com cadastro `pending`/`approved`, responde 409 `RA_ALREADY_IN_USE` (um cadastro em análise não é sobrescrito). RA com cadastro `rejected` é **reenvio**: mesma `Person`, mesmo perfil, de volta a `pending`. Pessoa com RA e sem perfil de acesso nem de membro é reaproveitada (RN-09). O e-mail pessoal de outra pessoa responde 409 `EMAIL_ALREADY_IN_USE`. Nos erros o convite não é consumido.
+- **Aprovar e recusar** travam a `Person` e o perfil (nessa ordem, a mesma do aceite), exigem `pending` (senão 409 `REGISTRATION_NOT_PENDING`) e emitem `MEMBER_REGISTRATION_APPROVED` ou `MEMBER_REGISTRATION_REJECTED` depois do commit. A recusa exige a observação.
+- O 404 do cadastro é `MEMBER_REGISTRATION_NOT_FOUND` (seção 10.3), com um helper único no `MembersService` que o pipe de id do controller reaproveita.
+
+### 11.3 Fronteira entre `auth` e `people`
+
+`auth` só usa o que o `PeopleModule` exporta: `MembersService`, `DepartmentsService` e os tipos do contrato desses services (`MemberRegistrationFormDto`, `DepartmentResponseDto`, `MemberRegistrationStatus`, `MemberAccessFacts`). `InvitesService.accept` abre a transação e chama `MembersService.submitFromInvite(manager, ...)`, para a `Person`, o perfil e o `invite.usedAt` saírem no mesmo commit; o evento é montado em `people` (dono da allow-list) e emitido por `auth` depois do commit. `GET /auth/invites/:token` devolve `departments` para o formulário público (só quem tem um convite válido vê os nomes).
