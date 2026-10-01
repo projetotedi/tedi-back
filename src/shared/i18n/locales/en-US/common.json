@@ -1,7 +1,0 @@
-{
-  "common": {
-    "notFound": "Resource not found.",
-    "validationError": "Validation error.",
-    "internalError": "Internal server error."
-  }
-}

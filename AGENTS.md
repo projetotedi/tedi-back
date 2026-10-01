@@ -7,16 +7,23 @@ Stack: NestJS 11 + TypeORM 0.3 + PostgreSQL, TypeScript, gerenciado com Yarn. Ar
 ```text
 src/
 ├── main.ts                 bootstrap (ValidationPipe global + Swagger)
-├── app.module.ts           módulo raiz (Config, TypeORM, I18n + módulos de domínio)
+├── app.module.ts           módulo raiz (Config, TypeORM, AuthModule + módulos de domínio; registra APP_FILTER global)
 ├── config/                 (a criar) env validada e tipada
 ├── database/
 │   ├── data-source.ts       DataSource usado pelo Nest e pelo CLI do TypeORM
 │   └── migrations/          migrations geradas pelo CLI — não editar migration já rodada
 ├── shared/                 transversal, sem conhecer domínio
 │   ├── pagination/          pagination.util.ts + __tests__/
-│   ├── swagger/             swagger.util.ts
-│   └── i18n/                módulo nestjs-i18n + locales/{en-US,pt-BR}/common.json
-└── modules/                um diretório por módulo de domínio (auth, pessoas, turmas, aulas, ...)
+│   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
+│   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
+│   ├── dto/                 api-error.dto.ts, archive.dto.ts (corpo de PATCH .../archive), transforms.ts
+│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn), clock.ts
+│   ├── decorators/          @Roles, @Public, @CurrentUser
+│   ├── permissions/         matriz de permissões, @RequirePermission, PermissionPolicy
+│   ├── enums/               role.enum.ts
+│   ├── events/              auditable-action.event.ts
+│   └── entities/            base.entity.ts, archivable.columns.ts (arquivar em vez de excluir, ver docs/ARCHITECTURE.md seção 10)
+└── modules/                um diretório por módulo de domínio (auth, people, classes, lessons, ...)
     └── <modulo>/
         ├── <modulo>.module.ts
         ├── controllers/  services/  entities/  dto/  enums/  listeners/
@@ -45,17 +52,19 @@ Use Yarn.
 
 - Linter/formatter: oxlint + oxfmt (sem `.oxlintrc.json` próprio — usa config padrão do oxlint).
 - TypeScript: `strictNullChecks`, `noImplicitAny`, `strictBindCallApply`, `noFallthroughCasesInSwitch` ativados; decorators habilitados (`experimentalDecorators` + `emitDecoratorMetadata`) para Nest, TypeORM e class-validator funcionarem.
-- Nomes de arquivo: kebab-case com sufixo de tipo (`pessoas.controller.ts`, `pessoas.service.ts`, `pessoa.entity.ts`, `criar-pessoa.dto.ts`, `*.spec.ts`, `*.e2e.spec.ts`).
-- Nomes de domínio em português, sufixos técnicos em inglês. Classes/DTOs/Entities em PascalCase, seguindo a convenção padrão do Nest.
+- Nomes de arquivo: kebab-case com sufixo de tipo (`people.controller.ts`, `people.service.ts`, `person.entity.ts`, `create-person.dto.ts`, `*.spec.ts`, `*.e2e.spec.ts`).
+- **Código em inglês** (decisão 35 da E9.a): módulos, entidades, colunas, enums, DTOs, métodos, variáveis e nomes de teste. Classes/DTOs/Entities em PascalCase, seguindo a convenção padrão do Nest. Documentação, commits e PRs seguem em português.
 
 ## Regras do Projeto
 
 - **Módulo é caixa fechada.** Só o que está em `exports` do `@Module` pode ser usado por outro módulo. Nunca importar entidade, repositório ou service interno de outro módulo. Efeito colateral entre módulos usa evento (ver `docs/ARCHITECTURE.md`, seção 3).
+- **Módulos não importam `auth`.** O `AuthGuard` é global (`APP_GUARD`); os endpoints usam `@RequirePermission(permission)` (de `src/shared/permissions/`), `@Roles(minRole)` / `@Public()` / `@CurrentUser()` (de `src/shared/decorators/`). O grafo é `auth → people` (ver `docs/ARCHITECTURE.md`, seções 3 e 9).
+- **Escopo é checado no service.** `own`, `department` e `allocated` são resolvidos com `PermissionPolicy` (`assertCan`, importando o `PermissionsModule`); listagem filtra na consulta via `listFilter`, nunca depois de carregar. A matriz é `src/shared/permissions/permission-matrix.ts`; `docs/PERMISSIONS.md` é gerado dela (`yarn permissions:export`).
 - **Entidades** ficam em `src/modules/<modulo>/entities/*.entity.ts`. É esse glob que o `data-source.ts` carrega; entidade fora dele não é registrada.
 - Validação de entrada é feita com **class-validator** + **class-transformer**, já plugados globalmente em `main.ts` via `ValidationPipe({ whitelist: true, transform: true })`. Todo DTO novo deve usar decorators do class-validator — não escrever validação manual em controllers/services.
 - **Swagger é contrato.** O frontend gera o cliente com Orval a partir do `openapi.json`. Todo controller tem `@ApiTags('<modulo>')`; toda resposta é tipada com DTO de saída (`*.response.dto.ts`), nunca a entidade. Regras completas em `docs/ARCHITECTURE.md`, seção 6.
-- i18n é feito via `nestjs-i18n`, com `pt-BR` como locale padrão e `en-US` como fallback (`src/shared/i18n/index.ts`). Toda chave nova de tradução deve ser adicionada nos dois locales em `src/shared/i18n/locales/`.
-- Configuração do Swagger é centralizada em `src/shared/swagger/swagger.util.ts` (`setupSwagger`) — não duplicar `DocumentBuilder` em outro lugar.
+- **Sem i18n no backend.** Mensagens de erro (`ApiErrorDto.message`) ficam em inglês literal; o front traduz pelo código estável `error`. `nestjs-i18n` não é usado neste repo.
+- Configuração do Swagger é centralizada em `src/shared/swagger/swagger.util.ts` (`setupSwagger`) — não duplicar `DocumentBuilder` em outro lugar. Erros de rota usam `@ApiStandardErrors()` de `src/shared/swagger/api-standard-errors.decorator.ts`.
 - Alteração de schema exige migration (`yarn migration:create`) — nunca editar uma migration que já rodou em `develop`/`staging`/`main`; criar uma nova em vez disso.
 
 ## Diretrizes de Teste
@@ -63,7 +72,7 @@ Use Yarn.
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
 - **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
-- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `horas/__tests__/presenca-gera-horas.e2e.spec.ts`).
+- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `hours/__tests__/attendance-creates-hours.e2e.spec.ts`).
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
 - Cada teste e2e limpa as tabelas que tocou.
 
@@ -75,13 +84,13 @@ Use Yarn.
 
 ## Diretrizes de Commit e Pull Request
 
-- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop` em jobs paralelos: **quality** (lint, format:check, typecheck), **unit** (`yarn test:cov`, sem banco), **e2e** (Postgres → migration:run → `yarn test:e2e`), **schema-drift** (migrations num banco limpo + `migration:generate` deve não gerar nada) e **build** (depende dos quatro). O `docker.yml` só roda em push para `main`.
+- Fluxo de branches: `feature/* → develop → staging → main`. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop`, em 5 jobs independentes (não há `needs`: todos rodam em paralelo): `qualidade` ("Qualidade": `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn openapi:check`), `testes-unitarios` ("Testes unitários": `yarn test`, sem banco), `build` ("Build": `yarn build`), `teste-e2e` ("Testes e2e": Postgres → `yarn migration:run` → `yarn test:e2e`) e `entidades-migrations` ("Entidades × migrations": `migration:run`, `migration:revert` e `migration:run` num banco limpo; **não** roda `migration:generate`, que o bug de enums do TypeORM torna inutilizável, ver `ci.yml`; o guarda entidade × migration é o e2e de schema de cada módulo, hoje `people/__tests__/people.repository.e2e.spec.ts`). O `docker.yml` só roda em push para `main` (e manualmente), quando mudam `Dockerfile`, `package.json`, `yarn.lock` ou `src/**`.
 - Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:e2e`.
 - Usar o template em `.github/pull_request_template.md` (em português): Resumo, Impacto funcional, Migração (indicar se houve/foi necessário rodar), Validações (checklist de lint/format/test/build), Observações.
 
 ## Dicas de Segurança e Configuração
 
-- Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
+- Não commitar `.env`. Usar `.env.example` como referência. Local: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`. Produção: `DATABASE_URL` (tem prioridade), `DB_SSL`, `CORS_ORIGINS`. Auth: `JWT_SECRET` (obrigatório em produção), `APP_URL` (base dos links de convite) e `ADMIN_RA`, `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` (seed da primeira coordenadora). Variável nova entra também em `render.yaml` e em `docs/DEPLOY.md`.
 - Deploy: Neon (Postgres) + Render (API, blueprint em `render.yaml`, migrations rodam no `yarn start:prod`). Passo a passo e limites do plano free em `docs/DEPLOY.md`. `GET /health` é o health check da plataforma.
 - Desenvolvimento local: `docker compose up -d` sobe só o Postgres (`docker-compose.yml`, credenciais `tedi`/`tedi`, porta 5432); a API roda fora do container com `yarn dev` para manter hot reload. `docker compose down -v` apaga os dados.
 

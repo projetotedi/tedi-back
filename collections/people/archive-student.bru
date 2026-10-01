@@ -1,0 +1,36 @@
+meta {
+  name: archive-student
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/students/:id/archive
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "Mudou de cidade."
+  }
+}
+
+docs {
+  Arquiva um aluno em vez de excluir (RN-27). Não existe DELETE de aluno. O :id é o id da Person do aluno.
+  Requer cookie tedi_session e a permissão students.archive (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  Corpo opcional: reason (até 500 caracteres; não registre informação de saúde ou diagnóstico, RNF-13).
+  Aluno arquivado sai da listagem padrão e da lista de alunos disponíveis na matrícula; a ficha continua acessível, só para leitura.
+  Arquivar de novo um aluno já arquivado responde 200 sem alterar nada: vale o primeiro arquivamento.
+  Retorna 200 StudentResponseDto com archivedAt, archivedById e archiveReason preenchidos.
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 STUDENT_NOT_FOUND, 409 STUDENT_HAS_ACTIVE_ENROLLMENTS a partir da GUS-108 (aluno com matrícula ativa).
+}

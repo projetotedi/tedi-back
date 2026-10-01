@@ -3,8 +3,10 @@
 # e também pelo botão "Run workflow" na aba Actions.
 #
 # Regras:
-# - Merge automático main -> develop quando não há conflito.
-# - Com conflito, o job não força nada: abre (ou reaproveita) um PR main -> develop para alguém resolver.
+# - Merge automático main -> develop quando não há conflito e o push é aceito.
+# - Quando não consegue concluir sozinho (conflito de merge, ou push rejeitado por
+#   ex. regra de proteção da branch), o job não força nada: abre (ou atualiza) um
+#   PR main -> develop para alguém resolver.
 # - Nunca toca na main.
 name: Sync develop with main
 
@@ -41,31 +43,46 @@ jobs:
             exit 0
           fi
           if git merge --no-ff --no-edit origin/main -m "chore: sync main -> develop ($(date -u +%Y-%m-%d))"; then
-            git push origin develop
-            echo "result=merged" >> "$GITHUB_OUTPUT"
+            if git push origin develop; then
+              echo "result=merged" >> "$GITHUB_OUTPUT"
+            else
+              echo "result=push-rejected" >> "$GITHUB_OUTPUT"
+            fi
           else
-            git merge --abort
+            git merge --abort || true
             echo "result=conflict" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Open PR when there is a conflict
-        if: steps.merge.outputs.result == 'conflict'
+      - name: Open PR when the sync can't be completed
+        if: steps.merge.outputs.result == 'conflict' || steps.merge.outputs.result == 'push-rejected'
         env:
           GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.merge.outputs.result }}
         run: |
-          existing=$(gh pr list --base develop --head main --state open --json number --jq '.[0].number')
+          if [ "$RESULT" = "conflict" ]; then
+            title="chore: sync main -> develop (conflito)"
+            reason="O merge automático diário de \`main\` em \`develop\` falhou por conflito."
+            action="Resolva os conflitos neste PR e faça o merge para a \`develop\` voltar a refletir o que está em produção."
+          else
+            title="chore: sync main -> develop (push rejeitado)"
+            reason="O merge automático diário de \`main\` em \`develop\` foi feito sem conflito, mas o \`git push\` para \`develop\` foi rejeitado (provavelmente por uma regra de proteção da branch exigindo PR)."
+            action="Faça o merge deste PR para a \`develop\` voltar a refletir o que está em produção."
+          fi
+          body="$(printf '%s\n' \
+            "$reason" \
+            "" \
+            "$action" \
+            "" \
+            "Workflow: \`.github/workflows/sync-develop.yml\`.")"
+
+          existing=$(gh pr list --base develop --head main --state open --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
-            echo "PR #$existing já aberto; nada a fazer."
+            gh pr edit "$existing" --title "$title" --body "$body"
+            echo "PR #$existing já aberto; título/descrição atualizados para o motivo atual ($RESULT)."
             exit 0
           fi
-          gh pr create --base develop --head main \
-            --title "chore: sync main -> develop (conflito)" \
-            --body "$(printf '%s\n' \
-              "O merge automático diário de \`main\` em \`develop\` falhou por conflito." \
-              "" \
-              "Resolva os conflitos neste PR e faça o merge para a \`develop\` voltar a refletir o que está em produção." \
-              "" \
-              "Workflow: \`.github/workflows/sync-develop.yml\`.")"
+
+          gh pr create --base develop --head main --title "$title" --body "$body"
 
       - name: Summary
         if: always()

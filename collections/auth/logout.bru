@@ -1,0 +1,21 @@
+meta {
+  name: logout
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/auth/logout
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Encerra a sessão do usuário limpando o cookie tedi_session.
+  Rota pública (@Public). Retorna 204 sem corpo.
+  O navegador/cliente deve descartar o cookie após a resposta.
+}

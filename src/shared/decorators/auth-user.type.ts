@@ -8,4 +8,9 @@ export interface AuthUser {
   id: string;
   role: Role;
   accessEnabled: boolean;
+  /**
+   * Filled by the AuthGuard from GUS-91 on. Absent = no department
+   * (the "department" scope denies third parties).
+   */
+  departmentIds?: readonly string[];
 }

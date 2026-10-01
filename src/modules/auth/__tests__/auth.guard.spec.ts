@@ -8,6 +8,8 @@ import { Role } from "@shared/enums/role.enum";
 import { SESSION_COOKIE_NAME, REQUEST_USER_KEY } from "../auth.constants";
 import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
+import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
+import { Permission } from "@shared/permissions/permission.enum";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,16 +44,25 @@ function makeContext(
 function makeGuard(overrides: {
   isPublic?: boolean;
   minRole?: Role;
+  permission?: Permission;
   jwtPayload?: { sub: string } | null;
   person?: { id: string; role: Role | null; accessEnabled: boolean } | null;
   configSecret?: string;
 }): AuthGuard {
-  const { isPublic = false, minRole, jwtPayload, person, configSecret = "test-secret" } = overrides;
+  const {
+    isPublic = false,
+    minRole,
+    permission,
+    jwtPayload,
+    person,
+    configSecret = "test-secret",
+  } = overrides;
 
   const reflector = {
     getAllAndOverride: jest.fn((key: string) => {
       if (key === PUBLIC_KEY) return isPublic;
       if (key === ROLES_KEY) return minRole;
+      if (key === PERMISSION_KEY) return permission;
       return undefined;
     }),
   } as unknown as Reflector;
@@ -222,6 +233,87 @@ describe("AuthGuard", () => {
       const req = makeRequest({ [SESSION_COOKIE_NAME]: "valid-jwt" });
       const ctx = makeContext(req);
       await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    });
+  });
+
+  describe("@RequirePermission", () => {
+    async function run(
+      role: Role,
+      overrides: { permission?: Permission; minRole?: Role } = {},
+    ): Promise<boolean> {
+      const guard = makeGuard({
+        ...overrides,
+        jwtPayload: { sub: "user-123" },
+        person: { id: "user-123", role, accessEnabled: true },
+      });
+      const ctx = makeContext(makeRequest({ [SESSION_COOKIE_NAME]: "valid-jwt" }));
+      return guard.canActivate(ctx);
+    }
+
+    it("allows a route without @RequirePermission for any role", async () => {
+      await expect(run(Role.MEMBER)).resolves.toBe(true);
+      await expect(run(Role.DIRECTOR)).resolves.toBe(true);
+    });
+
+    it("allows @RequirePermission(ACCESS_MANAGE) for coordinator", async () => {
+      await expect(run(Role.COORDINATOR, { permission: Permission.ACCESS_MANAGE })).resolves.toBe(
+        true,
+      );
+    });
+
+    it("throws ForbiddenException on @RequirePermission(ACCESS_MANAGE) for director", async () => {
+      await expect(
+        run(Role.DIRECTOR, { permission: Permission.ACCESS_MANAGE }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("throws ForbiddenException on @RequirePermission(HOURS_VIEW_OTHERS) for member", async () => {
+      await expect(
+        run(Role.MEMBER, { permission: Permission.HOURS_VIEW_OTHERS }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("allows a department-scoped permission (MEMBERS_VIEW) for director at guard level", async () => {
+      await expect(run(Role.DIRECTOR, { permission: Permission.MEMBERS_VIEW })).resolves.toBe(true);
+    });
+
+    it("throws ForbiddenException on @RequirePermission for a role outside the matrix", async () => {
+      await expect(
+        run("unknown-role" as unknown as Role, { permission: Permission.CATALOG_VIEW }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("allows superadmin on any @RequirePermission", async () => {
+      for (const permission of Object.values(Permission)) {
+        await expect(run(Role.SUPERADMIN, { permission })).resolves.toBe(true);
+      }
+    });
+
+    it("requires both @Roles and @RequirePermission when both are present", async () => {
+      // Permission passes (director has members.list), but @Roles(COORDINATOR) does not.
+      await expect(
+        run(Role.DIRECTOR, { permission: Permission.MEMBERS_LIST, minRole: Role.COORDINATOR }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      // @Roles(DIRECTOR) passes, but ACCESS_MANAGE is "none" for director.
+      await expect(
+        run(Role.DIRECTOR, { permission: Permission.ACCESS_MANAGE, minRole: Role.DIRECTOR }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        run(Role.COORDINATOR, { permission: Permission.ACCESS_MANAGE, minRole: Role.COORDINATOR }),
+      ).resolves.toBe(true);
+    });
+
+    it("applies @RequirePermission to the DEV_FAKE_ROLE user", async () => {
+      process.env.DEV_FAKE_ROLE = "member";
+      process.env.NODE_ENV = "test";
+
+      const denied = makeGuard({ permission: Permission.HOURS_VIEW_OTHERS });
+      await expect(denied.canActivate(makeContext(makeRequest({})))).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+
+      const allowed = makeGuard({ permission: Permission.CATALOG_VIEW });
+      await expect(allowed.canActivate(makeContext(makeRequest({})))).resolves.toBe(true);
     });
   });
 
