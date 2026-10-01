@@ -43,6 +43,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       useValue: {
         create: async () => ({}),
         getByToken: async () => ({}),
+        getPublicView: async () => ({}),
         accept: async () => undefined,
         list: async () => [],
         revoke: async () => undefined,

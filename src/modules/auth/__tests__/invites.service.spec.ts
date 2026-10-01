@@ -8,6 +8,7 @@ import { CreateInviteDto } from "../dto/create-invite.dto";
 import { AcceptInviteDto } from "../dto/accept-invite.dto";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
+import { PeopleService } from "@modules/people/services/people.service";
 import { AUDITABLE_ACTION_EVENT, AuditableAction } from "@shared/events/auditable-action.event";
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ describe("InvitesService", () => {
   let dataSource: { transaction: jest.Mock };
   let passwordService: jest.Mocked<PasswordService>;
   let eventEmitter: jest.Mocked<EventEmitter2>;
+  let peopleService: jest.Mocked<PeopleService>;
 
   beforeEach(() => {
     inviteRepo = {
@@ -78,11 +80,16 @@ describe("InvitesService", () => {
       emit: jest.fn(),
     } as unknown as jest.Mocked<EventEmitter2>;
 
+    peopleService = {
+      findById: jest.fn(),
+    } as unknown as jest.Mocked<PeopleService>;
+
     service = new InvitesService(
       inviteRepo,
       dataSource as unknown as DataSource,
       passwordService,
       eventEmitter,
+      peopleService,
     );
   });
 
@@ -609,6 +616,132 @@ describe("InvitesService", () => {
 
       const result = await service.getByToken("some-token");
       expect(result.type).toBe(InviteType.PASSWORD_RESET);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getPublicView() — GUS-112
+  // -------------------------------------------------------------------------
+
+  describe("getPublicView()", () => {
+    async function catchHttp(promise: Promise<unknown>): Promise<HttpException> {
+      try {
+        await promise;
+      } catch (e) {
+        return e as HttpException;
+      }
+      throw new Error("expected the call to throw");
+    }
+
+    function expectInvalidInvite(thrown: HttpException): void {
+      expect(thrown).toBeInstanceOf(HttpException);
+      expect(thrown.getStatus()).toBe(400);
+      expect((thrown.getResponse() as Record<string, unknown>).error).toBe("INVALID_INVITE");
+    }
+
+    it("returns person null for an access invite without loading any person", async () => {
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      inviteRepo.findOne.mockResolvedValue(
+        makeInvite({ type: InviteType.ACCESS, role: Role.MEMBER, expiresAt }),
+      );
+
+      const result = await service.getPublicView("some-token");
+
+      expect(result).toStrictEqual({ type: "access", role: "member", expiresAt, person: null });
+      expect(peopleService.findById).not.toHaveBeenCalled();
+    });
+
+    it("returns the account name and RA for a password_reset invite", async () => {
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      inviteRepo.findOne.mockResolvedValue(
+        makeInvite({
+          type: InviteType.PASSWORD_RESET,
+          role: null,
+          personId: "person-uuid-1",
+          expiresAt,
+        }),
+      );
+      peopleService.findById.mockResolvedValue(
+        makePerson({ name: "Beatriz Nunes Carvalho", ra: "202400003", role: Role.MEMBER }),
+      );
+
+      const result = await service.getPublicView("some-token");
+
+      expect(result).toStrictEqual({
+        type: "password_reset",
+        role: null,
+        expiresAt,
+        person: { name: "Beatriz Nunes Carvalho", ra: "202400003" },
+      });
+      expect(peopleService.findById).toHaveBeenCalledWith("person-uuid-1");
+    });
+
+    it("returns only name and ra, never id, email, role or passwordHash", async () => {
+      inviteRepo.findOne.mockResolvedValue(
+        makeInvite({ type: InviteType.PASSWORD_RESET, role: null, personId: "person-uuid-1" }),
+      );
+      peopleService.findById.mockResolvedValue(
+        makePerson({ name: "Beatriz Nunes Carvalho", ra: "202400003", role: Role.MEMBER }),
+      );
+
+      const result = await service.getPublicView("some-token");
+
+      expect(result.person).toStrictEqual({ name: "Beatriz Nunes Carvalho", ra: "202400003" });
+    });
+
+    it.each([
+      ["used", { usedAt: new Date() }],
+      ["revoked", { revokedAt: new Date() }],
+      ["expired", { expiresAt: new Date(Date.now() - 1000) }],
+    ])(
+      "throws 400 INVALID_INVITE without loading the person when the token is not usable (%s)",
+      async (_label, overrides) => {
+        inviteRepo.findOne.mockResolvedValue(
+          makeInvite({
+            type: InviteType.PASSWORD_RESET,
+            role: null,
+            personId: "person-uuid-1",
+            ...overrides,
+          }),
+        );
+
+        expectInvalidInvite(await catchHttp(service.getPublicView("some-token")));
+        expect(peopleService.findById).not.toHaveBeenCalled();
+      },
+    );
+
+    it("throws 400 INVALID_INVITE without loading the person when the token does not exist", async () => {
+      inviteRepo.findOne.mockResolvedValue(null);
+
+      expectInvalidInvite(await catchHttp(service.getPublicView("bad-token")));
+      expect(peopleService.findById).not.toHaveBeenCalled();
+    });
+
+    it("throws 400 INVALID_INVITE when the password_reset invite has no personId", async () => {
+      inviteRepo.findOne.mockResolvedValue(
+        makeInvite({ type: InviteType.PASSWORD_RESET, role: null, personId: null }),
+      );
+
+      expectInvalidInvite(await catchHttp(service.getPublicView("some-token")));
+      expect(peopleService.findById).not.toHaveBeenCalled();
+    });
+
+    it("throws 400 INVALID_INVITE when the person of the password_reset invite no longer exists", async () => {
+      inviteRepo.findOne.mockResolvedValue(
+        makeInvite({ type: InviteType.PASSWORD_RESET, role: null, personId: "person-uuid-1" }),
+      );
+      peopleService.findById.mockResolvedValue(null);
+
+      expectInvalidInvite(await catchHttp(service.getPublicView("some-token")));
+    });
+
+    it("throws 400 INVALID_INVITE when the person of the password_reset invite has no RA", async () => {
+      inviteRepo.findOne.mockResolvedValue(
+        makeInvite({ type: InviteType.PASSWORD_RESET, role: null, personId: "person-uuid-1" }),
+      );
+      peopleService.findById.mockResolvedValue(makePerson({ ra: null, role: Role.MEMBER }));
+
+      expectInvalidInvite(await catchHttp(service.getPublicView("some-token")));
     });
   });
 });
