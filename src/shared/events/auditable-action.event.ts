@@ -10,7 +10,6 @@ export const AUDITABLE_ACTION_EVENT = "auditable.action";
  */
 export enum AuditableAction {
   INVITE_CREATED = "INVITE_CREATED",
-  ACCESS_CREATED = "ACCESS_CREATED",
   /** Person's role was changed by a coordinator or superadmin. */
   ROLE_CHANGED = "ROLE_CHANGED",
   /** Person's access was re-enabled. */

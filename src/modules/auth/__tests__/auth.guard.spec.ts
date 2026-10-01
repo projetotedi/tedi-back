@@ -4,6 +4,8 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { AuthGuard } from "../guards/auth.guard";
 import { PeopleService } from "@modules/people/services/people.service";
+import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
+import { MemberAccessFacts, MembersService } from "@modules/people/services/members.service";
 import { Role } from "@shared/enums/role.enum";
 import { SESSION_COOKIE_NAME, REQUEST_USER_KEY } from "../auth.constants";
 import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
@@ -41,6 +43,14 @@ function makeContext(
   } as unknown as ExecutionContext;
 }
 
+const NO_MEMBER_PROFILE: MemberAccessFacts = { registrationStatus: null, departmentIds: [] };
+
+function makeMembers(facts: MemberAccessFacts = NO_MEMBER_PROFILE): MembersService {
+  return {
+    findAccessFacts: jest.fn(() => Promise.resolve(facts)),
+  } as unknown as MembersService;
+}
+
 function makeGuard(overrides: {
   isPublic?: boolean;
   minRole?: Role;
@@ -48,6 +58,8 @@ function makeGuard(overrides: {
   jwtPayload?: { sub: string } | null;
   person?: { id: string; role: Role | null; accessEnabled: boolean } | null;
   configSecret?: string;
+  facts?: MemberAccessFacts;
+  members?: MembersService;
 }): AuthGuard {
   const {
     isPublic = false,
@@ -56,6 +68,7 @@ function makeGuard(overrides: {
     jwtPayload,
     person,
     configSecret = "test-secret",
+    facts = NO_MEMBER_PROFILE,
   } = overrides;
 
   const reflector = {
@@ -82,7 +95,7 @@ function makeGuard(overrides: {
     getOrThrow: jest.fn(() => configSecret),
   } as unknown as ConfigService;
 
-  return new AuthGuard(reflector, jwt, people, config);
+  return new AuthGuard(reflector, jwt, people, config, overrides.members ?? makeMembers(facts));
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +197,94 @@ describe("AuthGuard", () => {
         id: "user-123",
         role: Role.MEMBER,
         accessEnabled: true,
+        departmentIds: [],
       });
+    });
+  });
+
+  describe("member registration (GUS-91)", () => {
+    const DEPARTMENT_ID = "01999a3e-1111-7000-8000-000000000001";
+    const SESSION = { [SESSION_COOKIE_NAME]: "valid-jwt" };
+
+    it("attaches the department of the approved member profile as departmentIds", async () => {
+      const members = makeMembers({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        departmentIds: [DEPARTMENT_ID],
+      });
+      const guard = makeGuard({
+        jwtPayload: { sub: "user-123" },
+        person: { id: "user-123", role: Role.DIRECTOR, accessEnabled: true },
+        members,
+      });
+      const req = makeRequest(SESSION);
+
+      await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+
+      expect(req[REQUEST_USER_KEY]).toEqual({
+        id: "user-123",
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+        departmentIds: [DEPARTMENT_ID],
+      });
+      expect(members.findAccessFacts).toHaveBeenCalledWith("user-123");
+    });
+
+    it("throws 401 when the member registration is pending or rejected", async () => {
+      // pending and rejected keep role null and accessEnabled false; this is the defense in
+      // depth for an inconsistent row that still carries a role and the access flag.
+      for (const status of [MemberRegistrationStatus.PENDING, MemberRegistrationStatus.REJECTED]) {
+        const guard = makeGuard({
+          jwtPayload: { sub: "user-123" },
+          person: { id: "user-123", role: Role.MEMBER, accessEnabled: true },
+          facts: { registrationStatus: status, departmentIds: [] },
+        });
+        const req = makeRequest(SESSION);
+
+        await expect(guard.canActivate(makeContext(req))).rejects.toBeInstanceOf(
+          UnauthorizedException,
+        );
+        expect(req[REQUEST_USER_KEY]).toBeUndefined();
+      }
+    });
+
+    it("does not load member facts when the person has no role", async () => {
+      const members = makeMembers();
+      const guard = makeGuard({
+        jwtPayload: { sub: "user-123" },
+        person: { id: "user-123", role: null, accessEnabled: true },
+        members,
+      });
+
+      await expect(guard.canActivate(makeContext(makeRequest(SESSION)))).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(members.findAccessFacts).not.toHaveBeenCalled();
+    });
+
+    it("does not load member facts when the access is disabled", async () => {
+      const members = makeMembers();
+      const guard = makeGuard({
+        jwtPayload: { sub: "user-123" },
+        person: { id: "user-123", role: Role.MEMBER, accessEnabled: false },
+        members,
+      });
+
+      await expect(guard.canActivate(makeContext(makeRequest(SESSION)))).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(members.findAccessFacts).not.toHaveBeenCalled();
+    });
+
+    it("leaves departmentIds out of the DEV_FAKE_ROLE user and does not query", async () => {
+      process.env.DEV_FAKE_ROLE = "director";
+      const members = makeMembers();
+      const guard = makeGuard({ members });
+      const req = makeRequest({});
+
+      await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+
+      expect(req[REQUEST_USER_KEY]).not.toHaveProperty("departmentIds");
+      expect(members.findAccessFacts).not.toHaveBeenCalled();
     });
   });
 

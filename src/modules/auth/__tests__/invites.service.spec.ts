@@ -8,8 +8,15 @@ import { CreateInviteDto } from "../dto/create-invite.dto";
 import { AcceptInviteDto } from "../dto/accept-invite.dto";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
+import { MemberRegistrationFormDto } from "@modules/people/dto/member-registration-form.dto";
+import { DepartmentsService } from "@modules/people/services/departments.service";
+import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
-import { AUDITABLE_ACTION_EVENT, AuditableAction } from "@shared/events/auditable-action.event";
+import {
+  AUDITABLE_ACTION_EVENT,
+  AuditableAction,
+  AuditableActionEvent,
+} from "@shared/events/auditable-action.event";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +69,8 @@ describe("InvitesService", () => {
   let passwordService: jest.Mocked<PasswordService>;
   let eventEmitter: jest.Mocked<EventEmitter2>;
   let peopleService: jest.Mocked<PeopleService>;
+  let members: jest.Mocked<Pick<MembersService, "submitFromInvite">>;
+  let departments: jest.Mocked<Pick<DepartmentsService, "list">>;
 
   beforeEach(() => {
     inviteRepo = {
@@ -84,12 +93,17 @@ describe("InvitesService", () => {
       findById: jest.fn(),
     } as unknown as jest.Mocked<PeopleService>;
 
+    members = { submitFromInvite: jest.fn() };
+    departments = { list: jest.fn().mockResolvedValue([]) };
+
     service = new InvitesService(
       inviteRepo,
       dataSource as unknown as DataSource,
       passwordService,
       eventEmitter,
       peopleService,
+      members as unknown as MembersService,
+      departments as unknown as DepartmentsService,
     );
   });
 
@@ -243,54 +257,102 @@ describe("InvitesService", () => {
   // -------------------------------------------------------------------------
 
   describe("accept()", () => {
-    const dto: AcceptInviteDto = {
-      token: "valid-token",
-      name: "Alice",
-      ra: "A2210001",
-      email: "ALICE@EXAMPLE.COM",
-      password: "Senha@123",
+    // Valid form, already normalized as the ValidationPipe leaves it.
+    const registration: MemberRegistrationFormDto = {
+      name: "Ana Torres",
+      ra: "a2210001",
+      personalEmail: "ana.torres@example.com",
+      birthDate: "1999-07-22",
+      cpf: "52998224725",
+      phone: "11981813030",
+      institutionalEmail: "ana.torres@example.edu",
+      course: "Sistemas de Informação",
+      semester: 7,
+      className: "SI-2024-N",
+    };
+    const dto: AcceptInviteDto = { token: "valid-token", password: "Senha@123", registration };
+
+    const submission = {
+      personId: "new-person-1",
+      auditEvent: Object.assign(new AuditableActionEvent(), {
+        actorId: "new-person-1",
+        action: AuditableAction.MEMBER_REGISTRATION_SUBMITTED,
+        targetType: "member",
+        targetId: "new-person-1",
+        before: null,
+        after: { registrationStatus: "pending" },
+        occurredAt: new Date(),
+      }),
     };
 
-    function buildManager(
-      invite: Invite | null,
-      existingByRa: Person | null = null,
-      existingByEmail: Person | null = null,
-    ): Partial<EntityManager> {
-      const savedPerson = makePerson({
-        id: "new-person-1",
-        role: invite?.role ?? Role.MEMBER,
-      });
-
+    function buildManager(invite: Invite | null): EntityManager {
       return {
-        findOne: jest
-          .fn()
-          .mockImplementation(
-            async (
-              entity: unknown,
-              opts: { where: { tokenHash?: string; ra?: string; email?: string } },
-            ) => {
-              if (entity === Invite) {
-                return invite;
-              }
-              if (opts.where.ra !== undefined) return existingByRa;
-              if (opts.where.email !== undefined) return existingByEmail;
-              return null;
-            },
-          ),
-        create: jest.fn().mockReturnValue(savedPerson),
-        save: jest.fn().mockResolvedValue(savedPerson),
-      };
+        findOne: jest.fn().mockImplementation(async (entity: unknown) => {
+          if (entity === Invite) return invite;
+          return null;
+        }),
+        save: jest.fn().mockImplementation(async (_entity: unknown, obj: unknown) => obj),
+      } as unknown as EntityManager;
     }
 
-    it("emits ACCESS_CREATED AFTER transaction commits, not inside", async () => {
+    function runWith(manager: EntityManager): void {
+      dataSource.transaction.mockImplementation(async (cb: (em: EntityManager) => Promise<void>) =>
+        cb(manager),
+      );
+    }
+
+    async function httpFailure(promise: Promise<unknown>): Promise<HttpException> {
+      try {
+        await promise;
+      } catch (e) {
+        return e as HttpException;
+      }
+      throw new Error("expected the call to throw");
+    }
+
+    beforeEach(() => {
+      members.submitFromInvite.mockResolvedValue(submission);
+    });
+
+    it("delegates the registration to MembersService.submitFromInvite with the hashed password, the invite role and the invite id", async () => {
+      const invite = makeInvite({ id: "invite-77", role: Role.DIRECTOR });
+      const manager = buildManager(invite);
+      runWith(manager);
+
+      await service.accept(dto);
+
+      expect(passwordService.hashPassword).toHaveBeenCalledWith("Senha@123");
+      expect(members.submitFromInvite).toHaveBeenCalledTimes(1);
+      // Same manager: Person, profile and invite.usedAt commit together.
+      expect(members.submitFromInvite).toHaveBeenCalledWith(manager, {
+        ...registration,
+        passwordHash: "$argon2id$v=19$hashed",
+        requestedRole: Role.DIRECTOR,
+        inviteId: "invite-77",
+      });
+    });
+
+    it("marks the invite used with the person id returned by the registration", async () => {
+      const invite = makeInvite();
+      const manager = buildManager(invite);
+      runWith(manager);
+
+      await service.accept(dto);
+
+      expect(invite.usedAt).toBeInstanceOf(Date);
+      expect(invite.personId).toBe("new-person-1");
+      expect(manager.save).toHaveBeenCalledWith(Invite, invite);
+    });
+
+    it("emits the submission event AFTER the transaction commits, not inside", async () => {
       const callOrder: string[] = [];
 
       dataSource.transaction.mockImplementation(
         async (cb: (em: EntityManager) => Promise<void>) => {
-          const manager = buildManager(makeInvite()) as EntityManager;
-          (manager.save as jest.Mock).mockImplementation(async () => {
+          const manager = buildManager(makeInvite());
+          (manager.save as jest.Mock).mockImplementation(async (_e: unknown, obj: unknown) => {
             callOrder.push("tx-save");
-            return makePerson({ id: "p1", role: Role.MEMBER });
+            return obj;
           });
           await cb(manager);
           callOrder.push("tx-commit");
@@ -310,68 +372,81 @@ describe("InvitesService", () => {
       expect(txCommitIdx).toBeGreaterThan(-1);
       expect(emitIdx).toBeGreaterThan(txCommitIdx);
 
-      expect(eventEmitter.emit).toHaveBeenCalledWith(
-        AUDITABLE_ACTION_EVENT,
-        expect.objectContaining({
-          action: AuditableAction.ACCESS_CREATED,
-          targetType: "person",
-        }),
-      );
+      // The event is the one MembersService built with the allow-list: emitted as is.
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(AUDITABLE_ACTION_EVENT, submission.auditEvent);
     });
 
-    it("throws 409 RA_ALREADY_IN_USE when person by RA has role, and does NOT consume invite", async () => {
+    it("throws 400 VALIDATION_FAILED with field registration for an access invite without registration and does not consume the invite", async () => {
       const invite = makeInvite();
-      const personWithRole = makePerson({ role: Role.MEMBER });
+      const manager = buildManager(invite);
+      runWith(manager);
 
-      dataSource.transaction.mockImplementation(
-        async (cb: (em: EntityManager) => Promise<void>) => {
-          const manager = buildManager(invite, personWithRole) as EntityManager;
-          await cb(manager);
-        },
+      const failure = await httpFailure(
+        service.accept({ token: "valid-token", password: "Senha@123" }),
       );
 
-      let thrown: HttpException | null = null;
-      try {
-        await service.accept(dto);
-      } catch (e) {
-        thrown = e as HttpException;
-      }
+      expect(failure.getStatus()).toBe(400);
+      // Same shape the ValidationPipe produces, so the filter answers details[0].field.
+      expect(failure.getResponse()).toMatchObject({
+        error: "VALIDATION_FAILED",
+        rawErrors: [{ field: "registration", message: expect.any(String) }],
+      });
+      expect(members.submitFromInvite).not.toHaveBeenCalled();
+      expect(invite.usedAt).toBeNull();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
 
-      expect(thrown).toBeInstanceOf(HttpException);
-      expect(thrown!.getStatus()).toBe(409);
-      expect((thrown!.getResponse() as Record<string, unknown>).error).toBe("RA_ALREADY_IN_USE");
+    it("does not consume the invite when submitFromInvite throws 409 RA_ALREADY_IN_USE", async () => {
+      const invite = makeInvite();
+      const manager = buildManager(invite);
+      runWith(manager);
+      members.submitFromInvite.mockRejectedValue(
+        new HttpException({ error: "RA_ALREADY_IN_USE", message: "RA already in use." }, 409),
+      );
 
-      // Event must NOT be emitted when tx is rolled back via exception.
+      const failure = await httpFailure(service.accept(dto));
+
+      expect(failure.getStatus()).toBe(409);
+      expect((failure.getResponse() as Record<string, unknown>).error).toBe("RA_ALREADY_IN_USE");
+      // The rule moved to people; here only the consequence matters: nothing consumed or emitted.
+      expect(invite.usedAt).toBeNull();
+      expect(invite.personId).toBeNull();
+      expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
     it("throws 400 INVALID_INVITE when token is already used inside accept", async () => {
       const usedInvite = makeInvite({ usedAt: new Date() });
+      runWith(buildManager(usedInvite));
 
-      dataSource.transaction.mockImplementation(
-        async (cb: (em: EntityManager) => Promise<void>) => {
-          const manager = buildManager(usedInvite) as EntityManager;
-          await cb(manager);
-        },
-      );
+      const failure = await httpFailure(service.accept(dto));
 
-      let thrown: HttpException | null = null;
-      try {
-        await service.accept(dto);
-      } catch (e) {
-        thrown = e as HttpException;
-      }
-
-      expect(thrown).toBeInstanceOf(HttpException);
-      expect(thrown!.getStatus()).toBe(400);
-      expect((thrown!.getResponse() as Record<string, unknown>).error).toBe("INVALID_INVITE");
+      expect(failure).toBeInstanceOf(HttpException);
+      expect(failure.getStatus()).toBe(400);
+      expect((failure.getResponse() as Record<string, unknown>).error).toBe("INVALID_INVITE");
+      expect(members.submitFromInvite).not.toHaveBeenCalled();
     });
 
-    it("does not emit ACCESS_CREATED when transaction throws", async () => {
+    it("does not emit when the transaction throws", async () => {
       dataSource.transaction.mockRejectedValue(new Error("tx failed"));
 
       await expect(service.accept(dto)).rejects.toThrow("tx failed");
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("locks the invite row while accepting", async () => {
+      const manager = buildManager(makeInvite());
+      runWith(manager);
+
+      await service.accept(dto);
+
+      // Double click on the same link: the second request waits, then sees usedAt and fails.
+      expect(manager.findOne).toHaveBeenCalledWith(Invite, {
+        where: { tokenHash: expect.any(String) },
+        lock: { mode: "pessimistic_write" },
+      });
     });
   });
 
@@ -437,6 +512,29 @@ describe("InvitesService", () => {
           targetType: "person",
         }),
       );
+    });
+
+    it("ignores the registration of a password_reset invite and only changes the password", async () => {
+      const resetInvite = makeInvite({
+        type: InviteType.PASSWORD_RESET,
+        personId: "person-uuid-1",
+      });
+      const person = makePerson({ id: "person-uuid-1", role: Role.MEMBER });
+
+      dataSource.transaction.mockImplementation(async (cb: (em: EntityManager) => Promise<void>) =>
+        cb(buildPasswordResetManager(resetInvite, person) as EntityManager),
+      );
+
+      await service.accept({
+        token: "reset-token",
+        password: "NewPassw@123",
+        registration: { name: "Outro Nome" } as MemberRegistrationFormDto,
+      });
+
+      expect(members.submitFromInvite).not.toHaveBeenCalled();
+      expect(person.passwordHash).toBe("$argon2id$v=19$hashed");
+      expect(person.name).toBe("Alice");
+      expect(resetInvite.usedAt).toBeInstanceOf(Date);
     });
 
     it("400 INVALID_INVITE when invite.personId is null", async () => {
@@ -639,15 +737,26 @@ describe("InvitesService", () => {
       expect((thrown.getResponse() as Record<string, unknown>).error).toBe("INVALID_INVITE");
     }
 
-    it("returns person null for an access invite without loading any person", async () => {
+    it("returns person null and the departments for an access invite without loading any person", async () => {
       const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      const list = [
+        { id: "01999a3e-1111-7000-8000-000000000002", name: "Comunicação" },
+        { id: "01999a3e-1111-7000-8000-000000000001", name: "Tecnologia" },
+      ];
+      departments.list.mockResolvedValue(list);
       inviteRepo.findOne.mockResolvedValue(
         makeInvite({ type: InviteType.ACCESS, role: Role.MEMBER, expiresAt }),
       );
 
       const result = await service.getPublicView("some-token");
 
-      expect(result).toStrictEqual({ type: "access", role: "member", expiresAt, person: null });
+      expect(result).toStrictEqual({
+        type: "access",
+        role: "member",
+        expiresAt,
+        departments: list,
+        person: null,
+      });
       expect(peopleService.findById).not.toHaveBeenCalled();
     });
 
@@ -671,9 +780,12 @@ describe("InvitesService", () => {
         type: "password_reset",
         role: null,
         expiresAt,
+        departments: [],
         person: { name: "Beatriz Nunes Carvalho", ra: "202400003" },
       });
       expect(peopleService.findById).toHaveBeenCalledWith("person-uuid-1");
+      // A reset screen has no use for departments: nothing is queried.
+      expect(departments.list).not.toHaveBeenCalled();
     });
 
     it("returns only name and ra, never id, email, role or passwordHash", async () => {
@@ -715,6 +827,7 @@ describe("InvitesService", () => {
 
       expectInvalidInvite(await catchHttp(service.getPublicView("bad-token")));
       expect(peopleService.findById).not.toHaveBeenCalled();
+      expect(departments.list).not.toHaveBeenCalled();
     });
 
     it("throws 400 INVALID_INVITE when the password_reset invite has no personId", async () => {

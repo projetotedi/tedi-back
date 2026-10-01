@@ -1,10 +1,12 @@
-import { HttpException, Injectable } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { randomBytes, createHash } from "node:crypto";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
+import { DepartmentsService } from "@modules/people/services/departments.service";
+import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { PasswordService } from "./password.service";
 import { Invite, InviteType } from "../entities/invite.entity";
@@ -87,6 +89,8 @@ export class InvitesService {
     private readonly passwordService: PasswordService,
     private readonly eventEmitter: EventEmitter2,
     private readonly peopleService: PeopleService,
+    private readonly members: MembersService,
+    private readonly departments: DepartmentsService,
   ) {}
 
   /**
@@ -282,9 +286,11 @@ export class InvitesService {
    * The invite is validated first (`getByToken`), so no Person is ever read for
    * a used, revoked, expired or unknown token.
    *
-   * `person` is `null` for ACCESS invites. For PASSWORD_RESET invites it carries
-   * only the name and RA of the account (explicit projection), so the reset
-   * screen can show whose password is being changed.
+   * `person` is `null` for ACCESS invites, which carry `departments` instead: the list the
+   * sign-up form offers (GUS-91; only a holder of a valid invite sees the names).
+   * For PASSWORD_RESET invites `person` carries only the name and RA of the account
+   * (explicit projection), so the reset screen can show whose password is being changed,
+   * and `departments` is `[]` without querying anything.
    * A PASSWORD_RESET invite without a person, or whose person was deleted,
    * answers 400 INVALID_INVITE (same rule as `accept`). A person without an RA
    * also answers 400 INVALID_INVITE, but that rule exists only on this GET:
@@ -295,7 +301,7 @@ export class InvitesService {
     const base = { type: invite.type, role: invite.role, expiresAt: invite.expiresAt };
 
     if (invite.type !== InviteType.PASSWORD_RESET) {
-      return { ...base, person: null };
+      return { ...base, departments: await this.departments.list(), person: null };
     }
 
     if (invite.personId === null) throw invalidInvite();
@@ -303,25 +309,29 @@ export class InvitesService {
     const person = await this.peopleService.findById(invite.personId);
     if (person === null || !person.ra) throw invalidInvite();
 
-    return { ...base, person: { name: person.name, ra: person.ra } };
+    return { ...base, departments: [], person: { name: person.name, ra: person.ra } };
   }
 
   /**
-   * Accepts an invite and provisions a Person.
+   * Accepts an invite.
    *
-   * Branches by invite type:
+   * Branches by invite type. The invite row is read with a lock (pessimistic_write): a double
+   * click on the same link makes the second request wait and then fail with 400 INVALID_INVITE,
+   * so one link never creates two registrations.
    *
-   * ACCESS:
+   * ACCESS (GUS-91, RN-08):
    *  1. Validate token (same logic as getByToken).
-   *  2. Normalize ra and email to lowercase.
-   *  3. If Person by RA exists with role !== null → 409 RA_ALREADY_IN_USE.
-   *  4. If Person by RA exists with role === null → update (RN-09).
-   *  5. If email already taken by a different person → 409 EMAIL_ALREADY_IN_USE.
-   *  6. Otherwise create new Person.
-   *  7. Mark invite.usedAt = now, invite.personId = person.id.
-   *  8. AFTER the transaction commits: emit ACCESS_CREATED.
+   *  2. No `registration` in the body → 400 VALIDATION_FAILED with field `registration`
+   *     (same shape as the ValidationPipe; the DTO cannot know the invite type).
+   *  3. MembersService.submitFromInvite, in this transaction: creates (or reuses, RN-09) the
+   *     Person WITHOUT access (role null, accessEnabled false) and a PENDING member profile.
+   *     RA/e-mail conflicts (409) and unknown departments (400) come from there and roll the
+   *     transaction back: the invite is not consumed.
+   *  4. Mark invite.usedAt = now, invite.personId = person.id.
+   *  5. AFTER the transaction commits: emit MEMBER_REGISTRATION_SUBMITTED. Access is only
+   *     granted by the approval of coordination (MEMBER_REGISTRATION_APPROVED).
    *
-   * PASSWORD_RESET:
+   * PASSWORD_RESET (ignores `registration`):
    *  1. Validate token.
    *  2. invite.personId === null → 400 INVALID_INVITE (defensive).
    *  3. Load Person by invite.personId → null → 400 INVALID_INVITE.
@@ -330,17 +340,14 @@ export class InvitesService {
    *  6. AFTER the transaction commits: emit PASSWORD_RESET.
    */
   async accept(dto: AcceptInviteDto): Promise<void> {
-    let personIdForEvent: string;
-    let actionForEvent: AuditableAction;
-    // For PASSWORD_RESET the endpoint is anonymous (link opened by the target);
-    // attribute the audit event to the coordinator that ISSUED the reset
-    // (invite.createdById), not to the target. For ACCESS the invite acceptance
-    // is also anonymous, but the actor is the person being provisioned.
-    let actorIdForEvent: string;
+    let eventToEmit: AuditableActionEvent;
 
     await this.dataSource.transaction(async (manager) => {
       const tokenHash = hashToken(dto.token);
-      const invite = await manager.findOne(Invite, { where: { tokenHash } });
+      const invite = await manager.findOne(Invite, {
+        where: { tokenHash },
+        lock: { mode: "pessimistic_write" },
+      });
       assertUsable(invite);
 
       if (invite.type === InviteType.PASSWORD_RESET) {
@@ -366,93 +373,46 @@ export class InvitesService {
         invite.usedAt = new Date();
         await manager.save(Invite, invite);
 
-        personIdForEvent = person.id;
-        actionForEvent = AuditableAction.PASSWORD_RESET;
-        actorIdForEvent = invite.createdById;
+        // The endpoint is anonymous (link opened by the target): attribute the audit event to
+        // the coordinator that ISSUED the reset (invite.createdById), not to the target.
+        const event = new AuditableActionEvent();
+        event.actorId = invite.createdById;
+        event.action = AuditableAction.PASSWORD_RESET;
+        event.targetType = "person";
+        event.targetId = person.id;
+        event.before = null;
+        event.after = { personId: person.id };
+        event.occurredAt = new Date();
+        eventToEmit = event;
       } else {
-        // ACCESS branch — provisions a Person
-        const ra = (dto.ra ?? "").trim().toLowerCase();
-        const email = (dto.email ?? "").trim().toLowerCase();
-
-        // Check for existing person by RA.
-        const existingByRa = await manager.findOne(Person, { where: { ra } });
-
-        let person: Person;
-
-        if (existingByRa !== null) {
-          if (existingByRa.role !== null) {
-            // RA already belongs to an active account — reject without consuming invite.
-            throw new HttpException(
-              { error: "RA_ALREADY_IN_USE", message: "RA already in use." },
-              409,
-            );
-          }
-
-          // RN-09: reuse existing Person that has no role yet.
-          // Check if the new email is already taken by a DIFFERENT person.
-          if (email !== existingByRa.email) {
-            const emailOwner = await manager.findOne(Person, { where: { email } });
-            if (emailOwner !== null && emailOwner.id !== existingByRa.id) {
-              throw new HttpException(
-                { error: "EMAIL_ALREADY_IN_USE", message: "Email already in use." },
-                409,
-              );
-            }
-          }
-
-          existingByRa.name = dto.name ?? existingByRa.name;
-          existingByRa.email = email;
-          existingByRa.ra = ra;
-          existingByRa.passwordHash = await this.passwordService.hashPassword(dto.password);
-          existingByRa.role = invite.role;
-          existingByRa.accessEnabled = true;
-          person = await manager.save(Person, existingByRa);
-        } else {
-          // No existing person by RA — check email uniqueness before create.
-          const emailOwner = await manager.findOne(Person, { where: { email } });
-          if (emailOwner !== null) {
-            throw new HttpException(
-              { error: "EMAIL_ALREADY_IN_USE", message: "Email already in use." },
-              409,
-            );
-          }
-
-          const newPerson = manager.create(Person, {
-            name: dto.name ?? "",
-            ra,
-            email,
-            passwordHash: await this.passwordService.hashPassword(dto.password),
-            role: invite.role,
-            accessEnabled: true,
+        // ACCESS branch — registers the member as "A validar", without access.
+        if (!dto.registration) {
+          // Same shape the ValidationPipe produces → 400 VALIDATION_FAILED, details[0].field.
+          throw new BadRequestException({
+            error: "VALIDATION_FAILED",
+            rawErrors: [
+              { field: "registration", message: "registration is required for access invites" },
+            ],
           });
-          person = await manager.save(Person, newPerson);
         }
 
-        // Mark invite as used.
+        const submission = await this.members.submitFromInvite(manager, {
+          ...dto.registration,
+          passwordHash: await this.passwordService.hashPassword(dto.password),
+          requestedRole: invite.role,
+          inviteId: invite.id,
+        });
+
         invite.usedAt = new Date();
-        invite.personId = person.id;
+        invite.personId = submission.personId;
         await manager.save(Invite, invite);
 
-        personIdForEvent = person.id;
-        actionForEvent = AuditableAction.ACCESS_CREATED;
-        // On accept-access, the acceptor IS the newly-provisioned person.
-        actorIdForEvent = person.id;
+        eventToEmit = submission.auditEvent;
       }
     });
 
     // Emit AFTER the transaction has committed.
     // Emitting inside the tx would risk leaking the event on rollback.
-    const event = new AuditableActionEvent();
-    event.actorId = actorIdForEvent!;
-    event.action = actionForEvent!;
-    event.targetType = "person";
-    event.targetId = personIdForEvent!;
-    event.before = null;
-    event.after =
-      actionForEvent! === AuditableAction.PASSWORD_RESET
-        ? { personId: personIdForEvent! }
-        : { personId: personIdForEvent! };
-    event.occurredAt = new Date();
-    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
+    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, eventToEmit!);
   }
 }

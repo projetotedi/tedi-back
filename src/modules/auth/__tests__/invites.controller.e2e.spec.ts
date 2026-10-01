@@ -490,9 +490,11 @@ describe("InvitesController (e2e)", () => {
         })
         .expect(204);
 
-      const accessCreated = events.find((e) => e.action === AuditableAction.ACCESS_CREATED);
-      expect(accessCreated).toBeDefined();
-      expect(accessCreated!.targetType).toBe("person");
+      const submitted = events.find(
+        (e) => e.action === AuditableAction.MEMBER_REGISTRATION_SUBMITTED,
+      );
+      expect(submitted).toBeDefined();
+      expect(submitted!.targetType).toBe("member");
     });
   });
 
