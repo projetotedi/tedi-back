@@ -222,12 +222,20 @@ describe("AccessController (e2e)", () => {
 
     it("403 for member on GET /access", async () => {
       const member = await createMember();
-      await request(app.getHttpServer()).get("/access").set("Cookie", member.cookie).expect(403);
+      const res = await request(app.getHttpServer())
+        .get("/access")
+        .set("Cookie", member.cookie)
+        .expect(403);
+      expect(res.body.error).toBe("FORBIDDEN");
     });
 
     it("403 for director on GET /access", async () => {
       const director = await createDirector();
-      await request(app.getHttpServer()).get("/access").set("Cookie", director.cookie).expect(403);
+      const res = await request(app.getHttpServer())
+        .get("/access")
+        .set("Cookie", director.cookie)
+        .expect(403);
+      expect(res.body.error).toBe("FORBIDDEN");
     });
   });
 
