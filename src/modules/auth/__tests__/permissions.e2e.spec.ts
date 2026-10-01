@@ -203,6 +203,24 @@ describe("Permissions (e2e)", () => {
       }
     });
 
+    it("director of Tecnologia gets 200 on GET /test/permissions/hours/entries?personId=<Tecnologia member>", async () => {
+      await request(app.getHttpServer())
+        .get(`${BASE}/hours/entries`)
+        .query({ personId: memberTech.id })
+        .set("Cookie", directorTech.cookie)
+        .expect(200)
+        .expect({ personId: memberTech.id });
+    });
+
+    it("director of Tecnologia gets 403 FORBIDDEN_SCOPE on GET /test/permissions/hours/entries?personId=<Comunicação member>", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/hours/entries`)
+        .query({ personId: memberComms.id })
+        .set("Cookie", directorTech.cookie)
+        .expect(403);
+      expect(res.body.error).toBe("FORBIDDEN_SCOPE");
+    });
+
     it("member gets 200 on GET /test/permissions/hours/entries?personId=<self>", async () => {
       await request(app.getHttpServer())
         .get(`${BASE}/hours/entries`)
