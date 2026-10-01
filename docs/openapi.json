@@ -2491,7 +2491,7 @@
                 }
               }
             },
-            "description": ""
+            "description": "STUDENT_NOT_FOUND"
           },
           "500": {
             "content": {

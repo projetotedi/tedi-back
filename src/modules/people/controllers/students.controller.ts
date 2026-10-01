@@ -70,6 +70,7 @@ export class StudentsController {
   @RequirePermission(Permission.STUDENTS_VIEW)
   @ApiParam(STUDENT_ID_PARAM)
   @ApiOkResponse({ type: StudentDetailDto })
+  @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
   getStudent(@Param("id", STUDENT_ID) id: string): Promise<StudentDetailDto> {
     return this.studentsService.findDetail(id);
   }
