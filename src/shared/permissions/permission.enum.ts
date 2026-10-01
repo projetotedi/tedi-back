@@ -1,0 +1,35 @@
+/**
+ * One entry per action of the permission matrix (docs/PERMISSIONS.md).
+ * The value is the stable key exposed in `GET /auth/me` (`permissions`).
+ */
+export enum Permission {
+  ACCOUNT_MANAGE_OWN = "account.manageOwn",
+  MEMBERS_LIST = "members.list",
+  MEMBERS_VIEW = "members.view",
+  MEMBERS_EDIT = "members.edit",
+  MEMBERS_DEACTIVATE = "members.deactivate",
+  ASSIGNMENTS_CREATE = "assignments.create",
+  INVITES_MANAGE = "invites.manage",
+  ACCESS_MANAGE = "access.manage",
+  CATALOG_VIEW = "catalog.view",
+  LESSON_PLANS_MANAGE = "lessonPlans.manage",
+  COURSES_MANAGE = "courses.manage",
+  COURSES_DUPLICATE_ARCHIVE = "courses.duplicateArchive",
+  CLASSES_VIEW = "classes.view",
+  CLASSES_MANAGE = "classes.manage",
+  ENROLLMENTS_MANAGE = "enrollments.manage",
+  LESSONS_VIEW = "lessons.view",
+  ASSIGNMENTS_MANAGE_OWN = "assignments.manageOwn",
+  LESSONS_MANAGE = "lessons.manage",
+  ASSIGNMENTS_REVIEW = "assignments.review",
+  ATTENDANCE_TAKE_STUDENTS = "attendance.takeStudents",
+  ATTENDANCE_CONFIRM_MEMBER = "attendance.confirmMember",
+  ATTENDANCE_CORRECT = "attendance.correct",
+  STUDENTS_VIEW = "students.view",
+  STUDENTS_MANAGE = "students.manage",
+  STUDENTS_ARCHIVE = "students.archive",
+  HOURS_VIEW_OTHERS = "hours.viewOthers",
+  HOURS_LOG_FOR_OTHERS = "hours.logForOthers",
+  HOURS_REVIEW = "hours.review",
+  HOURS_EXPORT = "hours.export",
+}

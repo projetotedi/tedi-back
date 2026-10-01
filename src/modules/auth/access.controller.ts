@@ -2,10 +2,10 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nes
 import { ApiCreatedResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { ApiOkResponsePaginated } from "@shared/pagination/api-paginated-response.decorator";
-import { Roles } from "@shared/decorators/roles.decorator";
+import { RequirePermission } from "@shared/permissions/require-permission.decorator";
+import { Permission } from "@shared/permissions/permission.enum";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { AuthUser } from "@shared/decorators/auth-user.type";
-import { Role } from "@shared/enums/role.enum";
 import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { AccessService } from "./services/access.service";
 import { ListAccessQueryDto } from "./dto/list-access-query.dto";
@@ -17,7 +17,7 @@ import { PasswordResetResponseDto } from "./dto/password-reset-response.dto";
 /**
  * AccessController — routes for access management.
  *
- * All routes require at minimum COORDINATOR role.
+ * All routes require Permission.ACCESS_MANAGE (coordinator; superadmin).
  *
  *  GET    /access                       — list people with access (paginated)
  *  PATCH  /access/:id/role             — change person's role
@@ -27,7 +27,7 @@ import { PasswordResetResponseDto } from "./dto/password-reset-response.dto";
 @ApiTags("auth")
 @Controller("access")
 @ApiStandardErrors()
-@Roles(Role.COORDINATOR)
+@RequirePermission(Permission.ACCESS_MANAGE)
 export class AccessController {
   constructor(private readonly accessService: AccessService) {}
 

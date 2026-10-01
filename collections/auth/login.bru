@@ -24,6 +24,7 @@ body:json {
 
 docs {
   Autentica um usuário pelo RA e senha.
-  Retorna MeResponseDto (id, name, ra, email, role) e grava o cookie tedi_session httpOnly.
+  Retorna MeResponseDto (id, name, ra, email, role, permissions) e grava o cookie tedi_session httpOnly.
+  permissions é o mapa { [permissão]: escopo } do perfil (all, own, department, allocated, lessonTeacher, none), igual ao do /auth/me; a matriz está em docs/PERMISSIONS.md.
   Erros possíveis: 400 VALIDATION_FAILED, 401 INVALID_CREDENTIALS, 401 ACCESS_DISABLED, 429 TOO_MANY_ATTEMPTS.
 }

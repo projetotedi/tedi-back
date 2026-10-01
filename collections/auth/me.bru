@@ -16,6 +16,8 @@ headers {
 
 docs {
   Retorna os dados do usuário autenticado (MeResponseDto) a partir do cookie tedi_session.
+  Inclui permissions: o mapa { [permissão]: escopo } do perfil atual (all, own, department, allocated, lessonTeacher, none),
+  que o front usa para montar menu e ações. A matriz completa está em docs/PERMISSIONS.md.
   Requer cookie tedi_session válido; sem ele retorna 401 UNAUTHORIZED.
   Não inclui passwordHash na resposta.
 }

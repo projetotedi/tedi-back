@@ -200,20 +200,22 @@ describe("InvitesController (e2e)", () => {
   describe("Case 2 (CA80-2): director and member are forbidden from POST /invites", () => {
     it("403 for director", async () => {
       const director = await createDirector();
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post("/invites")
         .set("Cookie", director.cookie)
         .send({ role: "member" })
         .expect(403);
+      expect(res.body.error).toBe("FORBIDDEN");
     });
 
     it("403 for member", async () => {
       const member = await createMember();
-      await request(app.getHttpServer())
+      const res = await request(app.getHttpServer())
         .post("/invites")
         .set("Cookie", member.cookie)
         .send({ role: "member" })
         .expect(403);
+      expect(res.body.error).toBe("FORBIDDEN");
     });
   });
 
@@ -614,7 +616,11 @@ describe("InvitesController (e2e)", () => {
 
     it("403 for member on GET /invites", async () => {
       const member = await createMember();
-      await request(app.getHttpServer()).get("/invites").set("Cookie", member.cookie).expect(403);
+      const res = await request(app.getHttpServer())
+        .get("/invites")
+        .set("Cookie", member.cookie)
+        .expect(403);
+      expect(res.body.error).toBe("FORBIDDEN");
     });
   });
 

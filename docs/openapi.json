@@ -361,6 +361,14 @@
             "example": "Alice Silva",
             "type": "string"
           },
+          "permissions": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PermissionsDto"
+              }
+            ],
+            "description": "Scope per permission for the logged-in role (source: PERMISSION_MATRIX, docs/PERMISSIONS.md)."
+          },
           "ra": {
             "example": "a2210001",
             "nullable": true,
@@ -379,7 +387,8 @@
           "name",
           "ra",
           "email",
-          "role"
+          "role",
+          "permissions"
         ],
         "type": "object"
       },
@@ -402,12 +411,262 @@
         ],
         "type": "object"
       },
+      "PermissionsDto": {
+        "properties": {
+          "access.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "account.manageOwn": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "assignments.create": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "assignments.manageOwn": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "assignments.review": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "attendance.confirmMember": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "attendance.correct": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "attendance.takeStudents": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "catalog.view": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "classes.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "classes.view": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "courses.duplicateArchive": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "courses.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "enrollments.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "hours.export": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "hours.logForOthers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "hours.review": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "hours.viewOthers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "invites.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "lessonPlans.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "lessons.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "lessons.view": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "members.deactivate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "members.edit": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "members.list": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "members.view": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "students.archive": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "students.manage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          },
+          "students.view": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Scope"
+              }
+            ]
+          }
+        },
+        "required": [
+          "account.manageOwn",
+          "members.list",
+          "members.view",
+          "members.edit",
+          "members.deactivate",
+          "assignments.create",
+          "invites.manage",
+          "access.manage",
+          "catalog.view",
+          "lessonPlans.manage",
+          "courses.manage",
+          "courses.duplicateArchive",
+          "classes.view",
+          "classes.manage",
+          "enrollments.manage",
+          "lessons.view",
+          "assignments.manageOwn",
+          "lessons.manage",
+          "assignments.review",
+          "attendance.takeStudents",
+          "attendance.confirmMember",
+          "attendance.correct",
+          "students.view",
+          "students.manage",
+          "students.archive",
+          "hours.viewOthers",
+          "hours.logForOthers",
+          "hours.review",
+          "hours.export"
+        ],
+        "type": "object"
+      },
       "Role": {
         "enum": [
           "member",
           "director",
           "coordinator",
           "superadmin"
+        ],
+        "type": "string"
+      },
+      "Scope": {
+        "enum": [
+          "all",
+          "own",
+          "department",
+          "allocated",
+          "lessonTeacher",
+          "none"
         ],
         "type": "string"
       },

@@ -22,6 +22,7 @@
     "test:all": "jest --testPathIgnorePatterns=\"$^\"",
     "openapi:export": "ts-node -r tsconfig-paths/register scripts/export-openapi.ts",
     "openapi:check": "ts-node -r tsconfig-paths/register scripts/check-openapi.ts",
+    "permissions:export": "ts-node -r tsconfig-paths/register scripts/export-permissions-doc.ts",
     "typeorm:ts": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
     "migration:create": "yarn typeorm:ts migration:create",
     "migration:generate": "yarn typeorm:ts migration:generate -d ./src/database/data-source.ts",
