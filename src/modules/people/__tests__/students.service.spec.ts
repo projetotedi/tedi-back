@@ -2,9 +2,10 @@ import "reflect-metadata";
 import { HttpException, Logger } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
-import { DataSource, FindOperator, QueryFailedError } from "typeorm";
+import { DataSource, FindOperator, In, QueryFailedError } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { ArchivableColumns } from "@shared/entities/archivable.columns";
+import { Role } from "@shared/enums/role.enum";
 import {
   AUDITABLE_ACTION_EVENT,
   AuditableAction,
@@ -118,7 +119,7 @@ describe("StudentsService", () => {
     findOne: jest.fn(),
   };
   const personRepository = { find: jest.fn() };
-  const profileRepository = { find: jest.fn() };
+  const profileRepository = { find: jest.fn(), findOne: jest.fn() };
   const dataSource = {
     transaction: jest.fn(),
     getRepository: jest.fn(),
@@ -636,7 +637,162 @@ describe("StudentsService", () => {
     });
   });
 
+  describe("findDetail()", () => {
+    const CREATOR = Object.assign(new Person(), {
+      id: ACTOR_ID,
+      name: "Carla Menezes",
+      email: "carla@example.com",
+      ra: "RA-0001",
+      passwordHash: "hash",
+      role: Role.DIRECTOR,
+      accessEnabled: true,
+      birthDate: null,
+      phone: null,
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+      deletedAt: null,
+    });
+
+    beforeEach(() => {
+      profileRepository.findOne.mockResolvedValue(buildProfile());
+      personRepository.find.mockResolvedValue([buildPerson(), CREATOR]);
+    });
+
+    it("returns the record with age from the injected clock and createdBy of the registering person", async () => {
+      const result = await service.findDetail(STUDENT_ID);
+
+      expect(result).toEqual({
+        id: STUDENT_ID,
+        name: "Maria Silva Santos",
+        birthDate: "1958-04-12",
+        age: 68,
+        phone: "43999990000",
+        email: "maria.santos@example.com",
+        education: "Ensino fundamental completo",
+        hasSmartphone: true,
+        hasComputer: false,
+        howFoundUs: "Indicação de uma amiga",
+        emergencyContact: { name: "Ana Santos", phone: "43988887777" },
+        accessibilityNeed: AccessibilityNeed.VISUAL,
+        supportResource: "Fonte ampliada",
+        classNeeds: "Sentar perto do projetor",
+        createdAt: CREATED_AT,
+        createdBy: { id: ACTOR_ID, name: "Carla Menezes" },
+        updatedAt: CREATED_AT,
+        archivedAt: null,
+        archiveReason: null,
+      });
+
+      // Born on 1958-10-02: still 67 on the São Paulo date (2026-10-01), 68 only on the UTC date.
+      personRepository.find.mockResolvedValue([buildPerson({ birthDate: "1958-10-02" }), CREATOR]);
+      const border = await service.findDetail(STUDENT_ID);
+      expect(border.age).toBe(67);
+    });
+
+    it("looks up the profile by person id and loads the student and the creator in one query", async () => {
+      await service.findDetail(STUDENT_ID);
+
+      expect(dataSource.getRepository).toHaveBeenCalledWith(StudentProfile);
+      expect(profileRepository.findOne).toHaveBeenCalledTimes(1);
+      expect(profileRepository.findOne).toHaveBeenCalledWith({ where: { personId: STUDENT_ID } });
+      expect(personRepository.find).toHaveBeenCalledTimes(1);
+      expect(personRepository.find).toHaveBeenCalledWith({
+        where: { id: In([STUDENT_ID, ACTOR_ID]) },
+      });
+    });
+
+    it("returns createdBy null when the creator is not returned (soft-deleted)", async () => {
+      personRepository.find.mockResolvedValue([buildPerson()]);
+
+      const result = await service.findDetail(STUDENT_ID);
+
+      expect(result.createdBy).toBeNull();
+      expect(result.id).toBe(STUDENT_ID);
+    });
+
+    it("throws 404 STUDENT_NOT_FOUND when the person has no student profile, without loading people", async () => {
+      profileRepository.findOne.mockResolvedValue(null);
+
+      const failure = await httpFailure(service.findDetail(STUDENT_ID));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_NOT_FOUND",
+        message: "Student not found.",
+      });
+      expect(personRepository.find).not.toHaveBeenCalled();
+    });
+
+    it("throws 404 STUDENT_NOT_FOUND when the student's person is not returned (soft-deleted)", async () => {
+      personRepository.find.mockResolvedValue([CREATOR]);
+
+      const failure = await httpFailure(service.findDetail(STUDENT_ID));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_NOT_FOUND",
+        message: "Student not found.",
+      });
+    });
+
+    it("keeps an archived student readable", async () => {
+      profileRepository.findOne.mockResolvedValue(
+        buildProfile({
+          archive: { archivedAt: NOW, archivedById: ACTOR_ID, archiveReason: "Mudou de cidade." },
+        }),
+      );
+
+      const result = await service.findDetail(STUDENT_ID);
+
+      expect(result.archivedAt).toEqual(NOW);
+      expect(result.archiveReason).toBe("Mudou de cidade.");
+      expect(result.id).toBe(STUDENT_ID);
+    });
+
+    it("reads without a transaction, a lock or an audit event", async () => {
+      await service.findDetail(STUDENT_ID);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.findOne).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(profileRepository.findOne.mock.calls[0][0]).not.toHaveProperty("lock");
+    });
+  });
+
   describe("privacy", () => {
+    it("never logs the record returned by findDetail", async () => {
+      const spies = [
+        jest.spyOn(Logger.prototype, "log"),
+        jest.spyOn(Logger.prototype, "error"),
+        jest.spyOn(Logger.prototype, "warn"),
+        jest.spyOn(Logger.prototype, "debug"),
+        jest.spyOn(Logger.prototype, "verbose"),
+        jest.spyOn(console, "log"),
+        jest.spyOn(console, "info"),
+        jest.spyOn(console, "warn"),
+        jest.spyOn(console, "error"),
+        jest.spyOn(console, "debug"),
+      ];
+      for (const spy of spies) spy.mockImplementation(() => undefined);
+
+      try {
+        // This test does not go through the beforeEach of describe("findDetail()"): own mocks.
+        profileRepository.findOne.mockResolvedValue(buildProfile());
+        personRepository.find.mockResolvedValue([buildPerson()]);
+        const record = await service.findDetail(STUDENT_ID);
+        // Sanity check: the record does carry the sensitive values that must stay out of the logs.
+        expect(record.emergencyContact.phone).toBe("43988887777");
+
+        profileRepository.findOne.mockResolvedValue(null);
+        await httpFailure(service.findDetail(STUDENT_ID));
+
+        const logged = spies.flatMap((spy) => spy.mock.calls).map((args) => JSON.stringify(args));
+        expectNoSensitiveValue(logged.join("\n"));
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+    });
+
     it("never logs phone, e-mail, emergency contact or accessibility values", async () => {
       const spies = [
         jest.spyOn(Logger.prototype, "log"),
