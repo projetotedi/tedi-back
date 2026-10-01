@@ -283,6 +283,26 @@
         ],
         "type": "object"
       },
+      "EmergencyContactDto": {
+        "properties": {
+          "name": {
+            "example": "Ana Santos",
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only.",
+            "example": "43988887777",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "phone"
+        ],
+        "type": "object"
+      },
       "HealthResponseDto": {
         "properties": {
           "database": {
@@ -764,6 +784,24 @@
         ],
         "type": "object"
       },
+      "PersonRefDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Carla Menezes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "Role": {
         "enum": [
           "member",
@@ -783,6 +821,141 @@
           "none"
         ],
         "type": "string"
+      },
+      "StudentDetailDto": {
+        "properties": {
+          "accessibilityNeed": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityNeed"
+              }
+            ],
+            "description": "Category. What the person needs in class, never a diagnosis (RNF-13).",
+            "example": "visual"
+          },
+          "age": {
+            "description": "Whole years today in America/Sao_Paulo.",
+            "example": 68,
+            "type": "integer"
+          },
+          "archiveReason": {
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedAt": {
+            "description": "Null while active. An archived student stays readable.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "example": "1958-04-12",
+            "format": "date",
+            "type": "string"
+          },
+          "classNeeds": {
+            "description": "Needs during class. What the person needs in class, never a diagnosis (RNF-13).",
+            "example": "Sentar perto do projetor",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the student was registered.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who registered the student. Null when that person was deleted.",
+            "nullable": true,
+            "type": "object"
+          },
+          "education": {
+            "example": "Ensino fundamental completo",
+            "nullable": true,
+            "type": "string"
+          },
+          "email": {
+            "example": "maria.santos@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "emergencyContact": {
+            "$ref": "#/components/schemas/EmergencyContactDto"
+          },
+          "hasComputer": {
+            "example": false,
+            "nullable": true,
+            "type": "boolean"
+          },
+          "hasSmartphone": {
+            "example": true,
+            "nullable": true,
+            "type": "boolean"
+          },
+          "howFoundUs": {
+            "example": "Indicação de uma amiga",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "Id of the Person.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only.",
+            "example": "43999990000",
+            "nullable": true,
+            "type": "string"
+          },
+          "supportResource": {
+            "description": "Support resource the person uses. What the person needs in class, never a diagnosis (RNF-13).",
+            "example": "Fonte ampliada",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "The most recent change between the person and the profile.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "birthDate",
+          "age",
+          "phone",
+          "email",
+          "education",
+          "hasSmartphone",
+          "hasComputer",
+          "howFoundUs",
+          "emergencyContact",
+          "accessibilityNeed",
+          "supportResource",
+          "classNeeds",
+          "createdAt",
+          "createdBy",
+          "updatedAt",
+          "archivedAt",
+          "archiveReason"
+        ],
+        "type": "object"
       },
       "StudentResponseDto": {
         "properties": {
@@ -2255,6 +2428,86 @@
       }
     },
     "/students/{id}": {
+      "get": {
+        "operationId": "getStudent",
+        "parameters": [
+          {
+            "description": "Person id of the student.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentDetailDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      },
       "patch": {
         "operationId": "updateStudent",
         "parameters": [

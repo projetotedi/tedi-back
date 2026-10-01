@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
 import {
   ApiBody,
   ApiConflictResponse,
@@ -16,6 +16,7 @@ import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { CreateStudentDto } from "../dto/create-student.dto";
+import { StudentDetailDto } from "../dto/student-detail.response.dto";
 import { StudentResponseDto } from "../dto/student.response.dto";
 import { UpdateStudentDto } from "../dto/update-student.dto";
 import { StudentsService, studentNotFound } from "../services/students.service";
@@ -31,9 +32,11 @@ const STUDENT_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "STUDENT_NO
 const STUDENT_ID_PARAM = { name: "id", format: "uuid", description: "Person id of the student." };
 
 /**
- * StudentsController — student registration (GUS-105). Read routes come in GUS-106/107.
+ * StudentsController — student registration (GUS-105) and the student record (GUS-107).
+ * The list comes in GUS-106; enrollments in GUS-108.
  *
  *  POST  /students                 — createStudent    (students.manage: director, coordinator)
+ *  GET   /students/:id             — getStudent       (students.view: every role)
  *  PATCH /students/:id             — updateStudent    (students.manage)
  *  PATCH /students/:id/archive     — archiveStudent   (students.archive: coordinator)
  *  PATCH /students/:id/unarchive   — unarchiveStudent (students.archive)
@@ -57,6 +60,19 @@ export class StudentsController {
     @CurrentUser() actor: AuthUser,
   ): Promise<StudentResponseDto> {
     return this.studentsService.create(dto, actor.id);
+  }
+
+  /**
+   * Student record (GUS-107): personal data, profile, accessibility and registration.
+   * Archived students stay readable (RN-27). Sensitive data (RNF-13): never logged.
+   */
+  @Get(":id")
+  @RequirePermission(Permission.STUDENTS_VIEW)
+  @ApiParam(STUDENT_ID_PARAM)
+  @ApiOkResponse({ type: StudentDetailDto })
+  @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
+  getStudent(@Param("id", STUDENT_ID) id: string): Promise<StudentDetailDto> {
+    return this.studentsService.findDetail(id);
   }
 
   /**

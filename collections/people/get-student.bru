@@ -1,0 +1,31 @@
+meta {
+  name: get-student
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/students/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Ficha do aluno (GUS-107): dados pessoais, perfil, acessibilidade e registro. O :id é o id da Person do aluno.
+  Requer cookie tedi_session e a permissão students.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Aluno arquivado continua acessível, só leitura: archivedAt e archiveReason vêm preenchidos.
+  age é calculada na data de hoje em America/Sao_Paulo. emergencyContact é sempre { name, phone }, com null no que não foi informado.
+  createdBy { id, name } é quem cadastrou; null se essa pessoa foi apagada.
+  Matrículas, cursos concluídos e turmas: GET /students/:id/enrollments (GUS-108).
+  Dado sensível (RNF-13): não cole a resposta em issue, chat ou log.
+  Retorna 200 StudentDetailDto.
+  Erros possíveis: 401, 404 STUDENT_NOT_FOUND (id inexistente, mal formado, de pessoa sem perfil de aluno ou de aluno apagado).
+}

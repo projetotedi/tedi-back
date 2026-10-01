@@ -12,12 +12,14 @@ import {
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
 import { CreateStudentDto } from "../dto/create-student.dto";
+import { StudentDetailDto } from "../dto/student-detail.response.dto";
 import { StudentResponseDto } from "../dto/student.response.dto";
 import { UpdateStudentDto } from "../dto/update-student.dto";
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
 import { auditSnapshot } from "./student-audit";
+import { toStudentDetail } from "./student-detail.mapper";
 import { toStudentResponse } from "./student-response.mapper";
 
 /** Fields of the student that live on Person. */
@@ -274,6 +276,35 @@ export class StudentsService {
       const person = peopleById.get(profile.personId);
       return person ? [toStudentResponse(person, profile, today)] : [];
     });
+  }
+
+  /**
+   * Student record page (GUS-107). Archived students stay readable (RN-27).
+   * Read-only: no transaction, no lock, no audit event, no log (RNF-13).
+   * createdBy is null when the Person who registered the student was soft-deleted:
+   * TypeORM's default find skips soft-deleted rows, the same rule the AuthGuard and the
+   * invites apply. A soft-deleted student is a 404.
+   * An id that is not a uuid is a 404 without touching the database (the service is exported
+   * and other modules call it; Postgres would reject the value with 22P02), same guard as
+   * findByIds.
+   */
+  async findDetail(id: string): Promise<StudentDetailDto> {
+    if (!isUUID(id)) throw studentNotFound();
+
+    const profile = await this.dataSource
+      .getRepository(StudentProfile)
+      .findOne({ where: { personId: id } });
+    if (profile === null) throw studentNotFound();
+
+    // One query for the student and the creator.
+    const people = await this.dataSource
+      .getRepository(Person)
+      .find({ where: { id: In([id, profile.createdById]) } });
+    const person = people.find((candidate) => candidate.id === id);
+    if (person === undefined) throw studentNotFound();
+    const creator = people.find((candidate) => candidate.id === profile.createdById) ?? null;
+
+    return toStudentDetail(person, profile, creator, todayInAppTimeZone(this.clock.now()));
   }
 
   // ---------------------------------------------------------------------------
