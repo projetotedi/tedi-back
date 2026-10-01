@@ -9,8 +9,9 @@ export interface AuthUser {
   role: Role;
   accessEnabled: boolean;
   /**
-   * Filled by the AuthGuard from GUS-91 on. Absent = no department
-   * (the "department" scope denies third parties).
+   * Filled by the AuthGuard with the department of the person's approved member profile
+   * (0 or 1 id). Empty = no department (the department scope denies third parties).
+   * Optional so AuthUser literals in tests and the DEV_FAKE_ROLE user keep compiling.
    */
   departmentIds?: readonly string[];
 }
