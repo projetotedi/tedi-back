@@ -777,7 +777,9 @@ describe("InvitesController (e2e)", () => {
         .set("Cookie", coord.cookie)
         .expect(201);
 
-      return new URL(res.body.url as string).searchParams.get("token") ?? "";
+      const token = new URL(res.body.url as string).searchParams.get("token");
+      expect(token).toBeTruthy();
+      return token as string;
     }
 
     function expectNoPersonData(res: { body: unknown }): void {
@@ -793,7 +795,8 @@ describe("InvitesController (e2e)", () => {
         .set("Cookie", coord.cookie)
         .send({ role: "member" })
         .expect(201);
-      const token = new URL(createRes.body.url as string).searchParams.get("token") ?? "";
+      const token = new URL(createRes.body.url as string).searchParams.get("token");
+      expect(token).toBeTruthy();
 
       const res = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(200);
 
@@ -833,7 +836,9 @@ describe("InvitesController (e2e)", () => {
 
     it("returns 400 INVALID_INVITE without person data for an expired password_reset invite", async () => {
       const token = await createPasswordResetToken();
-      await dataSource.query("UPDATE invites SET expires_at = now() - interval '1 hour'");
+      await dataSource.query(
+        "UPDATE invites SET expires_at = now() - interval '1 hour' WHERE type = 'password_reset'",
+      );
 
       const res = await request(app.getHttpServer()).get(`/auth/invites/${token}`).expect(400);
 

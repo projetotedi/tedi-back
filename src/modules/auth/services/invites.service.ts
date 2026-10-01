@@ -285,8 +285,10 @@ export class InvitesService {
    * `person` is `null` for ACCESS invites. For PASSWORD_RESET invites it carries
    * only the name and RA of the account (explicit projection), so the reset
    * screen can show whose password is being changed.
-   * A PASSWORD_RESET invite without a person, or whose person was deleted or
-   * has no RA, answers 400 INVALID_INVITE (same rule as `accept`).
+   * A PASSWORD_RESET invite without a person, or whose person was deleted,
+   * answers 400 INVALID_INVITE (same rule as `accept`). A person without an RA
+   * also answers 400 INVALID_INVITE, but that rule exists only on this GET:
+   * the reset screen needs an RA to show, and `accept` does not check it.
    */
   async getPublicView(token: string): Promise<InviteResponseDto> {
     const invite = await this.getByToken(token);
