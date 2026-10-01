@@ -20,7 +20,7 @@ headers {
 
 docs {
   Revoga um convite pendente, invalidando o token imediatamente.
-  Requer cookie tedi_session com role coordinator ou superadmin.
+  Requer cookie tedi_session e a permissão invites.manage (@RequirePermission; coordenação e superadmin). Sem ela: 403 FORBIDDEN.
   Retorna 204 sem corpo em caso de sucesso.
   Erros possíveis: 401, 403, 404, 409 INVITE_ALREADY_USED, 409 INVITE_ALREADY_REVOKED.
 }

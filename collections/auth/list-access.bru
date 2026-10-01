@@ -24,7 +24,7 @@ query {
 
 docs {
   Lista as pessoas com acesso ao sistema (role IS NOT NULL), com paginação.
-  Requer cookie tedi_session com role coordinator ou superadmin.
+  Requer cookie tedi_session e a permissão access.manage (@RequirePermission; coordenação e superadmin). Sem ela: 403 FORBIDDEN.
   Suporta filtros: ?page, ?limit, ?search (nome ou RA), ?role, ?enabled.
   Retorna { data: AccessResponseDto[], total, page, limit }.
   Erros possíveis: 401, 403.

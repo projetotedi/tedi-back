@@ -3,10 +3,10 @@ import { ApiCreatedResponse, ApiNoContentResponse, ApiOkResponse, ApiTags } from
 import { ConfigService } from "@nestjs/config";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { Public } from "@shared/decorators/public.decorator";
-import { Roles } from "@shared/decorators/roles.decorator";
+import { RequirePermission } from "@shared/permissions/require-permission.decorator";
+import { Permission } from "@shared/permissions/permission.enum";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { AuthUser } from "@shared/decorators/auth-user.type";
-import { Role } from "@shared/enums/role.enum";
 import { InvitesService } from "./services/invites.service";
 import { CreateInviteDto } from "./dto/create-invite.dto";
 import { CreateInviteResponseDto } from "./dto/create-invite-response.dto";
@@ -21,11 +21,11 @@ import { ListInvitesQueryDto } from "./dto/list-invites-query.dto";
  * No controller-level @Controller prefix so routes can span two different
  * path prefixes (/invites and /auth/invites) without nesting modules.
  *
- *  POST   /invites               — create invite (COORDINATOR only)
- *  GET    /invites               — list invites (COORDINATOR only)
+ *  POST   /invites               — create invite (Permission.INVITES_MANAGE: coordinator only)
+ *  GET    /invites               — list invites (Permission.INVITES_MANAGE: coordinator only)
  *  GET    /auth/invites/:token   — inspect invite without consuming it (public)
  *  POST   /auth/invites/accept   — accept invite and provision Person (public)
- *  DELETE /invites/:id           — revoke invite (COORDINATOR only)
+ *  DELETE /invites/:id           — revoke invite (Permission.INVITES_MANAGE: coordinator only)
  */
 @ApiTags("auth")
 @Controller()
@@ -42,7 +42,7 @@ export class InvitesController {
    * Only COORDINATOR (and SUPERADMIN) can create invites.
    */
   @Post("invites")
-  @Roles(Role.COORDINATOR)
+  @RequirePermission(Permission.INVITES_MANAGE)
   @ApiCreatedResponse({ type: CreateInviteResponseDto })
   async createInvite(
     @Body() dto: CreateInviteDto,
@@ -64,7 +64,7 @@ export class InvitesController {
    * Never exposes tokenHash.
    */
   @Get("invites")
-  @Roles(Role.COORDINATOR)
+  @RequirePermission(Permission.INVITES_MANAGE)
   @ApiOkResponse({ type: [InviteListItemDto] })
   async listInvites(@Query() query: ListInvitesQueryDto): Promise<InviteListItemDto[]> {
     return this.invitesService.list(query.status);
@@ -109,7 +109,7 @@ export class InvitesController {
    * 409 INVITE_ALREADY_REVOKED if already revoked.
    */
   @Delete("invites/:id")
-  @Roles(Role.COORDINATOR)
+  @RequirePermission(Permission.INVITES_MANAGE)
   @HttpCode(204)
   @ApiNoContentResponse({ description: "Invite revoked." })
   async revokeInvite(@Param("id") id: string, @CurrentUser() actor: AuthUser): Promise<void> {

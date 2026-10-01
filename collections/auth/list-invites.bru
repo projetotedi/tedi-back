@@ -20,7 +20,7 @@ query {
 
 docs {
   Lista todos os convites, nunca incluindo tokenHash.
-  Requer cookie tedi_session com role coordinator ou superadmin.
+  Requer cookie tedi_session e a permissão invites.manage (@RequirePermission; coordenação e superadmin). Sem ela: 403 FORBIDDEN.
   Status calculado: pending | used | expired | revoked.
   Filtro opcional: ?status=pending|used|expired|revoked.
   Erros possíveis: 401, 403.
