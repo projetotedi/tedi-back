@@ -20,10 +20,14 @@ import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
+import { DepartmentsController } from "@modules/people/controllers/departments.controller";
+import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
+import { DepartmentsService } from "@modules/people/services/departments.service";
+import { MembersService } from "@modules/people/services/members.service";
 import { StudentsService } from "@modules/people/services/students.service";
 import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
 
@@ -36,6 +40,8 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     InvitesController,
     AccessController,
     StudentsController,
+    MemberRegistrationsController,
+    DepartmentsController,
   ],
   providers: [
     {
@@ -77,6 +83,21 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         findByIds: async () => [],
         findDetail: async () => ({}),
       },
+    },
+    {
+      provide: MembersService,
+      useValue: {
+        submitFromInvite: async () => ({}),
+        findAccessFacts: async () => ({ registrationStatus: null, departmentIds: [] }),
+        listRegistrations: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getRegistration: async () => ({}),
+        approve: async () => ({}),
+        reject: async () => ({}),
+      },
+    },
+    {
+      provide: DepartmentsService,
+      useValue: { list: async () => [], create: async () => ({}), exists: async () => false },
     },
     {
       provide: ConfigService,

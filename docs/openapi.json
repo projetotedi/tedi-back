@@ -3,23 +3,18 @@
     "schemas": {
       "AcceptInviteDto": {
         "properties": {
-          "email": {
-            "example": "alice@example.com",
-            "type": "string"
-          },
-          "name": {
-            "example": "Alice Silva",
-            "maxLength": 200,
-            "type": "string"
-          },
           "password": {
             "example": "Senha@123",
             "minLength": 8,
             "type": "string"
           },
-          "ra": {
-            "example": "a2210001",
-            "type": "string"
+          "registration": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberRegistrationFormDto"
+              }
+            ],
+            "description": "Member registration (RF-004). Required for access invites; ignored for password_reset."
           },
           "token": {
             "example": "eyJ...",
@@ -131,6 +126,50 @@
         ],
         "type": "object"
       },
+      "ApproveMemberRegistrationDto": {
+        "properties": {
+          "departmentId": {
+            "description": "Required for member and director; optional for coordinator.",
+            "example": "01999a3e-1111-7000-8000-000000000001",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "joinedAt": {
+            "description": "YYYY-MM-DD, between 2000-01-01 and today (America/Sao_Paulo).",
+            "example": "2026-10-01",
+            "format": "date",
+            "type": "string"
+          },
+          "mainFunction": {
+            "example": "Monitora de informática",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "note": {
+            "description": "Note of the validation, kept in the audit event. Do not record sensitive data in it.",
+            "example": "Documentos conferidos.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Access profile granted by the approval. `superadmin` answers 400 INVALID_ROLE.",
+            "example": "member"
+          }
+        },
+        "required": [
+          "role",
+          "mainFunction",
+          "joinedAt"
+        ],
+        "type": "object"
+      },
       "ArchiveDto": {
         "properties": {
           "reason": {
@@ -141,6 +180,53 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "BrazilianState": {
+        "description": "Federative unit (UF). Upper-cased.",
+        "enum": [
+          "AC",
+          "AL",
+          "AP",
+          "AM",
+          "BA",
+          "CE",
+          "DF",
+          "ES",
+          "GO",
+          "MA",
+          "MT",
+          "MS",
+          "MG",
+          "PA",
+          "PB",
+          "PR",
+          "PE",
+          "PI",
+          "RJ",
+          "RN",
+          "RS",
+          "RO",
+          "RR",
+          "SC",
+          "SP",
+          "SE",
+          "TO"
+        ],
+        "type": "string"
+      },
+      "CreateDepartmentDto": {
+        "properties": {
+          "name": {
+            "description": "Trimmed. Unique among departments, ignoring case.",
+            "example": "Tecnologia",
+            "maxLength": 100,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "CreateInviteDto": {
@@ -283,6 +369,24 @@
         ],
         "type": "object"
       },
+      "DepartmentResponseDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-1111-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Tecnologia",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "EmergencyContactDto": {
         "properties": {
           "name": {
@@ -415,6 +519,13 @@
       },
       "InviteResponseDto": {
         "properties": {
+          "departments": {
+            "description": "Departments the person may pick in the registration form, ordered by name. Always [] for password_reset.",
+            "items": {
+              "$ref": "#/components/schemas/DepartmentResponseDto"
+            },
+            "type": "array"
+          },
           "expiresAt": {
             "example": "2026-09-19T12:00:00.000Z",
             "format": "date-time",
@@ -450,7 +561,8 @@
           "type",
           "role",
           "expiresAt",
-          "person"
+          "person",
+          "departments"
         ],
         "type": "object"
       },
@@ -525,6 +637,414 @@
           "permissions"
         ],
         "type": "object"
+      },
+      "MemberRegistrationFormDto": {
+        "properties": {
+          "address": {
+            "example": "Rua das Acácias, 120, apto 42",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "description": "YYYY-MM-DD, between 1900-01-01 and today (America/Sao_Paulo).",
+            "example": "1999-07-22",
+            "format": "date",
+            "type": "string"
+          },
+          "city": {
+            "example": "São Paulo",
+            "maxLength": 100,
+            "nullable": true,
+            "type": "string"
+          },
+          "className": {
+            "description": "Class (turma) at the university.",
+            "example": "SI-2024-N",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "course": {
+            "example": "Sistemas de Informação",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "cpf": {
+            "description": "Digits only after normalization. Visible only to coordination (RNF-14).",
+            "example": "529.982.247-25",
+            "type": "string"
+          },
+          "departmentId": {
+            "description": "Suggestion of the person; coordination decides on approval. Pick one of `departments` from GET /auth/invites/:token.",
+            "example": "01999a3e-1111-7000-8000-000000000001",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "institutionalEmail": {
+            "description": "Trimmed and lower-cased.",
+            "example": "ana.torres@example.edu",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Torres",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "personalEmail": {
+            "description": "Trimmed and lower-cased. Stored as the e-mail of the person. Unique among people.",
+            "example": "ana.torres@example.com",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Formatting is stripped; stored as 10 to 13 digits (DDD, optional country code).",
+            "example": "(11) 98181-3030",
+            "type": "string"
+          },
+          "ra": {
+            "description": "Trimmed and lower-cased. It is the login (RN-09).",
+            "example": "a2210001",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "semester": {
+            "example": 7,
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BrazilianState"
+              }
+            ],
+            "description": "Federative unit (UF). Upper-cased.",
+            "example": "SP",
+            "nullable": true
+          },
+          "volunteerTermUrl": {
+            "description": "Link to the volunteer term in Drive (RF-011). HTTPS only.",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "ra",
+          "personalEmail",
+          "birthDate",
+          "cpf",
+          "phone",
+          "institutionalEmail",
+          "course",
+          "semester",
+          "className"
+        ],
+        "type": "object"
+      },
+      "MemberRegistrationListItemDto": {
+        "properties": {
+          "className": {
+            "example": "SI-2024-N",
+            "nullable": true,
+            "type": "string"
+          },
+          "course": {
+            "example": "Sistemas de Informação",
+            "nullable": true,
+            "type": "string"
+          },
+          "department": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DepartmentResponseDto"
+              }
+            ],
+            "description": "Department suggested by the person; confirmed on approval.",
+            "nullable": true,
+            "type": "object"
+          },
+          "id": {
+            "description": "Id of the Person.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Torres",
+            "type": "string"
+          },
+          "ra": {
+            "example": "a2210001",
+            "nullable": true,
+            "type": "string"
+          },
+          "registrationStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberRegistrationStatus"
+              }
+            ],
+            "example": "pending"
+          },
+          "requestedRole": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Role carried by the invite: a suggestion; coordination decides on approval.",
+            "example": "member",
+            "nullable": true
+          },
+          "reviewedAt": {
+            "description": "Null while pending.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "semester": {
+            "example": 7,
+            "nullable": true,
+            "type": "integer"
+          },
+          "submittedAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ra",
+          "requestedRole",
+          "department",
+          "course",
+          "className",
+          "semester",
+          "registrationStatus",
+          "submittedAt",
+          "reviewedAt"
+        ],
+        "type": "object"
+      },
+      "MemberRegistrationResponseDto": {
+        "properties": {
+          "accessEnabled": {
+            "example": false,
+            "type": "boolean"
+          },
+          "address": {
+            "example": "Rua das Acácias, 120, apto 42",
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "example": "1999-07-22",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "city": {
+            "example": "São Paulo",
+            "nullable": true,
+            "type": "string"
+          },
+          "className": {
+            "example": "SI-2024-N",
+            "nullable": true,
+            "type": "string"
+          },
+          "course": {
+            "example": "Sistemas de Informação",
+            "nullable": true,
+            "type": "string"
+          },
+          "cpf": {
+            "description": "Digits only. Full CPF: this route is for coordination only (RNF-14).",
+            "example": "52998224725",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "department": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DepartmentResponseDto"
+              }
+            ],
+            "description": "Suggested by the person while pending; decided by coordination on approval.",
+            "nullable": true,
+            "type": "object"
+          },
+          "id": {
+            "description": "Id of the Person.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "institutionalEmail": {
+            "example": "ana.torres@example.edu",
+            "nullable": true,
+            "type": "string"
+          },
+          "joinedAt": {
+            "example": "2026-10-01",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "mainFunction": {
+            "example": "Monitora de informática",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Torres",
+            "type": "string"
+          },
+          "personalEmail": {
+            "description": "Stored as the e-mail of the person.",
+            "example": "ana.torres@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only.",
+            "example": "11981813030",
+            "nullable": true,
+            "type": "string"
+          },
+          "ra": {
+            "example": "a2210001",
+            "nullable": true,
+            "type": "string"
+          },
+          "registrationStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberRegistrationStatus"
+              }
+            ],
+            "example": "pending"
+          },
+          "requestedRole": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Role carried by the invite: a suggestion; coordination decides on approval.",
+            "example": "member",
+            "nullable": true
+          },
+          "reviewNote": {
+            "example": "Documentos conferidos.",
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedAt": {
+            "description": "Null while pending. Null on an approved registration = approved before GUS-91.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedById": {
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Access profile. Null until the approval.",
+            "example": null,
+            "nullable": true
+          },
+          "semester": {
+            "example": 7,
+            "nullable": true,
+            "type": "integer"
+          },
+          "state": {
+            "example": "SP",
+            "nullable": true,
+            "type": "string"
+          },
+          "submittedAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "The most recent change between the person and the profile.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "volunteerTermUrl": {
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ra",
+          "personalEmail",
+          "phone",
+          "birthDate",
+          "cpf",
+          "address",
+          "city",
+          "state",
+          "institutionalEmail",
+          "course",
+          "semester",
+          "className",
+          "volunteerTermUrl",
+          "department",
+          "requestedRole",
+          "role",
+          "accessEnabled",
+          "registrationStatus",
+          "mainFunction",
+          "joinedAt",
+          "submittedAt",
+          "reviewedAt",
+          "reviewedById",
+          "reviewNote",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "MemberRegistrationStatus": {
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ],
+        "type": "string"
       },
       "PasswordResetResponseDto": {
         "properties": {
@@ -799,6 +1319,20 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "RejectMemberRegistrationDto": {
+        "properties": {
+          "note": {
+            "description": "Why the registration was rejected, kept in the audit event. Do not record sensitive data in it.",
+            "example": "O RA informado não confere com o termo de voluntariado.",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
         ],
         "type": "object"
       },
@@ -1655,7 +2189,7 @@
         },
         "responses": {
           "204": {
-            "description": "Invite accepted. Person account provisioned."
+            "description": "Invite accepted. Access invite: member registration created as pending, without access."
           },
           "400": {
             "content": {
@@ -2019,6 +2553,169 @@
         ]
       }
     },
+    "/departments": {
+      "get": {
+        "operationId": "listDepartments",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DepartmentResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      },
+      "post": {
+        "operationId": "createDepartment",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDepartmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DepartmentResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "DEPARTMENT_ALREADY_EXISTS"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
     "/health": {
       "get": {
         "operationId": "check",
@@ -2333,6 +3030,431 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/member-registrations": {
+      "get": {
+        "operationId": "listMemberRegistrations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Defaults to pending (the validation queue).",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemberRegistrationStatus"
+            }
+          },
+          {
+            "description": "Search by name or RA",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "Ana",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/MemberRegistrationListItemDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
+    "/member-registrations/{id}": {
+      "get": {
+        "operationId": "getMemberRegistration",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberRegistrationResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_REGISTRATION_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
+    "/member-registrations/{id}/approve": {
+      "patch": {
+        "operationId": "approveMemberRegistration",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveMemberRegistrationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberRegistrationResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_REGISTRATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "REGISTRATION_NOT_PENDING"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
+    "/member-registrations/{id}/reject": {
+      "patch": {
+        "operationId": "rejectMemberRegistration",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectMemberRegistrationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberRegistrationResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_REGISTRATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "REGISTRATION_NOT_PENDING"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
         ]
       }
     },
