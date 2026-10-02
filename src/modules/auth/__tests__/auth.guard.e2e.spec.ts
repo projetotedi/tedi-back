@@ -9,6 +9,10 @@ import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import request from "supertest";
 import { TestModule } from "./test-support/test.module";
+import {
+  insertDepartment,
+  insertMemberProfile,
+} from "@modules/people/__tests__/fixtures/member-registration.fixture";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import { SESSION_COOKIE_NAME } from "../auth.constants";
@@ -84,7 +88,8 @@ describe("AuthGuard (e2e)", () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query("TRUNCATE TABLE people RESTART IDENTITY CASCADE");
+    // CASCADE from people also truncates member_profiles.
+    await dataSource.query("TRUNCATE TABLE departments, people RESTART IDENTITY CASCADE");
   });
 
   // -----------------------------------------------------------------------
@@ -118,6 +123,84 @@ describe("AuthGuard (e2e)", () => {
         .set("Cookie", buildCookie(token))
         .expect(200)
         .expect({ userId: person.id, role: Role.MEMBER });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GUS-91: the guard fills AuthUser.departmentIds and denies registrations under validation
+  // -----------------------------------------------------------------------
+  describe("member registration (GUS-91)", () => {
+    async function cookieOf(personId: string): Promise<string> {
+      const token = await jwtService.signAsync({ sub: personId }, { secret: TEST_SECRET });
+      return buildCookie(token);
+    }
+
+    it("GET /test/departments returns the department of the approved member profile", async () => {
+      const departmentId = await insertDepartment(dataSource, "Tecnologia");
+      const person = await peopleService.save({
+        name: "Diana",
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+      });
+      await insertMemberProfile(dataSource, {
+        personId: person.id,
+        status: "approved",
+        departmentId,
+      });
+
+      await request(app.getHttpServer())
+        .get("/test/departments")
+        .set("Cookie", await cookieOf(person.id))
+        .expect(200)
+        .expect({ departmentIds: [departmentId] });
+    });
+
+    it("GET /test/departments returns [] for a person without member profile", async () => {
+      const person = await peopleService.save({
+        name: "Coordinator",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+      });
+
+      await request(app.getHttpServer())
+        .get("/test/departments")
+        .set("Cookie", await cookieOf(person.id))
+        .expect(200)
+        .expect({ departmentIds: [] });
+    });
+
+    it("GET /test/departments returns [] for an approved profile without department", async () => {
+      const person = await peopleService.save({
+        name: "Eduardo",
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+      await insertMemberProfile(dataSource, { personId: person.id, status: "approved" });
+
+      await request(app.getHttpServer())
+        .get("/test/departments")
+        .set("Cookie", await cookieOf(person.id))
+        .expect(200)
+        .expect({ departmentIds: [] });
+    });
+
+    it("GET /test/open returns 401 for a pending or rejected registration, even if the row carries a role and the access flag", async () => {
+      // Pending and rejected rows keep role null and access disabled, so steps 6-7 of the guard
+      // already deny them; this inconsistent row proves the extra check of the registration.
+      for (const status of ["pending", "rejected"] as const) {
+        const person = await peopleService.save({
+          name: `Registration ${status}`,
+          role: Role.MEMBER,
+          accessEnabled: true,
+        });
+        await insertMemberProfile(dataSource, { personId: person.id, status });
+
+        const res = await request(app.getHttpServer())
+          .get("/test/open")
+          .set("Cookie", await cookieOf(person.id))
+          .expect(401);
+        expect(res.body.error).toBe("UNAUTHORIZED");
+      }
     });
   });
 

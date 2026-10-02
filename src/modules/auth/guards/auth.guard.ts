@@ -18,6 +18,8 @@ import { scopeFor } from "@shared/permissions/permission-matrix";
 import { Scope } from "@shared/permissions/scope.type";
 import { Role, roleSatisfies } from "@shared/enums/role.enum";
 import { AuthUser } from "@shared/decorators/auth-user.type";
+import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
+import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 
 interface JwtPayload {
@@ -33,6 +35,7 @@ export class AuthGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly people: PeopleService,
     private readonly config: ConfigService,
+    private readonly members: MembersService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -86,11 +89,23 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    // Step 8: Attach AuthUser to request.
+    // Step 7b: a member registration under validation never passes (defense in depth: pending
+    // and rejected keep role null and accessEnabled false, so steps 6-7 already deny them).
+    // The same read gives the department scope (GUS-91, decision 19: fresh on every request).
+    const facts = await this.members.findAccessFacts(person.id);
+    if (
+      facts.registrationStatus === MemberRegistrationStatus.PENDING ||
+      facts.registrationStatus === MemberRegistrationStatus.REJECTED
+    ) {
+      throw new UnauthorizedException();
+    }
+
+    // Step 8: Attach AuthUser to request, with the department of the approved member profile.
     const authUser: AuthUser = {
       id: person.id,
       role: person.role,
       accessEnabled: person.accessEnabled,
+      departmentIds: facts.departmentIds,
     };
     request[REQUEST_USER_KEY] = authUser;
 

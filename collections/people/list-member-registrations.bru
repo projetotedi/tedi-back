@@ -1,0 +1,32 @@
+meta {
+  name: list-member-registrations
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/member-registrations
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  page: 1
+  limit: 20
+  ~status: pending
+  ~search: Ana
+}
+
+docs {
+  Fila de validação da coordenação (RN-08): lista os cadastros de membro por situação, com paginação.
+  Requer cookie tedi_session e a permissão invites.manage (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  Filtros: ?status (pending por padrão = "A validar" | approved | rejected), ?search (nome ou RA, sem diferenciar maiúsculas), ?page, ?limit.
+  Ordem: envio mais antigo primeiro, depois nome.
+  Retorna { data: MemberRegistrationListItemDto[], total, page, limit }. A listagem nunca traz CPF, endereço, telefone nem e-mails (RNF-13/14): use get-member-registration para o cadastro completo.
+  O :id de cada item é o id da Person.
+  Erros possíveis: 400 VALIDATION_FAILED (status inválido), 401, 403 FORBIDDEN.
+}

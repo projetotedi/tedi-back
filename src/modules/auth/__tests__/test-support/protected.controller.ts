@@ -17,6 +17,15 @@ export class ProtectedController {
     return { userId: user?.id, role: user?.role };
   }
 
+  /**
+   * GUS-91: echoes the departments the AuthGuard attached to the user. A separate route, so the
+   * exact body of GET /test/open does not change.
+   */
+  @Get("departments")
+  departments(@CurrentUser() user: AuthUser): { departmentIds: readonly string[] | null } {
+    return { departmentIds: user?.departmentIds ?? null };
+  }
+
   /** @Public() — no session required. */
   @Get("public")
   @Public()

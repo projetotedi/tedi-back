@@ -1,4 +1,5 @@
 import { Controller, Get, HttpCode, Param, Patch, Post, Query } from "@nestjs/common";
+import { MembersService } from "@modules/people/services/members.service";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Permission } from "@shared/permissions/permission.enum";
@@ -17,7 +18,10 @@ function lessonStaff(lessonId: string): { teacherIds: string[]; monitorIds: stri
  */
 @Controller("test/permissions")
 export class PermissionDemoController {
-  constructor(private readonly policy: PermissionPolicy) {}
+  constructor(
+    private readonly policy: PermissionPolicy,
+    private readonly members: MembersService,
+  ) {}
 
   @Get("members/:personId")
   @RequirePermission(Permission.MEMBERS_VIEW)
@@ -28,6 +32,25 @@ export class PermissionDemoController {
     this.policy.assertCan(withFakeDepartments(user), Permission.MEMBERS_VIEW, {
       personId,
       departmentIds: FAKE_DEPARTMENTS.get(personId) ?? [],
+    });
+    return { personId };
+  }
+
+  /**
+   * Same rule as members/:personId, but with the REAL departments (GUS-91): the actor's come
+   * from the AuthGuard (AuthUser.departmentIds, no withFakeDepartments) and the target's from
+   * its approved member profile, the way a domain service loads them before the policy.
+   */
+  @Get("real-members/:personId")
+  @RequirePermission(Permission.MEMBERS_VIEW)
+  async viewMemberWithRealDepartments(
+    @Param("personId") personId: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ personId: string }> {
+    const target = await this.members.findAccessFacts(personId);
+    this.policy.assertCan(user, Permission.MEMBERS_VIEW, {
+      personId,
+      departmentIds: target.departmentIds,
     });
     return { personId };
   }

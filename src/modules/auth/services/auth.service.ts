@@ -1,4 +1,6 @@
 import { HttpException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
+import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { LoginDto } from "../dto/login.dto";
 import { MeResponseDto } from "../dto/me-response.dto";
@@ -10,6 +12,7 @@ export class AuthService {
   constructor(
     private readonly people: PeopleService,
     private readonly password: PasswordService,
+    private readonly members: MembersService,
   ) {}
 
   /**
@@ -20,9 +23,11 @@ export class AuthService {
    * 2. person == null → verify(DUMMY_HASH, password) for constant-time → INVALID_CREDENTIALS
    * 3. passwordHash == null → INVALID_CREDENTIALS
    * 4. verify(passwordHash, password) == false → INVALID_CREDENTIALS
-   * 5. role == null → INVALID_CREDENTIALS
-   * 6. !accessEnabled → ACCESS_DISABLED
-   * 7. Return MeResponseDto
+   * 5. member registration pending → REGISTRATION_PENDING; rejected → REGISTRATION_REJECTED
+   *    (GUS-91, RN-08; only after the password is right, like ACCESS_DISABLED: decision 29)
+   * 6. role == null → INVALID_CREDENTIALS
+   * 7. !accessEnabled → ACCESS_DISABLED
+   * 8. Return MeResponseDto
    */
   async login(dto: LoginDto): Promise<MeResponseDto> {
     const person = await this.people.findByRa(dto.ra);
@@ -48,6 +53,25 @@ export class AuthService {
     if (!passwordOk) {
       throw new HttpException(
         { error: "INVALID_CREDENTIALS", message: "Invalid credentials." },
+        401,
+      );
+    }
+
+    // After the password (decision 29: nothing about the account is revealed before the
+    // password is right). A person without member profile is not subject to validation.
+    const facts = await this.members.findAccessFacts(person.id);
+    if (facts.registrationStatus === MemberRegistrationStatus.PENDING) {
+      throw new HttpException(
+        { error: "REGISTRATION_PENDING", message: "Registration awaiting validation." },
+        401,
+      );
+    }
+    if (facts.registrationStatus === MemberRegistrationStatus.REJECTED) {
+      throw new HttpException(
+        {
+          error: "REGISTRATION_REJECTED",
+          message: "Registration rejected. Contact coordination.",
+        },
         401,
       );
     }

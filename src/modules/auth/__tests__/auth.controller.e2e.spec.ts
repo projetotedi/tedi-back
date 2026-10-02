@@ -7,6 +7,7 @@ import { DataSource } from "typeorm";
 import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import request from "supertest";
+import { insertMemberProfile } from "@modules/people/__tests__/fixtures/member-registration.fixture";
 import { PeopleService } from "@modules/people/services/people.service";
 import { PasswordService } from "../services/password.service";
 import { Role } from "@shared/enums/role.enum";
@@ -344,6 +345,84 @@ describe("AuthController (e2e)", () => {
         .expect(401);
 
       expect(res.body.error).toBe("INVALID_CREDENTIALS");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 7 (GUS-91): login of a member registration under validation
+  // -------------------------------------------------------------------------
+  describe("Case 7 (GUS-91): login of a registration under validation", () => {
+    /** A person as the accept leaves it: password set, no role, no access, a member profile. */
+    async function createRegistration(
+      ra: string,
+      status: "pending" | "rejected" | "approved",
+    ): Promise<void> {
+      const approved = status === "approved";
+      const person = await peopleService.save({
+        name: "Ana Torres",
+        ra,
+        passwordHash: await passwordService.hashPassword("Senha@123"),
+        role: approved ? Role.MEMBER : null,
+        accessEnabled: approved,
+      });
+      await insertMemberProfile(dataSource, { personId: person.id, status });
+    }
+
+    it("returns 401 REGISTRATION_PENDING for a pending registration with the right password", async () => {
+      await createRegistration("g2210001", "pending");
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "g2210001", password: "Senha@123" })
+        .expect(401);
+
+      expect(res.body).toMatchObject({
+        error: "REGISTRATION_PENDING",
+        message: "Registration awaiting validation.",
+      });
+      // No session is opened.
+      expect(res.headers["set-cookie"]).toBeUndefined();
+    });
+
+    it("returns 401 REGISTRATION_REJECTED for a rejected registration with the right password", async () => {
+      await createRegistration("g2210002", "rejected");
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "g2210002", password: "Senha@123" })
+        .expect(401);
+
+      expect(res.body).toMatchObject({
+        error: "REGISTRATION_REJECTED",
+        message: "Registration rejected. Contact coordination.",
+      });
+      expect(res.headers["set-cookie"]).toBeUndefined();
+    });
+
+    it("returns 401 INVALID_CREDENTIALS for a pending registration with a wrong password", async () => {
+      await createRegistration("g2210003", "pending");
+      await createRegistration("g2210004", "rejected");
+
+      for (const ra of ["g2210003", "g2210004"]) {
+        const res = await request(app.getHttpServer())
+          .post("/auth/login")
+          .send({ ra, password: "Errada@123" })
+          .expect(401);
+
+        // Nothing about the registration is revealed before the password is right.
+        expect(res.body.error).toBe("INVALID_CREDENTIALS");
+      }
+    });
+
+    it("returns 200 for an approved registration", async () => {
+      await createRegistration("g2210005", "approved");
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "g2210005", password: "Senha@123" })
+        .expect(200);
+
+      expect(res.body).toMatchObject({ ra: "g2210005", role: Role.MEMBER });
     });
   });
 

@@ -1,0 +1,31 @@
+meta {
+  name: create-department
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/departments
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Tecnologia"
+  }
+}
+
+docs {
+  Cadastra um departamento do projeto.
+  Requer cookie tedi_session e a permissão invites.manage (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  name é obrigatório, sem espaços nas pontas e com até 100 caracteres. É único sem diferenciar maiúsculas de minúsculas: "TECNOLOGIA" e "Tecnologia" são o mesmo departamento.
+  Renomear e arquivar departamento não fazem parte desta entrega.
+  Retorna 201 DepartmentResponseDto ({ id, name }) e registra o evento DEPARTMENT_CREATED.
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 401, 403 FORBIDDEN, 409 DEPARTMENT_ALREADY_EXISTS.
+}
