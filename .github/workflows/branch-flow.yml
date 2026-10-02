@@ -1,0 +1,31 @@
+# Garante o fluxo de branches: a main só recebe PR que sai da develop (promoção),
+# da staging ou de uma branch hotfix/*. PR de card (feature/*, fix/*, chore/*...)
+# vai para a develop. Para valer de verdade, marque o check "Origem do PR para a main"
+# como obrigatório na regra de proteção da main (Settings → Rules).
+name: Branch flow
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  source-branch:
+    name: Origem do PR para a main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Só develop, staging ou hotfix/* podem abrir PR para a main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          case "$HEAD_REF" in
+            develop|staging|hotfix/*)
+              echo "ok: $HEAD_REF -> main"
+              ;;
+            *)
+              echo "::error title=PR para a main fora do fluxo::A main só recebe PR da develop, da staging ou de hotfix/*. Esta branch é '$HEAD_REF'. Abra o PR para a develop."
+              exit 1
+              ;;
+          esac
