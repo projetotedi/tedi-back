@@ -59,13 +59,13 @@ describe("normalizeSearchTerm", () => {
   });
 
   it("escapes the look-alikes of the wildcards that unaccent converts to % _ and \\", () => {
-    expect(normalizeSearchTerm("５０％")).toBe("５０\\%");
-    expect(normalizeSearchTerm("50％")).toBe("50\\%");
-    expect(normalizeSearchTerm("50﹪")).toBe("50\\%");
-    expect(normalizeSearchTerm("a＿b")).toBe("a\\_b");
-    expect(normalizeSearchTerm("a∖b")).toBe("a\\\\b");
-    expect(normalizeSearchTerm("a﹨b")).toBe("a\\\\b");
-    expect(normalizeSearchTerm("a＼b")).toBe("a\\\\b");
+    expect(normalizeSearchTerm("\uFF15\uFF10\uFF05")).toBe("\uFF15\uFF10\\%");
+    expect(normalizeSearchTerm("50\uFF05")).toBe("50\\%");
+    expect(normalizeSearchTerm("50\uFE6A")).toBe("50\\%");
+    expect(normalizeSearchTerm("a\uFF3Fb")).toBe("a\\_b");
+    expect(normalizeSearchTerm("a\u2216b")).toBe("a\\\\b");
+    expect(normalizeSearchTerm("a\uFE68b")).toBe("a\\\\b");
+    expect(normalizeSearchTerm("a\uFF3Cb")).toBe("a\\\\b");
   });
 });
 

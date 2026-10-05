@@ -8,18 +8,9 @@ export interface SearchCondition {
 const COLUMN_REFERENCE = /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/;
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-const WILDCARDS_AFTER_UNACCENT: Readonly<Record<string, string>> = {
-  "∖": "\\",
-  "﹨": "\\",
-  "＼": "\\",
-  "﹪": "%",
-  "％": "%",
-  "＿": "_",
-};
-const WILDCARDS_AFTER_UNACCENT_PATTERN = new RegExp(
-  `[${Object.keys(WILDCARDS_AFTER_UNACCENT).join("")}]`,
-  "g",
-);
+const BACKSLASH_LOOKALIKES = /[\u2216\uFE68\uFF3C]/g;
+const PERCENT_LOOKALIKES = /[\uFE6A\uFF05]/g;
+const UNDERSCORE_LOOKALIKES = /\uFF3F/g;
 const LIKE_WILDCARDS = /[\\%_]/g;
 
 function assertColumns(columns: readonly string[]): void {
@@ -46,7 +37,9 @@ export function normalizeSearchTerm(input: string | null | undefined): string | 
   if (collapsed === "") return undefined;
 
   return collapsed
-    .replace(WILDCARDS_AFTER_UNACCENT_PATTERN, (character) => WILDCARDS_AFTER_UNACCENT[character])
+    .replace(BACKSLASH_LOOKALIKES, "\\")
+    .replace(PERCENT_LOOKALIKES, "%")
+    .replace(UNDERSCORE_LOOKALIKES, "_")
     .replace(LIKE_WILDCARDS, "\\$&");
 }
 
