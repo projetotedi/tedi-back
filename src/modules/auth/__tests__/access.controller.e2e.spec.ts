@@ -303,6 +303,29 @@ describe("AccessController (e2e)", () => {
       expect(await search("")).toHaveLength(6);
       expect(await search("   ")).toHaveLength(6);
     });
+
+    it("accepts a search of 100 characters and rejects one of 101 with 400 VALIDATION_FAILED", async () => {
+      await request(app.getHttpServer())
+        .get("/access")
+        .query({ search: "a".repeat(100) })
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get("/access")
+        .query({ search: "a".repeat(101) })
+        .set("Cookie", coordinator.cookie)
+        .expect(400);
+
+      expect(res.body).toEqual({
+        statusCode: 400,
+        message: "Bad request.",
+        error: "VALIDATION_FAILED",
+        details: [
+          { field: "search", message: "search must be shorter than or equal to 100 characters" },
+        ],
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------
