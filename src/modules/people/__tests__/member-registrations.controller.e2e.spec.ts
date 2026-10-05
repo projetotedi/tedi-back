@@ -475,6 +475,23 @@ describe("MemberRegistrationsController (e2e)", () => {
       }
     });
 
+    it("ignores NUL characters in the search instead of failing with 500", async () => {
+      const ana = await submitViaInvite(applicant(1, { name: "Ana Lúcia", ra: "a2210001" }));
+      await submitViaInvite(applicant(2, { name: "Bruno Lima", ra: "b2210002" }));
+
+      const onlyNul = await request(app.getHttpServer())
+        .get("/member-registrations?search=%00")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect(onlyNul.body.total).toBe(2);
+
+      const mixed = await request(app.getHttpServer())
+        .get("/member-registrations?search=L%00ucia")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect((mixed.body.data as Array<{ id: string }>).map((item) => item.id)).toEqual([ana]);
+    });
+
     it("paginates with page and limit", async () => {
       await submitViaInvite(applicant(1));
       const second = await submitViaInvite(applicant(2));

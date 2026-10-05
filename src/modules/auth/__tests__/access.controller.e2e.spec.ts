@@ -304,6 +304,22 @@ describe("AccessController (e2e)", () => {
       expect(await search("   ")).toHaveLength(6);
     });
 
+    it("ignores NUL characters in the search instead of failing with 500", async () => {
+      const onlyNul = await request(app.getHttpServer())
+        .get("/access?search=%00")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect(onlyNul.body.total).toBe(6);
+
+      const mixed = await request(app.getHttpServer())
+        .get("/access?search=Ma%00ria")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect((mixed.body.data as Array<{ id: string }>).map((person) => person.id)).toEqual([
+        maria,
+      ]);
+    });
+
     it("accepts a search of 100 characters and rejects one of 101 with 400 VALIDATION_FAILED", async () => {
       await request(app.getHttpServer())
         .get("/access")

@@ -430,7 +430,7 @@ applyTextSearch(qb, ["person.name", "person.ra"], query.search);
 
 - `applyTextSearch(qb, columns, term, parameterName?)` faz `andWhere` com `(public.search_normalize(person.name) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\' OR public.search_normalize(person.ra) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\')`, passa o parâmetro `%termo%` e devolve o mesmo `qb`. Termo ausente, vazio ou só com espaços não filtra.
 - **Colunas.** Entram no SQL, então são sempre `alias.coluna` escritos no código, nunca dado do usuário. Lista vazia ou formato inválido lança `Error`, mesmo com o termo vazio: o erro de programação aparece no primeiro teste.
-- **Termo.** `normalizeSearchTerm` apara as pontas, colapsa espaços repetidos e escapa `\`, `%` e `_`. Não mexe em caixa nem em acento: o `search_normalize` roda sobre o termo no próprio SQL, a mesma função dos dois lados. As variantes Unicode desses caracteres que o `unaccent` converte em curinga (como o `％` de largura total, U+FF05) são escapadas também.
+- **Termo.** `normalizeSearchTerm` remove o caractere NUL, apara as pontas, colapsa espaços repetidos e escapa `\`, `%` e `_`. Não mexe em caixa nem em acento: o `search_normalize` roda sobre o termo no próprio SQL, a mesma função dos dois lados. As variantes Unicode desses caracteres que o `unaccent` converte em curinga (como o `％` de largura total, U+FF05) são escapadas também.
 - **Parâmetro.** O nome padrão é `textSearchTerm` em `applyTextSearch` e `digitsSearchTerm` em `applyDigitsSearch`. Duas buscas do mesmo tipo no mesmo `qb` (por exemplo, `?name=` e `?ra=`, cada uma com o seu termo) precisam de nomes de parâmetro distintos, passados no quarto argumento. Com o nome padrão, a segunda chamada sobrescreve o valor da primeira e as duas condições passam a usar o termo da segunda, sem erro nenhum:
 
   ```ts
@@ -469,6 +469,7 @@ Campo que guarda uma lista de textos pesquisáveis (por exemplo, os conteúdos d
 
 - **Termo com menos de 3 caracteres** não gera trigramas suficientes para o índice: a consulta continua correta, mas o Postgres pode varrer a tabela. Para o volume do projeto isso não pesa.
 - **Espaços repetidos no dado.** O termo é colapsado (`Ana   Paula` vira `Ana Paula`), o dado gravado não: um nome gravado com dois espaços não casa com o termo de espaço único. Os DTOs de escrita aparam as pontas (`shared/dto/transforms.ts`), não o miolo.
+- **Caractere NUL.** O Postgres não aceita NUL (U+0000) em texto (erro 22021), e `?search=%00` virava 500. O `normalizeSearchTerm` o remove antes de aparar e colapsar: um termo só com NUL e espaços não filtra, e `Ma%00ria` busca `Maria`. O limite de 100 caracteres do `search` nos DTOs conta o termo bruto, NUL incluso.
 - **Busca por trecho.** É `%termo%`: sem ranking por similaridade e sem busca por palavras fora de ordem. `similarity` e full-text ficam para um card que peça.
 
 ### 12.7 Checklist de PR

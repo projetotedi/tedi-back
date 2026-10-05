@@ -74,6 +74,18 @@ describe("normalizeSearchTerm", () => {
     expect(normalizeSearchTerm("a\uFE68b")).toBe("a\\\\b");
     expect(normalizeSearchTerm("a\uFF3Cb")).toBe("a\\\\b");
   });
+
+  it("removes NUL characters before trimming and collapsing, because Postgres rejects them in text", () => {
+    expect(normalizeSearchTerm("Ma\u0000ria")).toBe("Maria");
+    expect(normalizeSearchTerm("\u0000Ana \u0000 Paula\u0000")).toBe("Ana Paula");
+    expect(normalizeSearchTerm("50\u0000%")).toBe("50\\%");
+  });
+
+  it("returns undefined for a term made only of NUL characters and spaces", () => {
+    expect(normalizeSearchTerm("\u0000")).toBeUndefined();
+    expect(normalizeSearchTerm("\u0000\u0000")).toBeUndefined();
+    expect(normalizeSearchTerm(" \u0000 ")).toBeUndefined();
+  });
 });
 
 describe("textSearchCondition", () => {
@@ -148,6 +160,14 @@ describe("applyTextSearch", () => {
     expect(andWhere).not.toHaveBeenCalled();
   });
 
+  it("does not touch the query builder when the term has only NUL characters", () => {
+    const { qb, andWhere } = fakeQueryBuilder();
+
+    applyTextSearch(qb, ["person.name"], "\u0000\u0000");
+
+    expect(andWhere).not.toHaveBeenCalled();
+  });
+
   it("returns the same query builder with and without a term", () => {
     const { qb } = fakeQueryBuilder();
 
@@ -213,6 +233,13 @@ describe("digitsSearchCondition", () => {
     expect(digitsSearchCondition("person.phone", "9999", "phoneTerm")).toEqual({
       sql: "person.phone LIKE :phoneTerm",
       parameters: { phoneTerm: "%9999%" },
+    });
+  });
+
+  it("ignores NUL characters like any other character that is not a digit", () => {
+    expect(digitsSearchCondition("person.phone", "43\u000099")).toEqual({
+      sql: "person.phone LIKE :digitsSearchTerm",
+      parameters: { digitsSearchTerm: "%4399%" },
     });
   });
 

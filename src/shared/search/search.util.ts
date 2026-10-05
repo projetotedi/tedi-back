@@ -8,6 +8,7 @@ export interface SearchCondition {
 const COLUMN_REFERENCE = /^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$/;
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+const NUL_CHARACTER = "\u0000";
 const BACKSLASH_LOOKALIKES = /[\u2216\uFE68\uFF3C]/g;
 const PERCENT_LOOKALIKES = /[\uFE6A\uFF05]/g;
 const UNDERSCORE_LOOKALIKES = /\uFF3F/g;
@@ -33,7 +34,7 @@ function assertParameterName(parameterName: string): void {
 export function normalizeSearchTerm(input: string | null | undefined): string | undefined {
   if (typeof input !== "string") return undefined;
 
-  const collapsed = input.trim().replace(/\s+/g, " ");
+  const collapsed = input.replaceAll(NUL_CHARACTER, "").trim().replace(/\s+/g, " ");
   if (collapsed === "") return undefined;
 
   return collapsed
