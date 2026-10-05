@@ -428,7 +428,7 @@ applyTextSearch(qb, ["person.name", "person.ra"], query.search);
 
 - `applyTextSearch(qb, columns, term)` faz `andWhere` com `(search_normalize(person.name) LIKE search_normalize(:textSearchTerm) ESCAPE '\' OR search_normalize(person.ra) LIKE search_normalize(:textSearchTerm) ESCAPE '\')`, passa o parâmetro `%termo%` e devolve o mesmo `qb`. Termo ausente, vazio ou só com espaços não filtra.
 - **Colunas.** Entram no SQL, então são sempre `alias.coluna` escritos no código, nunca dado do usuário. Lista vazia ou formato inválido lança `Error`, mesmo com o termo vazio: o erro de programação aparece no primeiro teste.
-- **Termo.** `normalizeSearchTerm` apara as pontas, colapsa espaços repetidos e escapa `\`, `%` e `_`. Não mexe em caixa nem em acento: o `search_normalize` roda sobre o termo no próprio SQL, a mesma função dos dois lados. As variantes Unicode desses caracteres que o `unaccent` converte em curinga (como o `％` de largura total) são escapadas também.
+- **Termo.** `normalizeSearchTerm` apara as pontas, colapsa espaços repetidos e escapa `\`, `%` e `_`. Não mexe em caixa nem em acento: o `search_normalize` roda sobre o termo no próprio SQL, a mesma função dos dois lados. As variantes Unicode desses caracteres que o `unaccent` converte em curinga (como o `％` de largura total, U+FF05) são escapadas também.
 - **Busca em OR com outra condição** (por exemplo, nome, RA ou telefone): use `textSearchCondition` e `digitsSearchCondition`, que devolvem `{ sql, parameters }` ou `undefined`, e junte as condições em um `Brackets`. Cada condição precisa do próprio `parameterName` (terceiro argumento de `textSearchCondition` e de `digitsSearchCondition`):
 
 ```ts
