@@ -14,6 +14,7 @@ src/
 │   └── migrations/          migrations geradas pelo CLI — não editar migration já rodada
 ├── shared/                 transversal, sem conhecer domínio
 │   ├── pagination/          pagination.util.ts + __tests__/
+│   ├── search/              search.util.ts (busca textual: normalizeSearchTerm, applyTextSearch, applyDigitsSearch; ver docs/ARCHITECTURE.md seção 12) + __tests__/
 │   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
 │   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
 │   ├── dto/                 api-error.dto.ts, archive.dto.ts (corpo de PATCH .../archive), transforms.ts
