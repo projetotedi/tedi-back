@@ -23,8 +23,8 @@ export class AddTextSearch1791240752021 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_people_ra_search"`);
-    await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_people_name_search"`);
-    await queryRunner.query(`DROP FUNCTION IF EXISTS public.search_normalize(text)`);
+    await queryRunner.query(`DROP INDEX "public"."idx_people_ra_search"`);
+    await queryRunner.query(`DROP INDEX "public"."idx_people_name_search"`);
+    await queryRunner.query(`DROP FUNCTION public.search_normalize(text)`);
   }
 }

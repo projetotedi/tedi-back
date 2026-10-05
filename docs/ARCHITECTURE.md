@@ -386,7 +386,7 @@ CREATE INDEX idx_people_name_search ON people USING gin (public.search_normalize
 - **Por que a função.** As duas versões de `unaccent` são `STABLE` (o dicionário pode mudar, e a versão de um argumento o procura pelo `search_path`), e índice de expressão só aceita função `IMMUTABLE`. A `search_normalize` fixa o dicionário `public.unaccent` e junta o `lower`, então a mesma expressão serve ao índice e à consulta. O corpo qualifica tudo com `public.`, porque a manutenção do índice pode rodar com `search_path` restrito (a partir do Postgres 17).
 - **Que consulta usa o índice.** Só `search_normalize(coluna) LIKE '%termo%'`. `LOWER(coluna) LIKE`, `ILIKE` e `unaccent(coluna)` não casam com a expressão indexada e caem em varredura sequencial.
 - **Ambientes.** O serviço `postgres:16-alpine` do CI traz as duas extensões (módulos contrib) e a migration as instala, sem mudança no `ci.yml`. No Neon são extensões suportadas e confiáveis (`trusted`), então o `CREATE EXTENSION` roda no `yarn start:prod` pelo dono do banco; a conferência depois do deploy está em `docs/DEPLOY.md`, seção 1.
-- **Down.** Derruba os índices e a função e deixa as extensões instaladas.
+- **Down.** Derruba os índices e a função, sem `IF EXISTS`, e deixa as extensões instaladas.
 
 ### 12.2 Índice em coluna nova
 
@@ -405,10 +405,12 @@ export class AddCourseNameSearch1791999999999 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX IF EXISTS "public"."idx_courses_name_search"`);
+    await queryRunner.query(`DROP INDEX "public"."idx_courses_name_search"`);
   }
 }
 ```
+
+O `down` não usa `IF EXISTS`, como o de `CreateStudentProfiles` e o de `CreateMemberProfiles`: um `down` quebrado precisa falhar na CI, que roda `migration:revert` (seção 5).
 
 A entidade não declara o índice: o TypeORM não declara índice de expressão (mesmo caso de `uq_departments_name`, seção 11.1), e a CI não roda `migration:generate` (seção 5). O guarda é o e2e de schema do módulo, que confere o índice em `pg_indexes`: `people/__tests__/people.repository.e2e.spec.ts` faz isso com `idx_people_name_search` e ainda confere, com `EXPLAIN`, que o planner o usa. Cada módulo escreve o dele.
 
