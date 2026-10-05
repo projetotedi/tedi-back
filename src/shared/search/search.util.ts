@@ -85,8 +85,9 @@ export function applyTextSearch<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   columns: readonly string[],
   term: string | null | undefined,
+  parameterName?: string,
 ): SelectQueryBuilder<T> {
-  const condition = textSearchCondition(columns, term);
+  const condition = textSearchCondition(columns, term, parameterName);
   if (condition) qb.andWhere(condition.sql, condition.parameters);
   return qb;
 }
@@ -95,8 +96,9 @@ export function applyDigitsSearch<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   column: string,
   term: string | null | undefined,
+  parameterName?: string,
 ): SelectQueryBuilder<T> {
-  const condition = digitsSearchCondition(column, term);
+  const condition = digitsSearchCondition(column, term, parameterName);
   if (condition) qb.andWhere(condition.sql, condition.parameters);
   return qb;
 }

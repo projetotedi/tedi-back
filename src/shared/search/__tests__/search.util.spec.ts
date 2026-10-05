@@ -1,4 +1,4 @@
-import { ObjectLiteral, SelectQueryBuilder } from "typeorm";
+import { DataSource, ObjectLiteral, SelectQueryBuilder } from "typeorm";
 import {
   applyDigitsSearch,
   applyTextSearch,
@@ -12,6 +12,13 @@ function fakeQueryBuilder(): { qb: SelectQueryBuilder<ObjectLiteral>; andWhere: 
   const qb = { andWhere } as unknown as SelectQueryBuilder<ObjectLiteral>;
   andWhere.mockReturnValue(qb);
   return { qb, andWhere };
+}
+
+function realQueryBuilder(): SelectQueryBuilder<ObjectLiteral> {
+  return new DataSource({ type: "postgres" })
+    .createQueryBuilder()
+    .select("person.id")
+    .from("people", "person");
 }
 
 const NAME_OR_RA_SQL =
@@ -155,6 +162,39 @@ describe("applyTextSearch", () => {
     expect(() => applyTextSearch(qb, ["name"], "ana")).toThrow("Invalid search column");
     expect(andWhere).not.toHaveBeenCalled();
   });
+
+  it("uses the given parameter name in the condition", () => {
+    const { qb, andWhere } = fakeQueryBuilder();
+
+    applyTextSearch(qb, ["person.name"], "ana", "nameTerm");
+
+    expect(andWhere).toHaveBeenCalledWith(
+      "(search_normalize(person.name) LIKE search_normalize(:nameTerm) ESCAPE '\\')",
+      { nameTerm: "%ana%" },
+    );
+  });
+
+  it("keeps one parameter per search when two searches on the same query builder use different parameter names", () => {
+    const qb = realQueryBuilder();
+
+    applyTextSearch(qb, ["person.name"], "ana", "nameTerm");
+    applyTextSearch(qb, ["person.ra"], "2024", "raTerm");
+
+    const [sql, parameters] = qb.getQueryAndParameters();
+    expect(qb.getParameters()).toEqual({ nameTerm: "%ana%", raTerm: "%2024%" });
+    expect(parameters).toEqual(["%ana%", "%2024%"]);
+    expect(sql).toContain("(search_normalize(person.name) LIKE search_normalize($1) ESCAPE '\\')");
+    expect(sql).toContain("(search_normalize(person.ra) LIKE search_normalize($2) ESCAPE '\\')");
+  });
+
+  it("throws for an invalid parameter name", () => {
+    const { qb, andWhere } = fakeQueryBuilder();
+
+    expect(() => applyTextSearch(qb, ["person.name"], "ana", "term; DROP TABLE people")).toThrow(
+      "Invalid search parameter name",
+    );
+    expect(andWhere).not.toHaveBeenCalled();
+  });
 });
 
 describe("digitsSearchCondition", () => {
@@ -217,5 +257,34 @@ describe("applyDigitsSearch", () => {
 
     expect(applyDigitsSearch(qb, "person.phone", "123")).toBe(qb);
     expect(applyDigitsSearch(qb, "person.phone", "abc")).toBe(qb);
+  });
+
+  it("uses the given parameter name in the condition", () => {
+    const { qb, andWhere } = fakeQueryBuilder();
+
+    applyDigitsSearch(qb, "person.phone", "4399", "phoneTerm");
+
+    expect(andWhere).toHaveBeenCalledWith("person.phone LIKE :phoneTerm", {
+      phoneTerm: "%4399%",
+    });
+  });
+
+  it("keeps one parameter per search when two searches on the same query builder use different parameter names", () => {
+    const qb = realQueryBuilder();
+
+    applyDigitsSearch(qb, "person.phone", "4399", "phoneTerm");
+    applyDigitsSearch(qb, "person.emergency_phone", "1234", "emergencyTerm");
+
+    expect(qb.getParameters()).toEqual({ phoneTerm: "%4399%", emergencyTerm: "%1234%" });
+    expect(qb.getQueryAndParameters()[1]).toEqual(["%4399%", "%1234%"]);
+  });
+
+  it("throws for an invalid parameter name", () => {
+    const { qb, andWhere } = fakeQueryBuilder();
+
+    expect(() => applyDigitsSearch(qb, "person.phone", "123", "term; DROP")).toThrow(
+      "Invalid search parameter name",
+    );
+    expect(andWhere).not.toHaveBeenCalled();
   });
 });
