@@ -384,7 +384,7 @@ CREATE INDEX idx_people_name_search ON people USING gin (public.search_normalize
 ```
 
 - **Por que a função.** As duas versões de `unaccent` são `STABLE` (o dicionário pode mudar, e a versão de um argumento o procura pelo `search_path`), e índice de expressão só aceita função `IMMUTABLE`. A `search_normalize` fixa o dicionário `public.unaccent` e junta o `lower`, então a mesma expressão serve ao índice e à consulta. O corpo qualifica tudo com `public.`, porque a manutenção do índice pode rodar com `search_path` restrito (a partir do Postgres 17).
-- **Que consulta usa o índice.** Só `search_normalize(coluna) LIKE '%termo%'`. `LOWER(coluna) LIKE`, `ILIKE` e `unaccent(coluna)` não casam com a expressão indexada e caem em varredura sequencial.
+- **Que consulta usa o índice.** Só `public.search_normalize(coluna) LIKE '%termo%'`; o SQL gerado qualifica o `public.` para não depender do `search_path` da conexão, sem mudar a expressão indexada. `LOWER(coluna) LIKE`, `ILIKE` e `unaccent(coluna)` não casam com a expressão indexada e caem em varredura sequencial.
 - **Ambientes.** O serviço `postgres:16-alpine` do CI traz as duas extensões (módulos contrib) e a migration as instala, sem mudança no `ci.yml`. No Neon são extensões suportadas e confiáveis (`trusted`), então o `CREATE EXTENSION` roda no `yarn start:prod` pelo dono do banco; a conferência depois do deploy está em `docs/DEPLOY.md`, seção 1.
 - **Down.** Derruba os índices e a função, sem `IF EXISTS`, e deixa as extensões instaladas.
 
@@ -428,7 +428,7 @@ const qb = this.dataSource
 applyTextSearch(qb, ["person.name", "person.ra"], query.search);
 ```
 
-- `applyTextSearch(qb, columns, term, parameterName?)` faz `andWhere` com `(search_normalize(person.name) LIKE search_normalize(:textSearchTerm) ESCAPE '\' OR search_normalize(person.ra) LIKE search_normalize(:textSearchTerm) ESCAPE '\')`, passa o parâmetro `%termo%` e devolve o mesmo `qb`. Termo ausente, vazio ou só com espaços não filtra.
+- `applyTextSearch(qb, columns, term, parameterName?)` faz `andWhere` com `(public.search_normalize(person.name) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\' OR public.search_normalize(person.ra) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\')`, passa o parâmetro `%termo%` e devolve o mesmo `qb`. Termo ausente, vazio ou só com espaços não filtra.
 - **Colunas.** Entram no SQL, então são sempre `alias.coluna` escritos no código, nunca dado do usuário. Lista vazia ou formato inválido lança `Error`, mesmo com o termo vazio: o erro de programação aparece no primeiro teste.
 - **Termo.** `normalizeSearchTerm` apara as pontas, colapsa espaços repetidos e escapa `\`, `%` e `_`. Não mexe em caixa nem em acento: o `search_normalize` roda sobre o termo no próprio SQL, a mesma função dos dois lados. As variantes Unicode desses caracteres que o `unaccent` converte em curinga (como o `％` de largura total, U+FF05) são escapadas também.
 - **Parâmetro.** O nome padrão é `textSearchTerm` em `applyTextSearch` e `digitsSearchTerm` em `applyDigitsSearch`. Duas buscas do mesmo tipo no mesmo `qb` (por exemplo, `?name=` e `?ra=`, cada uma com o seu termo) precisam de nomes de parâmetro distintos, passados no quarto argumento. Com o nome padrão, a segunda chamada sobrescreve o valor da primeira e as duas condições passam a usar o termo da segunda, sem erro nenhum:

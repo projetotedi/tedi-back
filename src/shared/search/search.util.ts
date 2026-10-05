@@ -55,7 +55,8 @@ export function textSearchCondition(
   if (normalized === undefined) return undefined;
 
   const predicates = columns.map(
-    (column) => `search_normalize(${column}) LIKE search_normalize(:${parameterName}) ESCAPE '\\'`,
+    (column) =>
+      `public.search_normalize(${column}) LIKE public.search_normalize(:${parameterName}) ESCAPE '\\'`,
   );
 
   return {

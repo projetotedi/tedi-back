@@ -94,8 +94,8 @@ describe("AccessService", () => {
 
   describe("listAccess()", () => {
     const nameOrRaSql =
-      "(search_normalize(person.name) LIKE search_normalize(:textSearchTerm) ESCAPE '\\' " +
-      "OR search_normalize(person.ra) LIKE search_normalize(:textSearchTerm) ESCAPE '\\')";
+      "(public.search_normalize(person.name) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\\' " +
+      "OR public.search_normalize(person.ra) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\\')";
 
     it("applies the text search over name and RA with the escaped term", async () => {
       const qb = makeQueryBuilder([makePerson()]);

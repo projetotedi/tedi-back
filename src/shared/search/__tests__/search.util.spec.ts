@@ -22,8 +22,8 @@ function realQueryBuilder(): SelectQueryBuilder<ObjectLiteral> {
 }
 
 const NAME_OR_RA_SQL =
-  "(search_normalize(person.name) LIKE search_normalize(:textSearchTerm) ESCAPE '\\' " +
-  "OR search_normalize(person.ra) LIKE search_normalize(:textSearchTerm) ESCAPE '\\')";
+  "(public.search_normalize(person.name) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\\' " +
+  "OR public.search_normalize(person.ra) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\\')";
 
 const INVALID_COLUMNS = [
   "name",
@@ -86,14 +86,14 @@ describe("textSearchCondition", () => {
 
   it("builds a single comparison for a single column", () => {
     expect(textSearchCondition(["person.name"], "  Ana   Paula ")).toEqual({
-      sql: "(search_normalize(person.name) LIKE search_normalize(:textSearchTerm) ESCAPE '\\')",
+      sql: "(public.search_normalize(person.name) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\\')",
       parameters: { textSearchTerm: "%Ana Paula%" },
     });
   });
 
   it("uses the given parameter name in the SQL and in the parameters", () => {
     expect(textSearchCondition(["person.name"], "ana", "nameTerm")).toEqual({
-      sql: "(search_normalize(person.name) LIKE search_normalize(:nameTerm) ESCAPE '\\')",
+      sql: "(public.search_normalize(person.name) LIKE public.search_normalize(:nameTerm) ESCAPE '\\')",
       parameters: { nameTerm: "%ana%" },
     });
   });
@@ -169,7 +169,7 @@ describe("applyTextSearch", () => {
     applyTextSearch(qb, ["person.name"], "ana", "nameTerm");
 
     expect(andWhere).toHaveBeenCalledWith(
-      "(search_normalize(person.name) LIKE search_normalize(:nameTerm) ESCAPE '\\')",
+      "(public.search_normalize(person.name) LIKE public.search_normalize(:nameTerm) ESCAPE '\\')",
       { nameTerm: "%ana%" },
     );
   });
@@ -183,8 +183,12 @@ describe("applyTextSearch", () => {
     const [sql, parameters] = qb.getQueryAndParameters();
     expect(qb.getParameters()).toEqual({ nameTerm: "%ana%", raTerm: "%2024%" });
     expect(parameters).toEqual(["%ana%", "%2024%"]);
-    expect(sql).toContain("(search_normalize(person.name) LIKE search_normalize($1) ESCAPE '\\')");
-    expect(sql).toContain("(search_normalize(person.ra) LIKE search_normalize($2) ESCAPE '\\')");
+    expect(sql).toContain(
+      "(public.search_normalize(person.name) LIKE public.search_normalize($1) ESCAPE '\\')",
+    );
+    expect(sql).toContain(
+      "(public.search_normalize(person.ra) LIKE public.search_normalize($2) ESCAPE '\\')",
+    );
   });
 
   it("throws for an invalid parameter name", () => {

@@ -337,7 +337,7 @@ describe("people repository (e2e)", () => {
         await manager.query("SET LOCAL enable_seqscan = off");
         const rows: Array<{ "QUERY PLAN": string }> = await manager.query(
           `EXPLAIN SELECT id FROM people
-            WHERE search_normalize(name) LIKE search_normalize($1) ESCAPE '\\'`,
+            WHERE public.search_normalize(name) LIKE public.search_normalize($1) ESCAPE '\\'`,
           ["%jose%"],
         );
         return rows.map((row) => row["QUERY PLAN"]).join("\n");
