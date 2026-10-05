@@ -443,6 +443,38 @@ describe("MemberRegistrationsController (e2e)", () => {
       expect(fieldsOf(invalid.body)).toEqual(["status"]);
     });
 
+    it("searches ignoring accents", async () => {
+      const ana = await submitViaInvite(applicant(1, { name: "Ana Lúcia", ra: "a2210001" }));
+      await submitViaInvite(applicant(2, { name: "Bruno Lima", ra: "b2210002" }));
+
+      const search = async (term: string): Promise<string[]> => {
+        const res = await request(app.getHttpServer())
+          .get("/member-registrations")
+          .query({ search: term })
+          .set("Cookie", coordinator.cookie)
+          .expect(200);
+        return (res.body.data as Array<{ id: string }>).map((item) => item.id);
+      };
+
+      expect(await search("lucia")).toEqual([ana]);
+      expect(await search("LÚCIA")).toEqual([ana]);
+      expect(await search("ana lúcia")).toEqual([ana]);
+    });
+
+    it("treats % and _ as literal text in the search", async () => {
+      await submitViaInvite(applicant(1, { name: "Ana Lúcia", ra: "a2210001" }));
+      await submitViaInvite(applicant(2, { name: "Bruno Lima", ra: "b2210002" }));
+
+      for (const term of ["%", "_", "a%a", "a_2"]) {
+        const res = await request(app.getHttpServer())
+          .get("/member-registrations")
+          .query({ search: term })
+          .set("Cookie", coordinator.cookie)
+          .expect(200);
+        expect(res.body).toMatchObject({ data: [], total: 0 });
+      }
+    });
+
     it("paginates with page and limit", async () => {
       await submitViaInvite(applicant(1));
       const second = await submitViaInvite(applicant(2));
