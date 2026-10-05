@@ -239,6 +239,72 @@ describe("AccessController (e2e)", () => {
     });
   });
 
+  describe("Text search (GUS-115)", () => {
+    let coordinator: { cookie: string; id: string };
+    let maria: string;
+    let jose: string;
+    let ana50: string;
+    let ana500: string;
+
+    async function savePerson(name: string, ra: string): Promise<string> {
+      const person = await peopleService.save({
+        name,
+        ra,
+        email: `${ra}@example.com`,
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+      return person.id;
+    }
+
+    async function search(term: string): Promise<string[]> {
+      const res = await request(app.getHttpServer())
+        .get("/access")
+        .query({ search: term })
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      return (res.body.data as Array<{ id: string }>).map((person) => person.id);
+    }
+
+    beforeEach(async () => {
+      coordinator = await createCoordinator();
+      maria = await savePerson("Maria Souza", "a1000001");
+      await savePerson("Mário Lima", "a1000002");
+      jose = await savePerson("José da Conceição", "2024000123");
+      ana50 = await savePerson("Ana 50% Teste", "a1000003");
+      ana500 = await savePerson("Ana 500 Teste", "a1000004");
+    });
+
+    it("returns the same people for maria, MÁRIA and mária", async () => {
+      expect(await search("maria")).toEqual([maria]);
+      expect(await search("MÁRIA")).toEqual([maria]);
+      expect(await search("mária")).toEqual([maria]);
+    });
+
+    it("finds José when searching jose", async () => {
+      expect(await search("jose")).toEqual([jose]);
+    });
+
+    it("finds José da Conceição by conceicao and JOSÉ", async () => {
+      expect(await search("conceicao")).toEqual([jose]);
+      expect(await search("JOSÉ")).toEqual([jose]);
+    });
+
+    it("finds by a partial RA", async () => {
+      expect(await search("2024000")).toEqual([jose]);
+    });
+
+    it("treats 50% as literal text", async () => {
+      expect(await search("50%")).toEqual([ana50]);
+      expect((await search("50")).sort()).toEqual([ana50, ana500].sort());
+    });
+
+    it("ignores an empty or blank search", async () => {
+      expect(await search("")).toHaveLength(6);
+      expect(await search("   ")).toHaveLength(6);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Case 3 (CA81-3): PATCH /access/:id/role → 200 + /auth/me reflete
   // ---------------------------------------------------------------------------

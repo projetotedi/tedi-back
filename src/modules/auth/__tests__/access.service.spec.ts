@@ -39,6 +39,15 @@ function makeManager(findResult: Person | null, countResult = 2): jest.Mocked<En
   } as unknown as jest.Mocked<EntityManager>;
 }
 
+function makeQueryBuilder(people: Person[] = []): Record<string, jest.Mock> {
+  const qb: Record<string, jest.Mock> = {};
+  for (const method of ["where", "orderBy", "andWhere", "skip", "take"]) {
+    qb[method] = jest.fn().mockReturnValue(qb);
+  }
+  qb.getManyAndCount = jest.fn().mockResolvedValue([people, people.length]);
+  return qb;
+}
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
@@ -81,6 +90,52 @@ describe("AccessService", () => {
       invitesService,
       configService,
     );
+  });
+
+  describe("listAccess()", () => {
+    const nameOrRaSql =
+      "(search_normalize(person.name) LIKE search_normalize(:textSearchTerm) ESCAPE '\\' " +
+      "OR search_normalize(person.ra) LIKE search_normalize(:textSearchTerm) ESCAPE '\\')";
+
+    it("applies the text search over name and RA with the escaped term", async () => {
+      const qb = makeQueryBuilder([makePerson()]);
+      personRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+      const result = await service.listAccess({ search: "  50%  " });
+
+      expect(qb.andWhere).toHaveBeenCalledTimes(1);
+      expect(qb.andWhere).toHaveBeenCalledWith(nameOrRaSql, { textSearchTerm: "%50\\%%" });
+      expect(result).toMatchObject({ total: 1, page: 1, limit: 20 });
+    });
+
+    it("skips the text search when the term is missing or blank", async () => {
+      const qb = makeQueryBuilder();
+      personRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+      await service.listAccess({});
+      await service.listAccess({ search: "" });
+      await service.listAccess({ search: "   " });
+
+      expect(qb.andWhere).not.toHaveBeenCalled();
+    });
+
+    it("keeps the role and enabled filters next to the text search", async () => {
+      const qb = makeQueryBuilder();
+      personRepo.createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+      await service.listAccess({ search: "maria", role: Role.MEMBER, enabled: false });
+
+      expect(qb.andWhere).toHaveBeenCalledTimes(3);
+      expect(qb.andWhere).toHaveBeenNthCalledWith(1, nameOrRaSql, {
+        textSearchTerm: "%maria%",
+      });
+      expect(qb.andWhere).toHaveBeenNthCalledWith(2, "person.role = :role", {
+        role: Role.MEMBER,
+      });
+      expect(qb.andWhere).toHaveBeenNthCalledWith(3, "person.access_enabled = :enabled", {
+        enabled: false,
+      });
+    });
   });
 
   // ---------------------------------------------------------------------------
