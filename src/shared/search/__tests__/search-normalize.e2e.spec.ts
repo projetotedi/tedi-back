@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { config } from "dotenv";
 import { DataSource } from "typeorm";
+import { normalizeSearchTerm } from "../search.util";
 
 config();
 
@@ -92,5 +93,18 @@ describe("search_normalize (e2e)", () => {
     expect(await matching(values, "%back\\\\slash%")).toEqual(["back\\slash"]);
     expect(await matching(values, "%50%")).toEqual(["50%", "500"]);
     expect(await matching(values, "%a_b%")).toEqual(["a_b", "axb"]);
+  });
+
+  it("finds the literal text of a normalized term, look-alikes of % _ and \\ included", async () => {
+    const values = ["50%", "50\uFF05", "500", "a_b", "a\uFF3Fb", "axb", "a\\b", "a\u2216b", "acb"];
+    const search = async (term: string): Promise<string[]> =>
+      matching(values, `%${normalizeSearchTerm(term)}%`);
+
+    expect(await search("50%")).toEqual(["50%", "50\uFF05"]);
+    expect(await search("50\uFF05")).toEqual(["50%", "50\uFF05"]);
+    expect(await search("a_b")).toEqual(["a_b", "a\uFF3Fb"]);
+    expect(await search("a\uFF3Fb")).toEqual(["a_b", "a\uFF3Fb"]);
+    expect(await search("a\\b")).toEqual(["a\\b", "a\u2216b"]);
+    expect(await search("a\u2216b")).toEqual(["a\\b", "a\u2216b"]);
   });
 });
