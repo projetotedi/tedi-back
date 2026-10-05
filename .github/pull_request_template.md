@@ -44,6 +44,12 @@ Migration: CreateUsers
 
 - [ ] `yarn build` ✅
 
+### Busca textual
+
+- [ ] A busca usa `applyTextSearch` (`@shared/search/search.util`), sem `LOWER(...) LIKE` nem `ILIKE`.
+- [ ] Coluna pesquisável nova tem o índice GIN `idx_<tabela>_<coluna>_search` na migration (`docs/ARCHITECTURE.md`, seção 12).
+- [ ] Não se aplica.
+
 ## Observações
 
 <!--
