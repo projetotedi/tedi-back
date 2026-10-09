@@ -9,7 +9,8 @@ import {
 
 function fakeQueryBuilder(): { qb: SelectQueryBuilder<ObjectLiteral>; andWhere: jest.Mock } {
   const andWhere = jest.fn();
-  const qb = { andWhere } as unknown as SelectQueryBuilder<ObjectLiteral>;
+  const getParameters = jest.fn().mockReturnValue({});
+  const qb = { andWhere, getParameters } as unknown as SelectQueryBuilder<ObjectLiteral>;
   andWhere.mockReturnValue(qb);
   return { qb, andWhere };
 }
@@ -157,6 +158,19 @@ describe("applyTextSearch", () => {
     applyTextSearch(qb, ["person.name"], null);
     applyTextSearch(qb, ["person.name"], undefined);
 
+    expect(andWhere).not.toHaveBeenCalled();
+  });
+
+  it("throws when the parameter name already exists in the query", () => {
+    const andWhere = jest.fn();
+    const qb = {
+      andWhere,
+      getParameters: jest.fn().mockReturnValue({ textSearchTerm: "%existing%" }),
+    } as unknown as SelectQueryBuilder<ObjectLiteral>;
+
+    expect(() => applyTextSearch(qb, ["person.name"], "ana")).toThrow(
+      'Search parameter "textSearchTerm" is already defined in this query.',
+    );
     expect(andWhere).not.toHaveBeenCalled();
   });
 

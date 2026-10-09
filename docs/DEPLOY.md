@@ -16,15 +16,6 @@ Ambiente de **testes no ar** com custo zero: banco no **Neon** (Postgres gerenci
 
 Alternativa gratuita se o Neon não servir: **Aiven for PostgreSQL** (plano free, 1 vCPU, 5 GB). Mesmo formato de `DATABASE_URL`, SSL obrigatório.
 
-**Extensões.** A busca textual (GUS-115, `docs/ARCHITECTURE.md` seção 12) usa as extensões `unaccent` e `pg_trgm`. A migration `AddTextSearch` as instala com `CREATE EXTENSION IF NOT EXISTS ... WITH SCHEMA public` no primeiro `yarn start:prod` depois do merge. As duas são extensões confiáveis (`trusted`) do Postgres e constam na lista de extensões suportadas do Neon, então o dono do banco as cria e não há passo manual. Se a migration falhar com erro de permissão em `CREATE EXTENSION`, o serviço não sobe (seção 2): crie as duas em `public` com o dono do projeto e reinicie o deploy. Outro provedor, como o Aiven acima, precisa oferecer as duas. Depois do primeiro deploy, confira no SQL Editor do Neon (ou com `psql "$DATABASE_URL"`):
-
-```sql
-SELECT extname FROM pg_extension WHERE extname IN ('unaccent', 'pg_trgm') ORDER BY extname;
-SELECT provolatile FROM pg_proc WHERE proname = 'search_normalize';
-```
-
-A primeira consulta devolve `pg_trgm` e `unaccent`; a segunda devolve `i` (função imutável).
-
 ## 2. API: Render
 
 1. Criar conta em https://render.com (login com GitHub) e autorizar a organização `projetotedi`.

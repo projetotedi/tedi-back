@@ -365,117 +365,16 @@ A situação mora no perfil; o acesso continua na `Person`.
 
 ## 12. Busca textual (GUS-115)
 
-Toda busca por texto digitado (nome, RA, conteúdo, telefone) segue o mesmo padrão, para valer igual em qualquer tela: ignora acento e caixa, usa índice e trata `%` e `_` como texto, não como curinga. Com o padrão, `maria`, `MÁRIA` e `mária` trazem o mesmo resultado, `jose` encontra "José" e `50%` procura o texto "50%". Service não escreve `LOWER(coluna) LIKE` nem `ILIKE`: quem busca texto usa `src/shared/search/search.util.ts`.
+Buscas textuais devem ignorar diferenças de caixa e acentuação e tratar `%` e `_` como caracteres literais. Para isso, a aplicação normaliza coluna e termo com `public.search_normalize` e usa `LIKE` com busca por trecho. A função fixa a normalização usada tanto pela consulta quanto pelo índice.
 
-### 12.1 No banco
+A busca por trecho é acelerada por índices GIN com `gin_trgm_ops` sobre a expressão `public.search_normalize(coluna)`. A expressão da consulta precisa corresponder à expressão indexada; `LOWER(...) LIKE`, `ILIKE` e `unaccent(...)` não aproveitam esses índices. Termos com menos de três caracteres podem resultar em varredura, pois não produzem trigramas suficientes.
 
-A migration `AddTextSearch` instala as extensões `unaccent` e `pg_trgm` no schema `public`, cria a função `public.search_normalize` e os índices de `people` (`idx_people_name_search` e `idx_people_ra_search`):
+### 12.1 Implementação
 
-```sql
-CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;
-CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+- As extensões `unaccent` e `pg_trgm` e a função `search_normalize` são criadas pela migration `CreateSearchNormalizeFunction`.
+- Cada coluna pesquisável recebe um índice GIN próprio, no formato `idx_<tabela>_<coluna>_search`, criado depois da função. A GUS-115 cria os índices de `people.name` e `people.ra` em `CreateTextSearchIndexes`.
+- No service, use `applyTextSearch` de `src/shared/search/search.util.ts`. Para combinar condições de texto e dígitos em OR, use `textSearchCondition` e `digitsSearchCondition` dentro de `Brackets`.
+- Ao adicionar uma coluna pesquisável, crie sua migration de índice e atualize o e2e de schema do módulo para verificar o índice em `pg_indexes` e seu uso quando pertinente.
+- Para listas de textos pesquisáveis, use uma tabela filha com uma linha por texto; índice GIN de array não atende busca por trecho.
 
-CREATE OR REPLACE FUNCTION public.search_normalize(value text)
-RETURNS text
-LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-AS $$ SELECT lower(public.unaccent('public.unaccent'::regdictionary, value)) $$;
-
-CREATE INDEX idx_people_name_search ON people USING gin (public.search_normalize(name) gin_trgm_ops);
-```
-
-- **Por que a função.** As duas versões de `unaccent` são `STABLE` (o dicionário pode mudar, e a versão de um argumento o procura pelo `search_path`), e índice de expressão só aceita função `IMMUTABLE`. A `search_normalize` fixa o dicionário `public.unaccent` e junta o `lower`, então a mesma expressão serve ao índice e à consulta. O corpo qualifica tudo com `public.`, porque a manutenção do índice pode rodar com `search_path` restrito (a partir do Postgres 17).
-- **Que consulta usa o índice.** Só `public.search_normalize(coluna) LIKE '%termo%'`; o SQL gerado qualifica o `public.` para não depender do `search_path` da conexão, sem mudar a expressão indexada. `LOWER(coluna) LIKE`, `ILIKE` e `unaccent(coluna)` não casam com a expressão indexada e caem em varredura sequencial.
-- **Ambientes.** O serviço `postgres:16-alpine` do CI traz as duas extensões (módulos contrib) e a migration as instala, sem mudança no `ci.yml`. No Neon são extensões suportadas e confiáveis (`trusted`), então o `CREATE EXTENSION` roda no `yarn start:prod` pelo dono do banco; a conferência depois do deploy está em `docs/DEPLOY.md`, seção 1.
-- **Down.** Derruba os índices e a função, sem `IF EXISTS`, e deixa as extensões instaladas.
-
-### 12.2 Índice em coluna nova
-
-Coluna pesquisável nova ganha o índice na migration que a cria, ou numa migration própria depois da `AddTextSearch` (o timestamp garante que a função já existe). O nome é `idx_<tabela>_<coluna>_search`. Modelo, para `courses.name`:
-
-```ts
-import { MigrationInterface, QueryRunner } from "typeorm";
-
-export class AddCourseNameSearch1791999999999 implements MigrationInterface {
-  name = "AddCourseNameSearch1791999999999";
-
-  public async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `CREATE INDEX "idx_courses_name_search" ON "courses" USING gin (public.search_normalize("name") gin_trgm_ops)`,
-    );
-  }
-
-  public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP INDEX "public"."idx_courses_name_search"`);
-  }
-}
-```
-
-O `down` não usa `IF EXISTS`, como o de `CreateStudentProfiles` e o de `CreateMemberProfiles`: um `down` quebrado precisa falhar na CI, que roda `migration:revert` (seção 5).
-
-A entidade não declara o índice: o TypeORM não declara índice de expressão (mesmo caso de `uq_departments_name`, seção 11.1), e a CI não roda `migration:generate` (seção 5). O guarda é o e2e de schema do módulo, que confere o índice em `pg_indexes`: `people/__tests__/people.repository.e2e.spec.ts` faz isso com `idx_people_name_search` e ainda confere, com `EXPLAIN`, que o planner o usa. Cada módulo escreve o dele.
-
-### 12.3 No service
-
-```ts
-import { applyTextSearch } from "@shared/search/search.util";
-
-const qb = this.dataSource
-  .getRepository(Person)
-  .createQueryBuilder("person")
-  .where("person.role IS NOT NULL")
-  .orderBy("person.name", "ASC");
-
-applyTextSearch(qb, ["person.name", "person.ra"], query.search);
-```
-
-- `applyTextSearch(qb, columns, term, parameterName?)` faz `andWhere` com `(public.search_normalize(person.name) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\' OR public.search_normalize(person.ra) LIKE public.search_normalize(:textSearchTerm) ESCAPE '\')`, passa o parâmetro `%termo%` e devolve o mesmo `qb`. Termo ausente, vazio ou só com espaços não filtra.
-- **Colunas.** Entram no SQL, então são sempre `alias.coluna` escritos no código, nunca dado do usuário. Lista vazia ou formato inválido lança `Error`, mesmo com o termo vazio: o erro de programação aparece no primeiro teste.
-- **Termo.** `normalizeSearchTerm` remove o caractere NUL, apara as pontas, colapsa espaços repetidos e escapa `\`, `%` e `_`. Não mexe em caixa nem em acento: o `search_normalize` roda sobre o termo no próprio SQL, a mesma função dos dois lados. As variantes Unicode desses caracteres que o `unaccent` converte em curinga (como o `％` de largura total, U+FF05) são escapadas também.
-- **Parâmetro.** O nome padrão é `textSearchTerm` em `applyTextSearch` e `digitsSearchTerm` em `applyDigitsSearch`. Duas buscas do mesmo tipo no mesmo `qb` (por exemplo, `?name=` e `?ra=`, cada uma com o seu termo) precisam de nomes de parâmetro distintos, passados no quarto argumento. Com o nome padrão, a segunda chamada sobrescreve o valor da primeira e as duas condições passam a usar o termo da segunda, sem erro nenhum:
-
-  ```ts
-  applyTextSearch(qb, ["person.name"], query.name, "nameTerm");
-  applyTextSearch(qb, ["person.ra"], query.ra, "raTerm");
-  ```
-
-- **Busca em OR com outra condição** (por exemplo, nome, RA ou telefone): use `textSearchCondition` e `digitsSearchCondition`, que devolvem `{ sql, parameters }` ou `undefined`, e junte as condições em um `Brackets`. Pelo mesmo motivo, cada condição precisa do próprio `parameterName` (terceiro argumento de `textSearchCondition` e de `digitsSearchCondition`):
-
-```ts
-const conditions = [
-  textSearchCondition(["person.name", "person.ra"], query.search, "nameTerm"),
-  digitsSearchCondition("person.phone", query.search, "phoneTerm"),
-].filter((condition) => condition !== undefined);
-
-if (conditions.length > 0) {
-  qb.andWhere(
-    new Brackets((builder) => {
-      for (const condition of conditions) {
-        builder.orWhere(condition.sql, condition.parameters);
-      }
-    }),
-  );
-}
-```
-
-### 12.4 Só dígitos (telefone)
-
-`Person.phone` guarda só dígitos. `applyDigitsSearch(qb, "person.phone", query.search)` descarta o que não é dígito no termo ("(43) 99999-0000" vira "43999990000") e compara com `LIKE '%dígitos%'` direto na coluna, sem `search_normalize`. Termo sem dígito não filtra. A GUS-115 não indexa telefone: a tela que precisar de índice cria, na sua migration, um GIN `gin_trgm_ops` sobre a coluna de dígitos (`phone`, ou uma coluna só de dígitos, se o dado passar a guardar máscara).
-
-### 12.5 Lista de textos: tabela filha
-
-Campo que guarda uma lista de textos pesquisáveis (por exemplo, os conteúdos de um plano de aula) vira uma tabela filha, uma linha por texto, com o índice da seção 12.2 na coluna do texto. Coluna `text[]` não serve: `search_normalize` recebe `text`, e o GIN padrão de array casa elemento inteiro, não pedaço de texto.
-
-### 12.6 Limites
-
-- **Termo com menos de 3 caracteres** não gera trigramas suficientes para o índice: a consulta continua correta, mas o Postgres pode varrer a tabela. Para o volume do projeto isso não pesa.
-- **Espaços repetidos no dado.** O termo é colapsado (`Ana   Paula` vira `Ana Paula`), o dado gravado não: um nome gravado com dois espaços não casa com o termo de espaço único. Os DTOs de escrita aparam as pontas (`shared/dto/transforms.ts`), não o miolo.
-- **Caractere NUL.** O Postgres não aceita NUL (U+0000) em texto (erro 22021), e `?search=%00` virava 500. O `normalizeSearchTerm` o remove antes de aparar e colapsar: um termo só com NUL e espaços não filtra, e `Ma%00ria` busca `Maria`. O limite de 100 caracteres do `search` nos DTOs conta o termo bruto, NUL incluso.
-- **Busca por trecho.** É `%termo%`: sem ranking por similaridade e sem busca por palavras fora de ordem. `similarity` e full-text ficam para um card que peça.
-
-### 12.7 Checklist de PR
-
-- [ ] A busca usa `applyTextSearch`, ou `textSearchCondition` e `digitsSearchCondition` dentro de um `Brackets`: nenhum `LOWER(...) LIKE` nem `ILIKE` novo em service.
-- [ ] Coluna pesquisável nova tem o índice `idx_<tabela>_<coluna>_search` na migration, e o e2e de schema do módulo o confere em `pg_indexes`.
-- [ ] O e2e cobre acento e caixa (`jose` encontra "José") e `%` como texto.
-
-O mesmo checklist está na subseção "Busca textual" do template de PR.
+O termo é normalizado e escapado pelo utilitário compartilhado antes da consulta. Parâmetros de buscas distintas no mesmo `QueryBuilder` devem ter nomes diferentes; o utilitário falha explicitamente quando um nome já está em uso.

@@ -41,10 +41,19 @@ function makeManager(findResult: Person | null, countResult = 2): jest.Mocked<En
 
 function makeQueryBuilder(people: Person[] = []): Record<string, jest.Mock> {
   const qb: Record<string, jest.Mock> = {};
+  const parameters: Record<string, unknown> = {};
+
   for (const method of ["where", "orderBy", "andWhere", "skip", "take"]) {
     qb[method] = jest.fn().mockReturnValue(qb);
   }
+
+  qb.andWhere.mockImplementation((_condition: string, values?: Record<string, unknown>) => {
+    Object.assign(parameters, values);
+    return qb;
+  });
+  qb.getParameters = jest.fn().mockReturnValue(parameters);
   qb.getManyAndCount = jest.fn().mockResolvedValue([people, people.length]);
+
   return qb;
 }
 

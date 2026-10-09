@@ -32,10 +32,15 @@ function assertParameterName(parameterName: string): void {
 }
 
 export function normalizeSearchTerm(input: string | null | undefined): string | undefined {
-  if (typeof input !== "string") return undefined;
+  if (typeof input !== "string") {
+    return undefined;
+  }
 
   const collapsed = input.replaceAll(NUL_CHARACTER, "").trim().replace(/\s+/g, " ");
-  if (collapsed === "") return undefined;
+
+  if (collapsed === "") {
+    return undefined;
+  }
 
   return collapsed
     .replace(BACKSLASH_LOOKALIKES, "\\")
@@ -53,7 +58,10 @@ export function textSearchCondition(
   assertParameterName(parameterName);
 
   const normalized = normalizeSearchTerm(term);
-  if (normalized === undefined) return undefined;
+
+  if (normalized === undefined) {
+    return undefined;
+  }
 
   const predicates = columns.map(
     (column) =>
@@ -75,7 +83,10 @@ export function digitsSearchCondition(
   assertParameterName(parameterName);
 
   const digits = typeof term === "string" ? term.replace(/\D/g, "") : "";
-  if (digits === "") return undefined;
+
+  if (digits === "") {
+    return undefined;
+  }
 
   return {
     sql: `${column} LIKE :${parameterName}`,
@@ -90,7 +101,12 @@ export function applyTextSearch<T extends ObjectLiteral>(
   parameterName?: string,
 ): SelectQueryBuilder<T> {
   const condition = textSearchCondition(columns, term, parameterName);
-  if (condition) qb.andWhere(condition.sql, condition.parameters);
+
+  if (condition) {
+    assertParametersAvailable(qb, condition.parameters);
+    qb.andWhere(condition.sql, condition.parameters);
+  }
+
   return qb;
 }
 
@@ -101,6 +117,24 @@ export function applyDigitsSearch<T extends ObjectLiteral>(
   parameterName?: string,
 ): SelectQueryBuilder<T> {
   const condition = digitsSearchCondition(column, term, parameterName);
-  if (condition) qb.andWhere(condition.sql, condition.parameters);
+
+  if (condition) {
+    assertParametersAvailable(qb, condition.parameters);
+    qb.andWhere(condition.sql, condition.parameters);
+  }
+
   return qb;
+}
+
+function assertParametersAvailable<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
+  parameters: Record<string, string>,
+): void {
+  const existingParameters = qb.getParameters();
+
+  for (const parameterName of Object.keys(parameters)) {
+    if (Object.hasOwn(existingParameters, parameterName)) {
+      throw new Error(`Search parameter "${parameterName}" is already defined in this query.`);
+    }
+  }
 }
