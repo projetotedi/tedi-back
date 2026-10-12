@@ -24,8 +24,9 @@ body:json {
 
 docs {
   Autentica um usuário pelo RA e senha.
-  Retorna MeResponseDto (id, name, ra, email, role, permissions) e grava o cookie tedi_session httpOnly.
+  Retorna MeResponseDto (id, name, ra, email, role, permissions, mustChangePassword) e grava o cookie tedi_session httpOnly.
   permissions é o mapa { [permissão]: escopo } do perfil (all, own, department, allocated, lessonTeacher, none), igual ao do /auth/me; a matriz está em docs/PERMISSIONS.md.
   Cadastro de membro ainda não aprovado (GUS-91, RN-08): com a senha certa, 401 REGISTRATION_PENDING ("Registration awaiting validation.") para o cadastro "A validar" e 401 REGISTRATION_REJECTED ("Registration rejected. Contact coordination.") para o recusado. Com a senha errada a resposta é sempre INVALID_CREDENTIALS: nada sobre a conta aparece antes da senha certa.
+  Troca de senha pendente (GUS-93, decisão 16 da E9.a): a conta inicial semeada com ADMIN_PASSWORD volta com mustChangePassword true. O login funciona normalmente e abre a sessão, mas toda rota autenticada, exceto GET /auth/me e POST /auth/password, responde 403 PASSWORD_CHANGE_REQUIRED até a senha ser trocada. Quem não tem troca pendente recebe mustChangePassword false.
   Erros possíveis: 400 VALIDATION_FAILED, 401 INVALID_CREDENTIALS, 401 REGISTRATION_PENDING, 401 REGISTRATION_REJECTED, 401 ACCESS_DISABLED, 429 TOO_MANY_ATTEMPTS.
 }
