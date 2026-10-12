@@ -16,6 +16,7 @@ import { JwtService } from "@nestjs/jwt";
 import { SESSION_COOKIE_NAME } from "./auth.constants";
 import { AuthService } from "./services/auth.service";
 import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
+import { AllowWhenPasswordChangeRequired } from "./decorators/allow-when-password-change-required.decorator";
 import { LoginDto } from "./dto/login.dto";
 import { MeResponseDto } from "./dto/me-response.dto";
 
@@ -65,6 +66,7 @@ export class AuthController {
   }
 
   @Get("me")
+  @AllowWhenPasswordChangeRequired()
   @ApiOkResponse({ type: MeResponseDto })
   async me(@CurrentUser() user: AuthUser): Promise<MeResponseDto> {
     return this.authService.getMe(user.id);
