@@ -9,6 +9,8 @@
  * Case 4: without a pending change → 409 PASSWORD_CHANGE_NOT_REQUIRED; without a session → 401.
  * Case 5: the flag is read on every request (a session opened before it existed is blocked).
  * Case 6: two simultaneous changes: exactly one wins (row lock).
+ * Case 7: the seed creates the account with the flag on, the whole flow works with it, and a later
+ *         seed run leaves the account as the person left it.
  */
 import "reflect-metadata";
 import { Test, TestingModule } from "@nestjs/testing";
@@ -21,6 +23,7 @@ import { DataSource } from "typeorm";
 import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import request from "supertest";
+import { seedInitialCoordinator } from "@database/seeds/initial-coordinator.seed";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import {
@@ -426,6 +429,74 @@ describe("Mandatory password change (e2e)", () => {
       expect(loser.body.error).toBe("PASSWORD_CHANGE_NOT_REQUIRED");
       expect(passwordChangedEvents()).toHaveLength(1);
       expect((await readAccount(account.id)).must_change_password).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Case 7: the seeded initial coordinator
+  // ---------------------------------------------------------------------------
+
+  describe("Case 7: seed → login → blocked → change → unblocked", () => {
+    const ADMIN_RA = "seed-gus93-001";
+    const ADMIN_PASSWORD = "SeedPass@123";
+    const SEEDED_NEW_PASSWORD = "SenhaDefinitiva@9";
+    const savedEnv: Record<string, string | undefined> = {};
+
+    beforeAll(() => {
+      for (const key of ["ADMIN_RA", "ADMIN_NAME", "ADMIN_EMAIL", "ADMIN_PASSWORD"]) {
+        savedEnv[key] = process.env[key];
+      }
+      process.env.ADMIN_RA = ADMIN_RA;
+      process.env.ADMIN_NAME = "Admin GUS-93";
+      process.env.ADMIN_EMAIL = "admin-gus93@example.com";
+      process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
+    });
+
+    afterAll(() => {
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+
+    it("walks the whole flow with the account the seed created", async () => {
+      await seedInitialCoordinator(dataSource);
+
+      const agent = request.agent(app.getHttpServer());
+      const login = await agent
+        .post("/auth/login")
+        .send({ ra: ADMIN_RA, password: ADMIN_PASSWORD })
+        .expect(200);
+      expect(login.body).toMatchObject({ role: Role.SUPERADMIN, mustChangePassword: true });
+
+      const blocked = await agent.get("/access").expect(403);
+      expect(blocked.body.error).toBe("PASSWORD_CHANGE_REQUIRED");
+
+      const changed = await agent
+        .post("/auth/password")
+        .send({ newPassword: SEEDED_NEW_PASSWORD })
+        .expect(200);
+      expect(changed.body).toMatchObject({ role: Role.SUPERADMIN, mustChangePassword: false });
+
+      await agent.get("/access").expect(200);
+
+      // The password of the environment no longer opens the account; the new one does.
+      await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: ADMIN_RA, password: ADMIN_PASSWORD })
+        .expect(401);
+      const relogin = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: ADMIN_RA, password: SEEDED_NEW_PASSWORD })
+        .expect(200);
+      expect(relogin.body.mustChangePassword).toBe(false);
+
+      // The seed runs on every start. The account exists now, so it is left alone: the flag stays
+      // off and the password stays the one the person chose.
+      const afterChange = await readAccount(login.body.id);
+      expect(afterChange.must_change_password).toBe(false);
+      await seedInitialCoordinator(dataSource);
+      expect(await readAccount(login.body.id)).toEqual(afterChange);
     });
   });
 });
