@@ -1,5 +1,7 @@
 import { Controller, Get, HttpCode, Post, Res, Body, UseGuards } from "@nestjs/common";
 import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
   ApiOkResponse,
   ApiNoContentResponse,
   ApiTags,
@@ -17,6 +19,7 @@ import { SESSION_COOKIE_NAME } from "./auth.constants";
 import { AuthService } from "./services/auth.service";
 import { LoginThrottlerGuard } from "./guards/login-throttler.guard";
 import { AllowWhenPasswordChangeRequired } from "./decorators/allow-when-password-change-required.decorator";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import { MeResponseDto } from "./dto/me-response.dto";
 
@@ -70,6 +73,29 @@ export class AuthController {
   @ApiOkResponse({ type: MeResponseDto })
   async me(@CurrentUser() user: AuthUser): Promise<MeResponseDto> {
     return this.authService.getMe(user.id);
+  }
+
+  /**
+   * Replaces the password of the logged-in account while a change is required (GUS-93).
+   * Any valid session may call it; without a pending change it answers 409. The session is
+   * kept: no new cookie is issued, and the routes the guard was blocking open right away.
+   * 400 VALIDATION_FAILED, 400 PASSWORD_UNCHANGED, 401 UNAUTHORIZED,
+   * 409 PASSWORD_CHANGE_NOT_REQUIRED.
+   */
+  @Post("password")
+  @HttpCode(200)
+  @AllowWhenPasswordChangeRequired()
+  @ApiOkResponse({ type: MeResponseDto })
+  @ApiBadRequestResponse({
+    type: ApiErrorDto,
+    description: "VALIDATION_FAILED | PASSWORD_UNCHANGED",
+  })
+  @ApiConflictResponse({ type: ApiErrorDto, description: "PASSWORD_CHANGE_NOT_REQUIRED" })
+  async changePassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentUser() user: AuthUser,
+  ): Promise<MeResponseDto> {
+    return this.authService.changeOwnPassword(user.id, dto);
   }
 
   @Public()

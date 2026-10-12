@@ -50,7 +50,11 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     },
     {
       provide: AuthService,
-      useValue: { login: async () => ({}), getMe: async () => ({}) },
+      useValue: {
+        login: async () => ({}),
+        getMe: async () => ({}),
+        changeOwnPassword: async () => ({}),
+      },
     },
     {
       provide: InvitesService,
