@@ -1,4 +1,6 @@
 import { HttpException, UnauthorizedException } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import { DataSource, EntityManager } from "typeorm";
 import { AuthService } from "../services/auth.service";
 import { PasswordService } from "../services/password.service";
 import { PeopleService } from "@modules/people/services/people.service";
@@ -7,6 +9,11 @@ import { MemberAccessFacts, MembersService } from "@modules/people/services/memb
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
 import { buildPermissionMap } from "@shared/permissions/permission-matrix";
+import {
+  AUDITABLE_ACTION_EVENT,
+  AuditableAction,
+  AuditableActionEvent,
+} from "@shared/events/auditable-action.event";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,7 +65,13 @@ function makeService(overrides: {
     getDummyHash: jest.fn(() => Promise.resolve(dummyHash)),
   } as unknown as PasswordService;
 
-  return new AuthService(people, password, overrides.members ?? makeMembers(facts));
+  return new AuthService(
+    people,
+    password,
+    overrides.members ?? makeMembers(facts),
+    { transaction: jest.fn() } as unknown as DataSource,
+    { emit: jest.fn() } as unknown as EventEmitter2,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +339,13 @@ describe("AuthService", () => {
         findByRa: jest.fn(() => Promise.resolve(null)),
       } as unknown as PeopleService;
 
-      const service = new AuthService(people, passwordService, makeMembers());
+      const service = new AuthService(
+        people,
+        passwordService,
+        makeMembers(),
+        { transaction: jest.fn() } as unknown as DataSource,
+        { emit: jest.fn() } as unknown as EventEmitter2,
+      );
       await service.login(VALID_DTO).catch(() => undefined);
 
       expect(passwordService.getDummyHash).toHaveBeenCalledTimes(1);
@@ -366,6 +385,209 @@ describe("AuthService", () => {
     it("throws UNAUTHORIZED when person.role is null", async () => {
       const service = makeService({ person: makePerson({ role: null }) });
       await expect(service.getMe("uuid-1")).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe("changeOwnPassword (GUS-93)", () => {
+    const CURRENT_HASH = "$argon2id$v=19$m=19456,t=2,p=1$current-hash";
+    const NEW_HASH = "$argon2id$v=19$m=19456,t=2,p=1$new-hash";
+    const NEW_PASSWORD = "NovaSenha@123";
+
+    /** A person as the database holds the initial coordinator before the first change. */
+    function makeFlagged(overrides: Partial<Person> = {}): Person {
+      return makePerson({
+        role: Role.SUPERADMIN,
+        mustChangePassword: true,
+        passwordHash: CURRENT_HASH,
+        ...overrides,
+      });
+    }
+
+    function setup(options: { locked: Person | null; sameAsCurrent?: boolean }) {
+      const callOrder: string[] = [];
+
+      const manager = {
+        findOne: jest.fn(() => Promise.resolve(options.locked)),
+        save: jest.fn((_entity: unknown, person: Person) => {
+          callOrder.push("save");
+          return Promise.resolve(person);
+        }),
+      };
+      const dataSource = {
+        transaction: jest.fn(async (work: (m: EntityManager) => Promise<unknown>) => {
+          const result = await work(manager as unknown as EntityManager);
+          callOrder.push("commit");
+          return result;
+        }),
+      } as unknown as DataSource;
+      const password = {
+        verify: jest.fn(() => Promise.resolve(options.sameAsCurrent ?? false)),
+        hashPassword: jest.fn(() => Promise.resolve(NEW_HASH)),
+        getDummyHash: jest.fn(),
+      } as unknown as jest.Mocked<PasswordService>;
+      const eventEmitter = {
+        emit: jest.fn(() => {
+          callOrder.push("emit");
+          return true;
+        }),
+      } as unknown as jest.Mocked<EventEmitter2>;
+
+      const service = new AuthService(
+        { findByRa: jest.fn(), findById: jest.fn() } as unknown as PeopleService,
+        password,
+        makeMembers(),
+        dataSource,
+        eventEmitter,
+      );
+
+      return { service, manager, password, eventEmitter, callOrder };
+    }
+
+    async function failureOf(promise: Promise<unknown>): Promise<HttpException> {
+      const error = await promise.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(HttpException);
+      return error as HttpException;
+    }
+
+    it("replaces the hash, clears the flag and returns the account with mustChangePassword false", async () => {
+      const person = makeFlagged();
+      const { service, manager, password } = setup({ locked: person });
+
+      const result = await service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD });
+
+      expect(password.hashPassword).toHaveBeenCalledWith(NEW_PASSWORD);
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(person.passwordHash).toBe(NEW_HASH);
+      expect(person.mustChangePassword).toBe(false);
+      expect(result).toMatchObject({
+        id: "uuid-1",
+        role: Role.SUPERADMIN,
+        mustChangePassword: false,
+      });
+      expect(result.permissions).toEqual(buildPermissionMap(Role.SUPERADMIN));
+      expect(result).not.toHaveProperty("passwordHash");
+    });
+
+    it("locks the person row while it checks and replaces the password", async () => {
+      const { service, manager } = setup({ locked: makeFlagged() });
+
+      await service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD });
+
+      expect(manager.findOne).toHaveBeenCalledWith(Person, {
+        where: { id: "uuid-1" },
+        lock: { mode: "pessimistic_write" },
+      });
+    });
+
+    it("compares the new password with the current hash before it replaces it", async () => {
+      const { service, password } = setup({ locked: makeFlagged() });
+
+      await service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD });
+
+      expect(password.verify).toHaveBeenCalledWith(CURRENT_HASH, NEW_PASSWORD);
+    });
+
+    it("emits PASSWORD_CHANGED after the commit, with no password and no hash", async () => {
+      const { service, eventEmitter, callOrder } = setup({ locked: makeFlagged() });
+
+      await service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD });
+
+      expect(callOrder).toEqual(["save", "commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      const [channel, event] = eventEmitter.emit.mock.calls[0] as unknown as [
+        string,
+        AuditableActionEvent,
+      ];
+      expect(channel).toBe(AUDITABLE_ACTION_EVENT);
+      expect(event).toMatchObject({
+        actorId: "uuid-1",
+        action: AuditableAction.PASSWORD_CHANGED,
+        targetType: "person",
+        targetId: "uuid-1",
+        before: { mustChangePassword: true },
+        after: { mustChangePassword: false },
+      });
+      expect(event.occurredAt).toBeInstanceOf(Date);
+      const serialized = JSON.stringify(event);
+      expect(serialized).not.toContain(NEW_PASSWORD);
+      expect(serialized).not.toContain(NEW_HASH);
+      expect(serialized).not.toContain(CURRENT_HASH);
+    });
+
+    it("throws 409 PASSWORD_CHANGE_NOT_REQUIRED when the flag is off, without verifying, hashing, saving or emitting", async () => {
+      const person = makeFlagged({ mustChangePassword: false });
+      const { service, manager, password, eventEmitter } = setup({ locked: person });
+
+      const failure = await failureOf(
+        service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD }),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "PASSWORD_CHANGE_NOT_REQUIRED",
+        message: "Password change not required.",
+      });
+      expect(password.verify).not.toHaveBeenCalled();
+      expect(password.hashPassword).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(person.passwordHash).toBe(CURRENT_HASH);
+    });
+
+    it("throws 400 PASSWORD_UNCHANGED when the new password is the current one and leaves the account as it was", async () => {
+      const person = makeFlagged();
+      const { service, manager, password, eventEmitter } = setup({
+        locked: person,
+        sameAsCurrent: true,
+      });
+
+      const failure = await failureOf(
+        service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD }),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toEqual({
+        error: "PASSWORD_UNCHANGED",
+        message: "New password must be different from the current one.",
+      });
+      expect(password.hashPassword).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(person.passwordHash).toBe(CURRENT_HASH);
+      expect(person.mustChangePassword).toBe(true);
+    });
+
+    it("sets the password without comparing when the account has no hash yet", async () => {
+      const person = makeFlagged({ passwordHash: null });
+      const { service, password } = setup({ locked: person });
+
+      await service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD });
+
+      expect(password.verify).not.toHaveBeenCalled();
+      expect(person.passwordHash).toBe(NEW_HASH);
+      expect(person.mustChangePassword).toBe(false);
+    });
+
+    it("throws UNAUTHORIZED when the person does not exist or has no role", async () => {
+      for (const locked of [null, makeFlagged({ role: null })]) {
+        const { service, manager, eventEmitter } = setup({ locked });
+
+        await expect(
+          service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD }),
+        ).rejects.toBeInstanceOf(UnauthorizedException);
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      }
+    });
+
+    it("does not emit when the save fails", async () => {
+      const { service, manager, eventEmitter } = setup({ locked: makeFlagged() });
+      manager.save.mockRejectedValueOnce(new Error("db down"));
+
+      await expect(
+        service.changeOwnPassword("uuid-1", { newPassword: NEW_PASSWORD }),
+      ).rejects.toThrow("db down");
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 });

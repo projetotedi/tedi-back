@@ -145,9 +145,6 @@ export class AuthGuard implements CanActivate {
     };
   }
 
-  /**
-   * True when the route (or its controller) is marked @AllowWhenPasswordChangeRequired().
-   */
   private allowsPendingPasswordChange(ctx: ExecutionContext): boolean {
     return (
       this.reflector.getAllAndOverride<boolean>(ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY, [
