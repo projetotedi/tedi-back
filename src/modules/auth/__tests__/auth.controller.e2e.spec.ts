@@ -110,6 +110,7 @@ describe("AuthController (e2e)", () => {
         ra: "a2210001",
         email: "alice@example.com",
         role: Role.MEMBER,
+        mustChangePassword: false,
       });
       expect(res.body).not.toHaveProperty("passwordHash");
       expect(res.body.permissions).toBeDefined();
@@ -229,6 +230,7 @@ describe("AuthController (e2e)", () => {
         name: "Eve",
         ra: "a2210005",
         role: Role.DIRECTOR,
+        mustChangePassword: false,
       });
       expect(meRes.body).not.toHaveProperty("passwordHash");
     });
@@ -423,6 +425,57 @@ describe("AuthController (e2e)", () => {
         .expect(200);
 
       expect(res.body).toMatchObject({ ra: "g2210005", role: Role.MEMBER });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 8 (GUS-93): an account that must change the password still logs in
+  // -------------------------------------------------------------------------
+  describe("Case 8 (GUS-93): login of an account that must change the password", () => {
+    it("returns 200, opens the session and reports mustChangePassword true on login and /auth/me", async () => {
+      await peopleService.save({
+        name: "Helena",
+        ra: "h2210001",
+        passwordHash: await passwordService.hashPassword("Senha@123"),
+        role: Role.SUPERADMIN,
+        accessEnabled: true,
+        mustChangePassword: true,
+      });
+
+      const loginRes = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "h2210001", password: "Senha@123" })
+        .expect(200);
+
+      expect(loginRes.body).toMatchObject({ ra: "h2210001", mustChangePassword: true });
+      const rawCookies = loginRes.headers["set-cookie"] as string[] | string | undefined;
+      const cookieStr = Array.isArray(rawCookies) ? rawCookies[0] : rawCookies;
+      expect(cookieStr).toContain(SESSION_COOKIE_NAME);
+
+      // /auth/me is one of the two routes the pending change leaves open.
+      const meRes = await request(app.getHttpServer())
+        .get("/auth/me")
+        .set("Cookie", cookieStr?.split(";")[0] ?? "")
+        .expect(200);
+      expect(meRes.body).toMatchObject({ ra: "h2210001", mustChangePassword: true });
+    });
+
+    it("still answers INVALID_CREDENTIALS for the wrong password", async () => {
+      await peopleService.save({
+        name: "Helena",
+        ra: "h2210002",
+        passwordHash: await passwordService.hashPassword("Senha@123"),
+        role: Role.SUPERADMIN,
+        accessEnabled: true,
+        mustChangePassword: true,
+      });
+
+      const res = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "h2210002", password: "Errada@123" })
+        .expect(401);
+
+      expect(res.body.error).toBe("INVALID_CREDENTIALS");
     });
   });
 

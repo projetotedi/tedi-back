@@ -1,10 +1,12 @@
 import { HttpException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { Person } from "@modules/people/entities/person.entity";
 import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
 import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { LoginDto } from "../dto/login.dto";
 import { MeResponseDto } from "../dto/me-response.dto";
 import { PasswordService } from "./password.service";
+import { Role } from "@shared/enums/role.enum";
 import { buildPermissionMap } from "@shared/permissions/permission-matrix";
 
 @Injectable()
@@ -27,7 +29,7 @@ export class AuthService {
    *    (GUS-91, RN-08; only after the password is right, like ACCESS_DISABLED: decision 29)
    * 6. role == null → INVALID_CREDENTIALS
    * 7. !accessEnabled → ACCESS_DISABLED
-   * 8. Return MeResponseDto
+   * 8. Return MeResponseDto (mustChangePassword does not stop the login, GUS-93)
    */
   async login(dto: LoginDto): Promise<MeResponseDto> {
     const person = await this.people.findByRa(dto.ra);
@@ -90,14 +92,9 @@ export class AuthService {
       );
     }
 
-    return {
-      id: person.id,
-      name: person.name,
-      ra: person.ra,
-      email: person.email,
-      role: person.role,
-      permissions: buildPermissionMap(person.role),
-    };
+    // An account that must change the password logs in normally: the session is what lets it
+    // reach POST /auth/password (the guard blocks everything else, GUS-93).
+    return this.toMe(person, person.role);
   }
 
   /**
@@ -111,13 +108,18 @@ export class AuthService {
       throw new UnauthorizedException();
     }
 
+    return this.toMe(person, person.role);
+  }
+
+  private toMe(person: Person, role: Role): MeResponseDto {
     return {
       id: person.id,
       name: person.name,
       ra: person.ra,
       email: person.email,
-      role: person.role,
-      permissions: buildPermissionMap(person.role),
+      role,
+      permissions: buildPermissionMap(role),
+      mustChangePassword: person.mustChangePassword,
     };
   }
 }

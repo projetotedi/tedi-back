@@ -20,6 +20,7 @@ function makePerson(overrides: Partial<Person> = {}): Person {
     email: "alice@example.com",
     role: Role.MEMBER,
     accessEnabled: true,
+    mustChangePassword: false,
     passwordHash: "$argon2id$v=19$m=19456,t=2,p=1$fake-hash",
     ...overrides,
   } as Person;
@@ -92,6 +93,54 @@ describe("AuthService", () => {
       const service = makeService({});
       const result = await service.login(VALID_DTO);
       expect(result).not.toHaveProperty("passwordHash");
+    });
+
+    describe("GUS-93: account that must change the password", () => {
+      it("returns mustChangePassword false for an ordinary account", async () => {
+        const service = makeService({});
+
+        await expect(service.login(VALID_DTO)).resolves.toMatchObject({
+          mustChangePassword: false,
+        });
+      });
+
+      it("logs the account in and reports mustChangePassword true", async () => {
+        const service = makeService({
+          person: makePerson({ role: Role.SUPERADMIN, mustChangePassword: true }),
+        });
+
+        await expect(service.login(VALID_DTO)).resolves.toMatchObject({
+          id: "uuid-1",
+          role: Role.SUPERADMIN,
+          mustChangePassword: true,
+        });
+      });
+
+      it("keeps INVALID_CREDENTIALS for a wrong password, flag or not", async () => {
+        const service = makeService({
+          person: makePerson({ mustChangePassword: true }),
+          passwordOk: false,
+        });
+
+        const error = await service.login(VALID_DTO).catch((e: unknown) => e);
+
+        expect((error as HttpException).getStatus()).toBe(401);
+        expect(((error as HttpException).getResponse() as { error: string }).error).toBe(
+          "INVALID_CREDENTIALS",
+        );
+      });
+
+      it("keeps ACCESS_DISABLED for a disabled account that also has the flag", async () => {
+        const service = makeService({
+          person: makePerson({ accessEnabled: false, mustChangePassword: true }),
+        });
+
+        const error = await service.login(VALID_DTO).catch((e: unknown) => e);
+
+        expect(((error as HttpException).getResponse() as { error: string }).error).toBe(
+          "ACCESS_DISABLED",
+        );
+      });
     });
 
     describe("CA2: INVALID_CREDENTIALS errors", () => {
@@ -299,6 +348,14 @@ describe("AuthService", () => {
       const result = await service.getMe("uuid-1");
       expect(result).toMatchObject({ id: "uuid-1", name: "Alice", role: Role.MEMBER });
       expect(result).not.toHaveProperty("passwordHash");
+    });
+
+    it("getMe reports mustChangePassword as stored (GUS-93)", async () => {
+      const ordinary = makeService({ person: makePerson({ mustChangePassword: false }) });
+      const flagged = makeService({ person: makePerson({ mustChangePassword: true }) });
+
+      await expect(ordinary.getMe("uuid-1")).resolves.toMatchObject({ mustChangePassword: false });
+      await expect(flagged.getMe("uuid-1")).resolves.toMatchObject({ mustChangePassword: true });
     });
 
     it("throws UNAUTHORIZED when person not found", async () => {
