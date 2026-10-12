@@ -38,6 +38,6 @@ services:
       - key: ADMIN_EMAIL
         sync: false # e-mail da coordenadora inicial
       - key: ADMIN_PASSWORD
-        sync: false # senha inicial (min 8 chars); trocar após primeiro login
+        sync: false # senha inicial (min 8 chars); a conta criada pelo seed exige a troca no 1º login (GUS-93)
       - key: APP_URL
         sync: false # URL base do front-end (ex.: https://tedi-front.vercel.app)
