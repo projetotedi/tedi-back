@@ -472,6 +472,147 @@ describe("MemberRegistrationsController (e2e)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /members
+  // ---------------------------------------------------------------------------
+
+  describe("GET /members (listMembers)", () => {
+    it("lists people with access and all member profiles, including pending and rejected", async () => {
+      const pendingId = await submitViaInvite(applicant(1, { name: "Ana Pendente" }));
+      const rejectedId = await submitViaInvite(
+        applicant(2, { name: "Bruna Recusada", ra: "m221002" }),
+      );
+      await reject(rejectedId, { note: "Documentos incompletos." }).expect(200);
+
+      const departmentId = await insertDepartment(dataSource, "Tecnologia");
+      const approvedId = await submitViaInvite(
+        applicant(3, { name: "Carla Aprovada", ra: "m221003" }),
+      );
+      await approve(approvedId, approvalBody(departmentId)).expect(200);
+
+      const response = await request(app.getHttpServer())
+        .get("/members")
+        .set("Cookie", director.cookie)
+        .expect(200);
+
+      expect(response.body).toMatchObject({ total: 6, page: 1, limit: 20 });
+      const rows = response.body.data as Array<Record<string, unknown>>;
+      const byId = new Map(rows.map((row) => [row.id, row]));
+
+      expect(byId.get(pendingId)).toMatchObject({
+        name: "Ana Pendente",
+        role: null,
+        accessEnabled: false,
+        registrationStatus: "pending",
+        department: null,
+        mainFunction: null,
+        joinedAt: null,
+      });
+      expect(byId.get(rejectedId)).toMatchObject({
+        name: "Bruna Recusada",
+        role: null,
+        accessEnabled: false,
+        registrationStatus: "rejected",
+      });
+      expect(byId.get(approvedId)).toMatchObject({
+        name: "Carla Aprovada",
+        role: "member",
+        accessEnabled: true,
+        registrationStatus: "approved",
+        department: { id: departmentId, name: "Tecnologia" },
+        mainFunction: MAIN_FUNCTION,
+        joinedAt: JOINED_AT,
+      });
+      // A person with access but no member profile has a null registration status.
+      expect(byId.get(member.id)).toMatchObject({
+        role: "member",
+        registrationStatus: null,
+        department: null,
+      });
+      expect(byId.get(coordinator.id)).toMatchObject({
+        role: "coordinator",
+        registrationStatus: null,
+        department: null,
+      });
+      expect(Object.keys(byId.get(pendingId) ?? {}).sort()).toEqual([
+        "accessEnabled",
+        "department",
+        "id",
+        "joinedAt",
+        "mainFunction",
+        "name",
+        "ra",
+        "registrationStatus",
+        "role",
+      ]);
+      expectNoPersonalData(response.body);
+    });
+
+    it("filters by registration status, department, role and enabled; paginates", async () => {
+      const pendingId = await submitViaInvite(applicant(1, { name: "Ana Pendente" }));
+      const rejectedId = await submitViaInvite(
+        applicant(2, { name: "Bruna Recusada", ra: "m221002" }),
+      );
+      await reject(rejectedId, { note: "Documentos incompletos." }).expect(200);
+
+      const departmentId = await insertDepartment(dataSource, "Tecnologia");
+      const approvedId = await submitViaInvite(
+        applicant(3, { name: "Carla Aprovada", ra: "m221003" }),
+      );
+      await approve(approvedId, approvalBody(departmentId)).expect(200);
+
+      const listIds = async (query: string): Promise<string[]> => {
+        const response = await request(app.getHttpServer())
+          .get(`/members${query}`)
+          .set("Cookie", coordinator.cookie)
+          .expect(200);
+        return (response.body.data as Array<{ id: string }>).map((row) => row.id);
+      };
+
+      expect(await listIds("?registrationStatus=pending")).toEqual([pendingId]);
+      expect(await listIds("?registrationStatus=rejected")).toEqual([rejectedId]);
+      expect(await listIds(`?departmentId=${departmentId}`)).toEqual([approvedId]);
+      expect(await listIds("?role=member")).toContain(approvedId);
+      expect(await listIds("?enabled=false")).toEqual(
+        expect.arrayContaining([pendingId, rejectedId]),
+      );
+
+      const page = await request(app.getHttpServer())
+        .get("/members?page=2&limit=1")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect(page.body).toMatchObject({ total: 6, page: 2, limit: 1 });
+      expect(page.body.data).toHaveLength(1);
+    });
+
+    it("allows a director, denies a member and requires authentication", async () => {
+      await request(app.getHttpServer()).get("/members").set("Cookie", director.cookie).expect(200);
+
+      const denied = await request(app.getHttpServer())
+        .get("/members")
+        .set("Cookie", member.cookie)
+        .expect(403);
+      expect(denied.body.error).toBe("FORBIDDEN");
+
+      await request(app.getHttpServer()).get("/members").expect(401);
+    });
+
+    it("validates filters", async () => {
+      for (const query of [
+        "?role=unknown",
+        "?departmentId=not-a-uuid",
+        "?registrationStatus=unknown",
+        "?enabled=unknown",
+      ]) {
+        const response = await request(app.getHttpServer())
+          .get(`/members${query}`)
+          .set("Cookie", coordinator.cookie)
+          .expect(400);
+        expect(response.body.error).toBe("VALIDATION_FAILED");
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // GET /member-registrations/:id
   // ---------------------------------------------------------------------------
 

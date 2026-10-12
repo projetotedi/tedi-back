@@ -1,6 +1,6 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { DataSource, EntityManager, In, QueryFailedError } from "typeorm";
+import { DataSource, EntityManager, In, QueryFailedError, SelectQueryBuilder } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { Role } from "@shared/enums/role.enum";
 import {
@@ -14,6 +14,8 @@ import { ListMemberRegistrationsQueryDto } from "../dto/list-member-registration
 import { MemberRegistrationFormDto } from "../dto/member-registration-form.dto";
 import { MemberRegistrationListItemDto } from "../dto/member-registration-list-item.dto";
 import { MemberRegistrationResponseDto } from "../dto/member-registration.response.dto";
+import { ListMembersQueryDto } from "../dto/list-members-query.dto";
+import { MemberListItemResponseDto } from "../dto/member-list-item.response.dto";
 import { RejectMemberRegistrationDto } from "../dto/reject-member-registration.dto";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
@@ -52,6 +54,19 @@ export interface MemberRegistrationSubmission {
   personId: string;
   /** Built here with the allow-list; the caller emits it AFTER its transaction commits. */
   auditEvent: AuditableActionEvent;
+}
+
+interface MemberListRawRow {
+  id: string;
+  name: string;
+  ra: string | null;
+  role: Role | null;
+  accessEnabled: boolean;
+  departmentId: string | null;
+  departmentName: string | null;
+  mainFunction: string | null;
+  joinedAt: string | null;
+  registrationStatus: MemberRegistrationStatus | null;
 }
 
 /**
@@ -112,6 +127,90 @@ export class MembersService {
     private readonly clock: Clock,
     private readonly departments: DepartmentsService,
   ) {}
+
+  /**
+   * Lists people with an access role and all people with a member profile, including pending
+   * and rejected registrations whose role is null. Sensitive registration fields are not selected.
+   */
+  async listMembers(
+    query: ListMembersQueryDto,
+  ): Promise<PaginatedResult<MemberListItemResponseDto>> {
+    const { page, limit } = normalizePagination(query);
+    const builder = this.buildMembersListQuery(query);
+
+    const [rows, total] = await Promise.all([
+      builder
+        .clone()
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany<MemberListRawRow>(),
+      builder.clone().getCount(),
+    ]);
+
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        ra: row.ra,
+        role: row.role,
+        accessEnabled: row.accessEnabled,
+        department:
+          row.departmentId !== null && row.departmentName !== null
+            ? { id: row.departmentId, name: row.departmentName }
+            : null,
+        mainFunction: row.mainFunction,
+        joinedAt: row.joinedAt,
+        registrationStatus: row.registrationStatus,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  private buildMembersListQuery(query: ListMembersQueryDto): SelectQueryBuilder<Person> {
+    const builder = this.dataSource
+      .getRepository(Person)
+      .createQueryBuilder("person")
+      .leftJoin(MemberProfile, "member_profile", "member_profile.person_id = person.id")
+      .leftJoin(Department, "department", "department.id = member_profile.department_id")
+      .select("person.id", "id")
+      .addSelect("person.name", "name")
+      .addSelect("person.ra", "ra")
+      .addSelect("person.role", "role")
+      .addSelect("person.access_enabled", "accessEnabled")
+      .addSelect("department.id", "departmentId")
+      .addSelect("department.name", "departmentName")
+      .addSelect("member_profile.main_function", "mainFunction")
+      .addSelect("member_profile.joined_at::text", "joinedAt")
+      .addSelect("member_profile.registration_status", "registrationStatus")
+      .where("(person.role IS NOT NULL OR member_profile.id IS NOT NULL)");
+
+    this.applyMembersListFilters(builder, query);
+    return builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
+  }
+
+  private applyMembersListFilters(
+    builder: SelectQueryBuilder<Person>,
+    query: ListMembersQueryDto,
+  ): void {
+    if (query.role !== undefined) {
+      builder.andWhere("person.role = :role", { role: query.role });
+    }
+    if (query.departmentId !== undefined) {
+      builder.andWhere("member_profile.department_id = :departmentId", {
+        departmentId: query.departmentId,
+      });
+    }
+    if (query.registrationStatus !== undefined) {
+      builder.andWhere("member_profile.registration_status = :registrationStatus", {
+        registrationStatus: query.registrationStatus,
+      });
+    }
+    if (query.enabled !== undefined) {
+      builder.andWhere("person.access_enabled = :enabled", { enabled: query.enabled });
+    }
+  }
 
   /**
    * Creates (or recreates) the pending registration of a person from an invite.

@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Clock } from "@shared/dates/clock";
 import { DepartmentsController } from "./controllers/departments.controller";
+import { MembersController } from "./controllers/members.controller";
 import { MemberRegistrationsController } from "./controllers/member-registrations.controller";
 import { StudentsController } from "./controllers/students.controller";
 import { Department } from "./entities/department.entity";
@@ -15,7 +16,12 @@ import { StudentsService } from "./services/students.service";
 
 @Module({
   imports: [TypeOrmModule.forFeature([Person, StudentProfile, MemberProfile, Department])],
-  controllers: [StudentsController, MemberRegistrationsController, DepartmentsController],
+  controllers: [
+    StudentsController,
+    MemberRegistrationsController,
+    DepartmentsController,
+    MembersController,
+  ],
   providers: [PeopleService, StudentsService, MembersService, DepartmentsService, Clock],
   exports: [PeopleService, StudentsService, MembersService, DepartmentsService],
 })
