@@ -4,6 +4,11 @@
  * CA79-1: banco limpo + seed cria; 2× não duplica.
  * CA79-2: login pós-seed com ADMIN_PASSWORD retorna role: "superadmin".
  * CA79-3: /auth/logout sem cookie → 401 — covered by auth.controller.e2e.spec.ts (sanity).
+ *
+ * GUS-93 (decision 16): the account the seed creates must change the password at the first
+ * access; an account that already exists is never touched by the seed.
+ * Case 3: an account with ADMIN_RA that already exists stays as it is (flag, password and role).
+ * The whole flow seed → login → blocked → change → unblocked is in password-change.e2e.spec.ts.
  */
 import "reflect-metadata";
 import { Test, TestingModule } from "@nestjs/testing";
@@ -16,7 +21,10 @@ import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import request from "supertest";
 import { AuthModule } from "../../../modules/auth/auth.module";
+import { PasswordService } from "../../../modules/auth/services/password.service";
+import { Person } from "../../../modules/people/entities/person.entity";
 import { PeopleModule } from "../../../modules/people/people.module";
+import { Role } from "../../../shared/enums/role.enum";
 import { HttpExceptionFilter } from "../../../shared/filters/http-exception.filter";
 import { buildValidationPipe } from "../../../shared/filters/validation-pipe.factory";
 import { seedInitialCoordinator } from "../initial-coordinator.seed";
@@ -103,13 +111,20 @@ describe("seedInitialCoordinator (e2e)", () => {
       await seedInitialCoordinator(dataSource);
 
       const rows = (await dataSource.query(
-        "SELECT ra, role, access_enabled FROM people WHERE ra = $1",
+        "SELECT ra, role, access_enabled, must_change_password FROM people WHERE ra = $1",
         [ADMIN_RA],
-      )) as Array<{ ra: string; role: string; access_enabled: boolean }>;
+      )) as Array<{
+        ra: string;
+        role: string;
+        access_enabled: boolean;
+        must_change_password: boolean;
+      }>;
 
       expect(rows).toHaveLength(1);
       expect(rows[0].role).toBe("superadmin");
       expect(rows[0].access_enabled).toBe(true);
+      // GUS-93: the password comes from the environment, so it has to be replaced.
+      expect(rows[0].must_change_password).toBe(true);
     });
 
     it("does not duplicate or overwrite on second run", async () => {
@@ -130,6 +145,25 @@ describe("seedInitialCoordinator (e2e)", () => {
       expect(Number(rows[0].cnt)).toBe(1);
       expect(rows[0].hash).toBe(first[0].password_hash);
     });
+
+    it("does not undo a password change made after the first run (the seed runs on every start)", async () => {
+      await seedInitialCoordinator(dataSource);
+
+      // What POST /auth/password leaves behind: a hash of the person's own, flag off.
+      const changedHash = await module.get(PasswordService).hashPassword("SenhaTrocada@9");
+      await dataSource.query(
+        "UPDATE people SET password_hash = $1, must_change_password = false WHERE ra = $2",
+        [changedHash, ADMIN_RA],
+      );
+
+      await seedInitialCoordinator(dataSource);
+
+      const rows = (await dataSource.query(
+        "SELECT password_hash, must_change_password FROM people WHERE ra = $1",
+        [ADMIN_RA],
+      )) as Array<{ password_hash: string; must_change_password: boolean }>;
+      expect(rows).toEqual([{ password_hash: changedHash, must_change_password: false }]);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -146,6 +180,89 @@ describe("seedInitialCoordinator (e2e)", () => {
 
       expect(res.body.role).toBe("superadmin");
       expect(res.body.name).toBe(ADMIN_NAME);
+      expect(res.body.mustChangePassword).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 3 (GUS-93): an account that already exists is never touched
+  // -------------------------------------------------------------------------
+  describe("Case 3 (GUS-93): an account with ADMIN_RA already exists", () => {
+    /** The account as an earlier release left it: no flag, created before the seed turned it on. */
+    async function insertExisting(options: { password: string; role: Role | null }): Promise<void> {
+      const repo = dataSource.getRepository(Person);
+      await repo.save(
+        repo.create({
+          name: ADMIN_NAME,
+          ra: ADMIN_RA,
+          email: ADMIN_EMAIL,
+          passwordHash: await module.get(PasswordService).hashPassword(options.password),
+          role: options.role,
+          accessEnabled: true,
+          mustChangePassword: false,
+        }),
+      );
+    }
+
+    interface AccountRow {
+      name: string;
+      email: string;
+      role: string | null;
+      access_enabled: boolean;
+      must_change_password: boolean;
+      password_hash: string;
+    }
+
+    async function readAccounts(): Promise<AccountRow[]> {
+      return (await dataSource.query(
+        `SELECT name, email, role, access_enabled, must_change_password, password_hash
+           FROM people WHERE ra = $1`,
+        [ADMIN_RA],
+      )) as AccountRow[];
+    }
+
+    it("keeps the flag off and the whole row as it was, even when the password is still ADMIN_PASSWORD", async () => {
+      // The coordinator already running in production: seeded before the flag existed, still on
+      // the password of the environment. The seed runs at boot and must not reach it.
+      await insertExisting({ password: ADMIN_PASSWORD, role: Role.SUPERADMIN });
+      const before = await readAccounts();
+      expect(before).toHaveLength(1);
+      expect(before[0].must_change_password).toBe(false);
+
+      await seedInitialCoordinator(dataSource);
+      await seedInitialCoordinator(dataSource);
+
+      const after = await readAccounts();
+      expect(after).toEqual(before);
+      expect(after[0].must_change_password).toBe(false);
+    });
+
+    it("leaves that account able to log in and to use the API, with no password change pending", async () => {
+      await insertExisting({ password: ADMIN_PASSWORD, role: Role.SUPERADMIN });
+
+      await seedInitialCoordinator(dataSource);
+
+      const agent = request.agent(app.getHttpServer());
+      const login = await agent
+        .post("/auth/login")
+        .send({ ra: ADMIN_RA, password: ADMIN_PASSWORD })
+        .expect(200);
+      expect(login.body).toMatchObject({ role: "superadmin", mustChangePassword: false });
+      // Not 403 PASSWORD_CHANGE_REQUIRED: the guard has nothing to block.
+      await agent.get("/access").expect(200);
+    });
+
+    it("overwrites neither its password nor its role", async () => {
+      // Another role and a password that is not the environment's: none of it is the seed's to set.
+      await insertExisting({ password: "SenhaTrocada@9", role: Role.COORDINATOR });
+      const before = await readAccounts();
+
+      await seedInitialCoordinator(dataSource);
+
+      const after = await readAccounts();
+      expect(after).toEqual(before);
+      expect(after[0].role).toBe(Role.COORDINATOR);
+      expect(after[0].must_change_password).toBe(false);
     });
   });
 });
