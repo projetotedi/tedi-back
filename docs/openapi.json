@@ -215,6 +215,20 @@
         ],
         "type": "string"
       },
+      "ChangePasswordDto": {
+        "properties": {
+          "newPassword": {
+            "description": "New password. At least 8 characters, and different from the current one.",
+            "example": "NovaSenha@123",
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "newPassword"
+        ],
+        "type": "object"
+      },
       "CreateDepartmentDto": {
         "properties": {
           "name": {
@@ -603,6 +617,11 @@
             "example": "01952ef7-0000-7000-8000-000000000001",
             "type": "string"
           },
+          "mustChangePassword": {
+            "description": "True while the account still has to replace its password (initial coordinator, GUS-93). Until POST /auth/password succeeds, every authenticated route except GET /auth/me and POST /auth/password answers 403 PASSWORD_CHANGE_REQUIRED.",
+            "example": false,
+            "type": "boolean"
+          },
           "name": {
             "example": "Alice Silva",
             "type": "string"
@@ -634,7 +653,8 @@
           "ra",
           "email",
           "role",
-          "permissions"
+          "permissions",
+          "mustChangePassword"
         ],
         "type": "object"
       },
@@ -2537,6 +2557,97 @@
               }
             },
             "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/password": {
+      "post": {
+        "operationId": "changePassword",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | PASSWORD_UNCHANGED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "PASSWORD_CHANGE_NOT_REQUIRED"
           },
           "500": {
             "content": {
