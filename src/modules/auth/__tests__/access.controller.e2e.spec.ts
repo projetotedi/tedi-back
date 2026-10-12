@@ -124,6 +124,7 @@ describe("AccessController (e2e)", () => {
     email: string;
     role: Role;
     accessEnabled?: boolean;
+    mustChangePassword?: boolean;
   }): Promise<{ cookie: string; id: string }> {
     const passwordHash = await passwordService.hashPassword("Senha@123");
     const person = await peopleService.save({
@@ -133,6 +134,7 @@ describe("AccessController (e2e)", () => {
       passwordHash,
       role: opts.role,
       accessEnabled: opts.accessEnabled ?? true,
+      mustChangePassword: opts.mustChangePassword ?? false,
     });
     const token = await jwtService.signAsync({ sub: person.id });
     return { cookie: `${SESSION_COOKIE_NAME}=${token}`, id: person.id };
@@ -530,6 +532,41 @@ describe("AccessController (e2e)", () => {
         .expect(200);
 
       expect(loginRes.body.role).toBe("member");
+    });
+
+    it("GUS-93: accepting the reset link clears a pending password change", async () => {
+      const coord = await createCoordinator();
+      const flagged = await createPerson({
+        name: "Initial Coordinator",
+        ra: "flagged001",
+        email: "flagged@example.com",
+        role: Role.SUPERADMIN,
+        mustChangePassword: true,
+      });
+
+      const resetRes = await request(app.getHttpServer())
+        .post(`/access/${flagged.id}/password-reset`)
+        .set("Cookie", coord.cookie)
+        .expect(201);
+      const token = new URL(resetRes.body.url as string).searchParams.get("token") ?? "";
+
+      await request(app.getHttpServer())
+        .post("/auth/invites/accept")
+        .send({ token, password: "NovaSenh@456" })
+        .expect(204);
+
+      // The person chose this password through the link: logging in no longer asks for a change.
+      const loginRes = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "flagged001", password: "NovaSenh@456" })
+        .expect(200);
+      expect(loginRes.body.mustChangePassword).toBe(false);
+
+      const rows = (await dataSource.query(
+        "SELECT must_change_password FROM people WHERE id = $1",
+        [flagged.id],
+      )) as Array<{ must_change_password: boolean }>;
+      expect(rows).toEqual([{ must_change_password: false }]);
     });
 
     it("CA81-7: coordinator can generate reset for own account", async () => {

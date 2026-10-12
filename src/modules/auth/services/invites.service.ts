@@ -335,7 +335,8 @@ export class InvitesService {
    *  1. Validate token.
    *  2. invite.personId === null → 400 INVALID_INVITE (defensive).
    *  3. Load Person by invite.personId → null → 400 INVALID_INVITE.
-   *  4. Update person.passwordHash.
+   *  4. Update person.passwordHash and clear mustChangePassword (GUS-93): the person chose the
+   *     password through the link, so a pending change is done.
    *  5. Mark invite.usedAt = now.
    *  6. AFTER the transaction commits: emit PASSWORD_RESET.
    */
@@ -351,7 +352,7 @@ export class InvitesService {
       assertUsable(invite);
 
       if (invite.type === InviteType.PASSWORD_RESET) {
-        // PASSWORD_RESET branch — only updates passwordHash
+        // PASSWORD_RESET branch — only updates passwordHash (and clears the pending change)
         if (invite.personId === null) {
           throw new HttpException(
             { error: "INVALID_INVITE", message: "Invalid or expired invite." },
@@ -368,6 +369,7 @@ export class InvitesService {
         }
 
         person.passwordHash = await this.passwordService.hashPassword(dto.password);
+        person.mustChangePassword = false;
         await manager.save(Person, person);
 
         invite.usedAt = new Date();

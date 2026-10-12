@@ -514,6 +514,28 @@ describe("InvitesService", () => {
       );
     });
 
+    it("GUS-93: clears mustChangePassword, since the person chose the password through the link", async () => {
+      const resetInvite = makeInvite({
+        type: InviteType.PASSWORD_RESET,
+        personId: "person-uuid-1",
+      });
+      const person = makePerson({
+        id: "person-uuid-1",
+        role: Role.SUPERADMIN,
+        mustChangePassword: true,
+      });
+      const manager = buildPasswordResetManager(resetInvite, person) as EntityManager;
+      dataSource.transaction.mockImplementation(async (cb: (em: EntityManager) => Promise<void>) =>
+        cb(manager),
+      );
+
+      await service.accept({ token: "reset-token", password: "NewPassw@123" });
+
+      expect(person.mustChangePassword).toBe(false);
+      expect(person.passwordHash).toBe("$argon2id$v=19$hashed");
+      expect(manager.save).toHaveBeenCalledWith(Person, person);
+    });
+
     it("ignores the registration of a password_reset invite and only changes the password", async () => {
       const resetInvite = makeInvite({
         type: InviteType.PASSWORD_RESET,
