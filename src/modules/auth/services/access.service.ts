@@ -4,6 +4,7 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
 import { PaginatedResult, normalizePagination } from "@shared/pagination/pagination.util";
+import { applyTextSearch } from "@shared/search/search.util";
 import {
   AUDITABLE_ACTION_EVENT,
   AuditableAction,
@@ -40,10 +41,7 @@ export class AccessService {
       .where("person.role IS NOT NULL")
       .orderBy("person.name", "ASC");
 
-    if (query.search) {
-      const term = `%${query.search.toLowerCase()}%`;
-      qb = qb.andWhere("(LOWER(person.name) LIKE :term OR LOWER(person.ra) LIKE :term)", { term });
-    }
+    qb = applyTextSearch(qb, ["person.name", "person.ra"], query.search);
 
     if (query.role !== undefined) {
       qb = qb.andWhere("person.role = :role", { role: query.role });

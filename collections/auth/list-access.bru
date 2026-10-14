@@ -17,7 +17,7 @@ headers {
 query {
   page: 1
   limit: 20
-  ~search: Alice
+  ~search: jose
   ~role: coordinator
   ~enabled: true
 }
@@ -26,6 +26,7 @@ docs {
   Lista as pessoas com acesso ao sistema (role IS NOT NULL), com paginação.
   Requer cookie tedi_session e a permissão access.manage (@RequirePermission; coordenação e superadmin). Sem ela: 403 FORBIDDEN.
   Suporta filtros: ?page, ?limit, ?search (nome ou RA), ?role, ?enabled.
+  ?search ignora acento e maiúsculas (jose encontra José), trata % e _ como texto literal (50% procura "50%", não vira curinga) e aceita no máximo 100 caracteres. Termo vazio ou só com espaços não filtra.
   Retorna { data: AccessResponseDto[], total, page, limit }.
-  Erros possíveis: 401, 403.
+  Erros possíveis: 400 VALIDATION_FAILED (filtro inválido, como ?search com mais de 100 caracteres), 401, 403.
 }

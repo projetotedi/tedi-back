@@ -44,6 +44,11 @@ Migration: CreateUsers
 
 - [ ] `yarn build` ✅
 
+### Ferramentas e funcionalidades
+
+- [ ] Novas buscas textuais seguem o padrão descrito em `docs/ARCHITECTURE.md`, seção 12.
+- [ ] Não se aplica.
+
 ## Observações
 
 <!--

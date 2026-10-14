@@ -324,6 +324,27 @@ describe("people repository (e2e)", () => {
       await repository.save(repository.create({ name: "Comunicação" }));
     });
 
+    it("has the trigram search indexes on people", async () => {
+      const nameIndex = await indexDefinition("people", "idx_people_name_search");
+      const raIndex = await indexDefinition("people", "idx_people_ra_search");
+
+      expect(nameIndex).toHaveLength(1);
+      expect(nameIndex[0]).toMatch(/USING gin \(.*search_normalize\(.*\bname\b.*\) gin_trgm_ops\)/);
+      expect(raIndex).toHaveLength(1);
+      expect(raIndex[0]).toMatch(/USING gin \(.*search_normalize\(.*\bra\b.*\) gin_trgm_ops\)/);
+
+      const plan = await dataSource.transaction(async (manager) => {
+        await manager.query("SET LOCAL enable_seqscan = off");
+        const rows: Array<{ "QUERY PLAN": string }> = await manager.query(
+          `EXPLAIN SELECT id FROM people
+            WHERE public.search_normalize(name) LIKE public.search_normalize($1) ESCAPE '\\'`,
+          ["%jose%"],
+        );
+        return rows.map((row) => row["QUERY PLAN"]).join("\n");
+      });
+      expect(plan).toContain("idx_people_name_search");
+    });
+
     it("has the three named foreign keys of member_profiles", async () => {
       const declared = declaredForeignKeys(MemberProfile);
 

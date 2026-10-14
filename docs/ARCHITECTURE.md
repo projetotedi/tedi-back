@@ -65,6 +65,9 @@ src/
 │   ├── pagination/
 │   │   ├── pagination.util.ts
 │   │   └── __tests__/pagination.util.spec.ts
+│   ├── search/
+│   │   ├── search.util.ts           # normalizeSearchTerm, applyTextSearch, applyDigitsSearch: busca textual, ver seção 12
+│   │   └── __tests__/               # search.util.spec.ts (unitário) e search-normalize.e2e.spec.ts (extensões e função no banco)
 │   ├── swagger/swagger.util.ts
 │   ├── entities/
 │   │   ├── base.entity.ts           # id (UUID v7), createdAt, updatedAt, deletedAt
@@ -183,7 +186,7 @@ Regras:
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Nunca arquivos internos de outro módulo.
 - Fixtures são do módulo. Se dois módulos precisam do mesmo dado, o módulo dono exporta uma função; nada vai para `shared/`.
 - Cada teste e2e limpa as tabelas que tocou.
-- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é um e2e de schema, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram; o primeiro é `people/__tests__/people.repository.e2e.spec.ts`. Cada módulo mantém o próprio e2e de schema no seu `__tests__`, com o mesmo padrão de comparação (o módulo não edita o e2e de outro).
+- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é um e2e de schema, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram; o primeiro é `people/__tests__/people.repository.e2e.spec.ts`. Cada módulo mantém o próprio e2e de schema no seu `__tests__`, com o mesmo padrão de comparação (o módulo não edita o e2e de outro). Índice de expressão (`uq_departments_name`, `idx_people_name_search`) o TypeORM não declara na entidade; esse e2e o confere em `pg_indexes`. A função `search_normalize` e as extensões da busca textual têm e2e próprio em `shared/search/__tests__/search-normalize.e2e.spec.ts` (seção 12).
 
 ## 6. Swagger como contrato
 
@@ -359,3 +362,19 @@ A situação mora no perfil; o acesso continua na `Person`.
 ### 11.3 Fronteira entre `auth` e `people`
 
 `auth` só usa o que o `PeopleModule` exporta: `MembersService`, `DepartmentsService` e os tipos do contrato desses services (`MemberRegistrationFormDto`, `DepartmentResponseDto`, `MemberRegistrationStatus`, `MemberAccessFacts`). `InvitesService.accept` abre a transação e chama `MembersService.submitFromInvite(manager, ...)`, para a `Person`, o perfil e o `invite.usedAt` saírem no mesmo commit; o evento é montado em `people` (dono da allow-list) e emitido por `auth` depois do commit. `GET /auth/invites/:token` devolve `departments` para o formulário público (só quem tem um convite válido vê os nomes).
+
+## 12. Busca textual (GUS-115)
+
+Buscas textuais devem ignorar diferenças de caixa e acentuação e tratar `%` e `_` como caracteres literais. Para isso, a aplicação normaliza coluna e termo com `public.search_normalize` e usa `LIKE` com busca por trecho. A função fixa a normalização usada tanto pela consulta quanto pelo índice.
+
+A busca por trecho é acelerada por índices GIN com `gin_trgm_ops` sobre a expressão `public.search_normalize(coluna)`. A expressão da consulta precisa corresponder à expressão indexada; `LOWER(...) LIKE`, `ILIKE` e `unaccent(...)` não aproveitam esses índices. Termos com menos de três caracteres podem resultar em varredura, pois não produzem trigramas suficientes.
+
+### 12.1 Implementação
+
+- As extensões `unaccent` e `pg_trgm` e a função `search_normalize` são criadas pela migration `CreateSearchNormalizeFunction`.
+- Cada coluna pesquisável recebe um índice GIN próprio, no formato `idx_<tabela>_<coluna>_search`, criado depois da função. A GUS-115 cria os índices de `people.name` e `people.ra` em `CreateTextSearchIndexes`.
+- No service, use `applyTextSearch` de `src/shared/search/search.util.ts`. Para combinar condições de texto e dígitos em OR, use `textSearchCondition` e `digitsSearchCondition` dentro de `Brackets`.
+- Ao adicionar uma coluna pesquisável, crie sua migration de índice e atualize o e2e de schema do módulo para verificar o índice em `pg_indexes` e seu uso quando pertinente.
+- Para listas de textos pesquisáveis, use uma tabela filha com uma linha por texto; índice GIN de array não atende busca por trecho.
+
+O termo é normalizado e escapado pelo utilitário compartilhado antes da consulta. Parâmetros de buscas distintas no mesmo `QueryBuilder` devem ter nomes diferentes; o utilitário falha explicitamente quando um nome já está em uso.
