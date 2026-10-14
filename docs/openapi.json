@@ -3553,6 +3553,17 @@
             }
           },
           {
+            "description": "Search by name or RA",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "Ana",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
             "in": "query",
             "name": "role",
             "required": false,

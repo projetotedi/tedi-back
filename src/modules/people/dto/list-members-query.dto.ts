@@ -1,6 +1,16 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
 import { Transform } from "class-transformer";
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from "class-validator";
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from "class-validator";
 import { Role } from "@shared/enums/role.enum";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
 
@@ -20,6 +30,12 @@ export class ListMembersQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({ example: "Ana", maxLength: 100, description: "Search by name or RA" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
 
   @ApiPropertyOptional({ enum: Role, enumName: "Role" })
   @IsOptional()
