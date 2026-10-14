@@ -633,6 +633,29 @@ describe("MemberRegistrationsController (e2e)", () => {
       expect(page.body.data).toHaveLength(1);
     });
 
+    it("searches by name and RA, ignoring accents and escaping LIKE wildcards", async () => {
+      const joseId = await submitViaInvite(
+        applicant(1, { name: "José da Conceição", ra: "j2210001" }),
+      );
+      const literalWildcardId = await submitViaInvite(
+        applicant(2, { name: "Pessoa 50%", ra: "p2210002" }),
+      );
+      await submitViaInvite(applicant(3, { name: "Pessoa 500", ra: "p2210003" }));
+
+      const listIds = async (term: string): Promise<string[]> => {
+        const response = await request(app.getHttpServer())
+          .get(`/members?search=${encodeURIComponent(term)}`)
+          .set("Cookie", director.cookie)
+          .expect(200);
+        return (response.body.data as Array<{ id: string }>).map((row) => row.id);
+      };
+
+      expect(await listIds("jose")).toEqual([joseId]);
+      expect(await listIds("JOSÉ")).toEqual([joseId]);
+      expect(await listIds("j2210001")).toEqual([joseId]);
+      expect(await listIds("50%")).toEqual([literalWildcardId]);
+    });
+
     it("allows a director, denies a member and requires authentication", async () => {
       await request(app.getHttpServer()).get("/members").set("Cookie", director.cookie).expect(200);
 

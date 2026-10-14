@@ -179,6 +179,7 @@ export class MembersService {
       .addSelect("member_profile.registration_status", "registrationStatus")
       .where("(person.role IS NOT NULL OR member_profile.id IS NOT NULL)");
 
+    applyTextSearch(builder, ["person.name", "person.ra"], query.search);
     this.applyMembersListFilters(builder, query);
     return builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
   }
