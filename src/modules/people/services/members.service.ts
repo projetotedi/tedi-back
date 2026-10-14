@@ -9,6 +9,7 @@ import {
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
+import { applyTextSearch } from "@shared/search/search.util";
 import { ApproveMemberRegistrationDto } from "../dto/approve-member-registration.dto";
 import { ListMemberRegistrationsQueryDto } from "../dto/list-member-registrations-query.dto";
 import { MemberRegistrationFormDto } from "../dto/member-registration-form.dto";
@@ -97,14 +98,6 @@ function departmentNotFound(): HttpException {
     { error: "DEPARTMENT_NOT_FOUND", message: "Department not found." },
     400,
   );
-}
-
-/** Escapes the wildcards of LIKE so a search for "100%" is a literal search. */
-function likeTerm(search: string): string {
-  return `%${search
-    .trim()
-    .toLowerCase()
-    .replace(/[\\%_]/g, "\\$&")}%`;
 }
 
 /**
@@ -361,11 +354,7 @@ export class MembersService {
       .orderBy("profile.submitted_at", "ASC", "NULLS LAST")
       .addOrderBy("person.name", "ASC");
 
-    if (query.search?.trim()) {
-      builder.andWhere("(LOWER(person.name) LIKE :term OR LOWER(person.ra) LIKE :term)", {
-        term: likeTerm(query.search),
-      });
-    }
+    applyTextSearch(builder, ["person.name", "person.ra"], query.search);
 
     // offset/limit, not skip/take: the join is 1:1 (no duplicate rows), and skip/take with a join
     // makes TypeORM wrap a DISTINCT subquery that breaks ORDER BY on the joined alias.
