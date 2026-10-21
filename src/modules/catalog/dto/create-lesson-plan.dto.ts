@@ -48,9 +48,9 @@ export class CreateLessonPlanDto {
     example: "Teclado, mouse e janelas",
   })
   @Transform(trim)
+  @MaxLength(LESSON_PLAN_TITLE_MAX_LENGTH)
   @IsString()
   @IsNotEmpty()
-  @MaxLength(LESSON_PLAN_TITLE_MAX_LENGTH)
   title!: string;
 
   @ApiPropertyOptional({
@@ -62,24 +62,24 @@ export class CreateLessonPlanDto {
   })
   @IsOptional()
   @Transform(trimToNull)
-  @IsString()
   @MaxLength(LESSON_PLAN_OBJECTIVE_MAX_LENGTH)
+  @IsString()
   objective?: string | null;
 
   @ApiProperty(LESSON_PLAN_DURATION_PROPERTY)
-  @IsInt()
-  @Min(1)
   @Max(LESSON_PLAN_MAX_DURATION_MINUTES)
+  @Min(1)
+  @IsInt()
   expectedDurationMinutes!: number;
 
   @ApiProperty(LESSON_PLAN_CONTENTS_PROPERTY)
   @Transform(trimEach)
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(LESSON_PLAN_MAX_CONTENTS)
-  @IsString({ each: true })
-  @IsNotEmpty({ each: true })
   @MaxLength(LESSON_PLAN_CONTENT_MAX_LENGTH, { each: true })
+  @IsNotEmpty({ each: true })
+  @IsString({ each: true })
+  @ArrayMaxSize(LESSON_PLAN_MAX_CONTENTS)
+  @ArrayMinSize(1)
+  @IsArray()
   contents!: string[];
 
   @ApiPropertyOptional({
@@ -93,7 +93,7 @@ export class CreateLessonPlanDto {
   })
   @IsOptional()
   @Transform(trimToNull)
-  @IsUrl({ protocols: ["http", "https"], require_protocol: true })
   @MaxLength(LESSON_PLAN_MATERIAL_URL_MAX_LENGTH)
+  @IsUrl({ protocols: ["http", "https"], require_protocol: true })
   materialUrl?: string | null;
 }

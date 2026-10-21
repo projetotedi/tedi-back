@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
+import { flattenValidationErrors } from "@shared/filters/http-exception.filter";
 import { CreateLessonPlanDto } from "../dto/create-lesson-plan.dto";
 import { UpdateLessonPlanDto } from "../dto/update-lesson-plan.dto";
 
@@ -12,6 +13,12 @@ const VALID_BODY = {
 
 function fieldsOf(errors: ValidationError[]): string[] {
   return errors.map((error) => error.property).sort();
+}
+
+function messagesOf(errors: ValidationError[]): string[] {
+  return flattenValidationErrors(errors)
+    .map((error) => error.message)
+    .sort();
 }
 
 async function checkCreate(body: Record<string, unknown>) {
@@ -175,6 +182,38 @@ describe("CreateLessonPlanDto", () => {
       "objective",
     ]);
     expect((await checkCreate({ ...VALID_BODY, objective: 5 })).fields).toEqual(["objective"]);
+  });
+
+  it("explains a missing title, duration and contents by what is missing", async () => {
+    const { errors } = await checkCreate({});
+
+    expect(messagesOf(errors)).toEqual(
+      [
+        "title should not be empty",
+        "expectedDurationMinutes must be an integer number",
+        "contents must be an array",
+      ].sort(),
+    );
+  });
+
+  it("explains a value of the wrong kind by its kind, not by a length limit", async () => {
+    const { errors } = await checkCreate({
+      title: 12,
+      objective: 5,
+      expectedDurationMinutes: "90",
+      contents: [3],
+      materialUrl: 42,
+    });
+
+    expect(messagesOf(errors)).toEqual(
+      [
+        "title must be a string",
+        "objective must be a string",
+        "expectedDurationMinutes must be an integer number",
+        "each value in contents must be a string",
+        "materialUrl must be a URL address",
+      ].sort(),
+    );
   });
 
   it("reports every invalid field at once", async () => {

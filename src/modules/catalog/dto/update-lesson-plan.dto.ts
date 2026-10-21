@@ -37,9 +37,9 @@ export class UpdateLessonPlanDto extends PartialType(
   })
   @ValidateIf((_, value) => value !== undefined)
   @Transform(trim)
+  @MaxLength(LESSON_PLAN_TITLE_MAX_LENGTH)
   @IsString()
   @IsNotEmpty()
-  @MaxLength(LESSON_PLAN_TITLE_MAX_LENGTH)
   title?: string;
 
   @ApiPropertyOptional({
@@ -48,9 +48,9 @@ export class UpdateLessonPlanDto extends PartialType(
     description: `${LESSON_PLAN_DURATION_PROPERTY.description} Omit to keep. Never null.`,
   })
   @ValidateIf((_, value) => value !== undefined)
-  @IsInt()
-  @Min(1)
   @Max(LESSON_PLAN_MAX_DURATION_MINUTES)
+  @Min(1)
+  @IsInt()
   expectedDurationMinutes?: number;
 
   @ApiPropertyOptional({
@@ -59,11 +59,11 @@ export class UpdateLessonPlanDto extends PartialType(
   })
   @ValidateIf((_, value) => value !== undefined)
   @Transform(trimEach)
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(LESSON_PLAN_MAX_CONTENTS)
-  @IsString({ each: true })
-  @IsNotEmpty({ each: true })
   @MaxLength(LESSON_PLAN_CONTENT_MAX_LENGTH, { each: true })
+  @IsNotEmpty({ each: true })
+  @IsString({ each: true })
+  @ArrayMaxSize(LESSON_PLAN_MAX_CONTENTS)
+  @ArrayMinSize(1)
+  @IsArray()
   contents?: string[];
 }
