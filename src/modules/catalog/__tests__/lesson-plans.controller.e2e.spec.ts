@@ -264,6 +264,27 @@ describe("LessonPlansController (e2e)", () => {
       ]);
     });
 
+    it("accepts the largest values the DTO allows and stores them whole", async () => {
+      const materialUrl = `https://example.com/${"a".repeat(480)}`;
+      const contents = Array.from({ length: 50 }, (_, index) => String(index).padEnd(500, "x"));
+      expect(materialUrl).toHaveLength(500);
+
+      const created = await createPlan({
+        title: "t".repeat(200),
+        objective: "o".repeat(2000),
+        expectedDurationMinutes: 1440,
+        contents,
+        materialUrl,
+      });
+
+      const stored = (await getPlan(created.id, director).expect(200)).body;
+      expect(stored.title).toBe("t".repeat(200));
+      expect(stored.objective).toBe("o".repeat(2000));
+      expect(stored.expectedDurationMinutes).toBe(1440);
+      expect(stored.materialUrl).toBe(materialUrl);
+      expect(stored.contents).toEqual(contents);
+    });
+
     it("trims title, objective and contents and treats a blank link as not informed", async () => {
       const created = await createPlan({
         title: "  Janelas  ",
