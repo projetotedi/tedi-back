@@ -1,0 +1,27 @@
+meta {
+  name: get-lesson-plan
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/lesson-plans/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Detalhe de um plano de aula: título, objetivo, duração prevista, conteúdos na ordem, link do material e situação de arquivamento.
+  Requer cookie tedi_session e a permissão catalog.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Plano arquivado continua acessível, só leitura: archivedAt, archivedById e archiveReason vêm preenchidos.
+  Retorna 200 LessonPlanResponseDto.
+  Erros possíveis: 401, 403 FORBIDDEN, 404 LESSON_PLAN_NOT_FOUND (id inexistente ou mal formado).
+}
