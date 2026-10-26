@@ -60,7 +60,8 @@ export class Person extends BaseEntity {
   /**
    * GUS-122. The login that came right before lastLoginAt; null until the second login.
    * recordLogin moves lastLoginAt into it, so GET /members/me can show the access before the
-   * current session (decision 20: "last access" is the last login, not the last activity).
+   * current session. The "last access" is the last LOGIN, not the last activity: the MVP has no
+   * inactivity tracking (RNF-23 is relaxed, decision 20).
    */
   @Column({ name: "previous_login_at", type: "timestamptz", nullable: true, default: null })
   previousLoginAt: Date | null;
