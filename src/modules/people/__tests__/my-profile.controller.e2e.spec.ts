@@ -50,6 +50,11 @@ const dbConnection = dbUrl
 process.env.JWT_SECRET = "e2e-my-profile-secret";
 process.env.APP_URL = "http://localhost:5173";
 
+// seedAdmin writes the ADMIN_* variables that the seed reads. Their values as this file found
+// them (undefined = not defined) are given back after every test, so nothing outlives the test.
+const ADMIN_ENV_KEYS = ["ADMIN_RA", "ADMIN_NAME", "ADMIN_EMAIL", "ADMIN_PASSWORD"] as const;
+const originalAdminEnv = ADMIN_ENV_KEYS.map((key) => [key, process.env[key]] as const);
+
 // Name of the session cookie set by the auth module (kept local: tests do not import module internals).
 const SESSION_COOKIE_NAME = "tedi_session";
 
@@ -133,6 +138,18 @@ describe("MyProfileController (e2e)", () => {
     coordinator = await createActor("Coordinator", Role.COORDINATOR);
   });
 
+  afterEach(() => {
+    // A variable that was not defined goes back to not defined: assigning undefined to
+    // process.env would store the string "undefined".
+    for (const [key, value] of originalAdminEnv) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -144,7 +161,10 @@ describe("MyProfileController (e2e)", () => {
     return { id: person.id, cookie: `${SESSION_COOKIE_NAME}=${token}` };
   }
 
-  /** The real seed of the first coordinator (superadmin), with its own RA. */
+  /**
+   * The real seed of the first coordinator (superadmin), with its own RA. It overwrites the
+   * ADMIN_* variables for the test; the afterEach hook above gives them back.
+   */
   async function seedAdmin(ra: string): Promise<void> {
     process.env.ADMIN_RA = ra;
     process.env.ADMIN_NAME = ADMIN_NAME;
