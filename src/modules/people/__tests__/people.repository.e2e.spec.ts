@@ -69,7 +69,7 @@ describe("people repository (e2e)", () => {
   });
 
   describe("schema", () => {
-    it("has exactly the 12 expected columns", async () => {
+    it("has exactly the 14 expected columns", async () => {
       const rows: Array<{ column_name: string }> = await dataSource.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'people' ORDER BY ordinal_position`,
       );
@@ -88,9 +88,11 @@ describe("people repository (e2e)", () => {
           "access_enabled",
           "birth_date",
           "phone",
+          "last_login_at",
+          "previous_login_at",
         ]),
       );
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(14);
     });
   });
 

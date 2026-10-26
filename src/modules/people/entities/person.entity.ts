@@ -47,4 +47,21 @@ export class Person extends BaseEntity {
   /** RF-001. Digits only (10 to 13). Personal data: never logged. */
   @Column({ name: "phone", type: "varchar", length: 20, nullable: true, default: null })
   phone: string | null;
+
+  /**
+   * GUS-122. Instant of the most recent successful login; null until the first one.
+   * Written only by PeopleService.recordLogin (raw UPDATE, so updated_at does not move): it is
+   * not a change to the person's data. The "last access" shown to the person is
+   * previousLoginAt, not this one.
+   */
+  @Column({ name: "last_login_at", type: "timestamptz", nullable: true, default: null })
+  lastLoginAt: Date | null;
+
+  /**
+   * GUS-122. The login that came right before lastLoginAt; null until the second login.
+   * recordLogin moves lastLoginAt into it, so GET /members/me can show the access before the
+   * current session (decision 20: "last access" is the last login, not the last activity).
+   */
+  @Column({ name: "previous_login_at", type: "timestamptz", nullable: true, default: null })
+  previousLoginAt: Date | null;
 }
