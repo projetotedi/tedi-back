@@ -159,6 +159,73 @@ describe("people repository (e2e)", () => {
     });
   });
 
+  describe("recordLogin", () => {
+    interface LoginRow {
+      last_login_at: Date | null;
+      previous_login_at: Date | null;
+      updated_at: Date;
+      // Same instants as text: microsecond precision, which a JS Date (milliseconds) loses.
+      last_login_text: string | null;
+      previous_login_text: string | null;
+      moved_forward: boolean | null;
+    }
+
+    async function loginRow(id: string): Promise<LoginRow> {
+      const rows: LoginRow[] = await dataSource.query(
+        `SELECT last_login_at, previous_login_at, updated_at,
+                last_login_at::text AS last_login_text,
+                previous_login_at::text AS previous_login_text,
+                last_login_at > previous_login_at AS moved_forward
+           FROM people WHERE id = $1`,
+        [id],
+      );
+      return rows[0];
+    }
+
+    it("starts with both login columns null", async () => {
+      const person = await service.save({ name: "Alice", ra: "a0000001" });
+
+      const row = await loginRow(person.id);
+
+      expect(row.last_login_at).toBeNull();
+      expect(row.previous_login_at).toBeNull();
+    });
+
+    it("recordLogin moves last_login_at to previous_login_at and keeps updated_at", async () => {
+      const person = await service.save({ name: "Alice", ra: "a0000001" });
+      const created = await loginRow(person.id);
+
+      await service.recordLogin(person.id);
+      const first = await loginRow(person.id);
+
+      // First login: only last_login_at is set.
+      expect(first.last_login_at).toBeInstanceOf(Date);
+      expect(first.previous_login_at).toBeNull();
+
+      await service.recordLogin(person.id);
+      const second = await loginRow(person.id);
+
+      // Second login: the first one is now the previous one, and the last one moved forward.
+      expect(second.previous_login_text).toBe(first.last_login_text);
+      expect(second.moved_forward).toBe(true);
+      // A login is not a change to the person: updated_at stays the creation instant.
+      expect(first.updated_at).toEqual(created.updated_at);
+      expect(second.updated_at).toEqual(created.updated_at);
+    });
+
+    it("recordLogin touches only the row of the given person", async () => {
+      const alice = await service.save({ name: "Alice", ra: "a0000001" });
+      const bruno = await service.save({ name: "Bruno", ra: "a0000002" });
+
+      await service.recordLogin(alice.id);
+
+      expect((await loginRow(alice.id)).last_login_at).toBeInstanceOf(Date);
+      const untouched = await loginRow(bruno.id);
+      expect(untouched.last_login_at).toBeNull();
+      expect(untouched.previous_login_at).toBeNull();
+    });
+  });
+
   describe("schema vs entities", () => {
     // Postgres udt_name for each TypeORM column type used by the entities.
     const UDT_NAME: Record<string, string> = {
