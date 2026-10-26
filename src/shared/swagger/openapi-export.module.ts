@@ -22,12 +22,14 @@ import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
+import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
+import { MyProfileService } from "@modules/people/services/my-profile.service";
 import { StudentsService } from "@modules/people/services/students.service";
 import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
 
@@ -42,6 +44,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     StudentsController,
     MemberRegistrationsController,
     DepartmentsController,
+    MyProfileController,
   ],
   providers: [
     {
@@ -94,6 +97,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         approve: async () => ({}),
         reject: async () => ({}),
       },
+    },
+    {
+      provide: MyProfileService,
+      useValue: { getMyProfile: async () => ({}) },
     },
     {
       provide: DepartmentsService,
