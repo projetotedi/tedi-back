@@ -44,7 +44,7 @@ O que o plano free implica:
 | `ADMIN_RA`       | Render (secret) | RA da coordenadora inicial (ex.: `a1234567`)                 |
 | `ADMIN_NAME`     | Render (secret) | nome completo da coordenadora inicial                        |
 | `ADMIN_EMAIL`    | Render (secret) | e-mail da coordenadora inicial                               |
-| `ADMIN_PASSWORD` | Render (secret) | senha inicial (mín. 8 chars); trocar após o primeiro login   |
+| `ADMIN_PASSWORD` | Render (secret) | senha inicial (mín. 8 chars); a conta nova exige a troca     |
 | `APP_URL`        | Render (secret) | URL base do front-end (ex.: `https://tedi-front.vercel.app`) |
 | `NODE_ENV`       | Render          | `production` (já no blueprint)                               |
 | `NODE_VERSION`   | Render          | `22.12.0` (já no blueprint)                                  |
@@ -70,6 +70,7 @@ O mesmo vale para o `Dockerfile` (que chama `node` diretamente, sem `yarn`).
 - **Migrations:** TypeORM lê `dist/database/data-source.js`. Para inspecionar no Render Shell:
   `node ./node_modules/typeorm/cli.js migration:show -d ./dist/database/data-source.js`
 - **Seed idempotente:** o seed verifica a existência do RA antes de criar. Rodar 2× não duplica.
+- **Troca obrigatória no primeiro acesso (GUS-93):** só a conta que o seed **cria** nasce com a troca de senha pendente, porque a senha vem de `ADMIN_PASSWORD`. O login funciona, mas a API responde 403 `PASSWORD_CHANGE_REQUIRED` a toda rota autenticada, exceto `GET /auth/me` e `POST /auth/password`, até a senha ser trocada. Uma conta que já existe com `ADMIN_RA` (a coordenadora de produção, por exemplo) nunca é alterada pelo seed (flag, senha e perfil ficam como estão), então o boot não a afeta. Para forçar a troca nela é preciso rodar no banco `UPDATE people SET must_change_password = true WHERE ra = '<ADMIN_RA>'` (ou esperar um card futuro). A tela de troca é a GUS-142 (front) e deve existir antes de alguém ligar a flag à mão numa conta com sessão ativa.
 - **Reverter migration:** `node ./node_modules/typeorm/cli.js migration:revert -d ./dist/database/data-source.js`. Nunca editar migration já aplicada.
 
 ## 5. Rodando o build de produção localmente

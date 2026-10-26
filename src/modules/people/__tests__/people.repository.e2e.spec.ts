@@ -69,7 +69,7 @@ describe("people repository (e2e)", () => {
   });
 
   describe("schema", () => {
-    it("has exactly the 12 expected columns", async () => {
+    it("has exactly the 13 expected columns", async () => {
       const rows: Array<{ column_name: string }> = await dataSource.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'people' ORDER BY ordinal_position`,
       );
@@ -88,9 +88,10 @@ describe("people repository (e2e)", () => {
           "access_enabled",
           "birth_date",
           "phone",
+          "must_change_password",
         ]),
       );
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(13);
     });
   });
 
@@ -465,6 +466,20 @@ describe("people repository (e2e)", () => {
         archiveReason: null,
       });
       expect(loaded.accessibilityNeed).toBe(AccessibilityNeed.NONE);
+    });
+
+    it("defaults must_change_password to false", async () => {
+      const person = await service.save({ name: "Maria" });
+
+      const rows: Array<{ must_change_password: boolean }> = await dataSource.query(
+        `SELECT must_change_password FROM people WHERE id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([{ must_change_password: false }]);
+
+      // The entity reads the column back as a boolean, never as null or undefined.
+      const loaded = await dataSource.getRepository(Person).findOneByOrFail({ id: person.id });
+      expect(loaded.mustChangePassword).toBe(false);
     });
 
     it("defaults registration_status to pending", async () => {

@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -10,6 +11,7 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { Request } from "express";
 import { SESSION_COOKIE_NAME, REQUEST_USER_KEY } from "../auth.constants";
+import { ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY } from "../decorators/allow-when-password-change-required.decorator";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
@@ -100,6 +102,16 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
+    // Step 7c: the account still has to replace its password (GUS-93, decision 16). Only the
+    // routes marked @AllowWhenPasswordChangeRequired answer. It runs before @Roles and
+    // @RequirePermission so the client always learns this reason, never an unrelated 403.
+    if (person.mustChangePassword && !this.allowsPendingPasswordChange(ctx)) {
+      throw new HttpException(
+        { error: "PASSWORD_CHANGE_REQUIRED", message: "Password change required." },
+        403,
+      );
+    }
+
     // Step 8: Attach AuthUser to request, with the department of the approved member profile.
     const authUser: AuthUser = {
       id: person.id,
@@ -131,6 +143,15 @@ export class AuthGuard implements CanActivate {
       role: fakeRole as Role,
       accessEnabled: true,
     };
+  }
+
+  private allowsPendingPasswordChange(ctx: ExecutionContext): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY, [
+        ctx.getHandler(),
+        ctx.getClass(),
+      ]) === true
+    );
   }
 
   /**

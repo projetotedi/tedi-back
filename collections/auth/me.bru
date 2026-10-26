@@ -18,6 +18,7 @@ docs {
   Retorna os dados do usuário autenticado (MeResponseDto) a partir do cookie tedi_session.
   Inclui permissions: o mapa { [permissão]: escopo } do perfil atual (all, own, department, allocated, lessonTeacher, none),
   que o front usa para montar menu e ações. A matriz completa está em docs/PERMISSIONS.md.
+  mustChangePassword indica troca de senha pendente (GUS-93): enquanto for true, esta rota e POST /auth/password são as únicas rotas autenticadas que respondem; as demais retornam 403 PASSWORD_CHANGE_REQUIRED.
   Requer cookie tedi_session válido; sem ele retorna 401 UNAUTHORIZED.
   Não inclui passwordHash na resposta.
 }

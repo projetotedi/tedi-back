@@ -22,6 +22,8 @@ export enum AuditableAction {
   INVITE_REVOKED = "INVITE_REVOKED",
   /** A person completed a password reset via invite. */
   PASSWORD_RESET = "PASSWORD_RESET",
+  /** A person replaced their own password while a change was required (GUS-93). */
+  PASSWORD_CHANGED = "PASSWORD_CHANGED",
   /** A student was registered (Person + StudentProfile). */
   STUDENT_CREATED = "STUDENT_CREATED",
   /** Student data changed. Payload carries only non-sensitive values plus changedFields. */
