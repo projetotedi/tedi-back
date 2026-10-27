@@ -75,7 +75,8 @@ export class CourseResponseDto {
     type: String,
     format: "date-time",
     example: "2026-10-01T13:00:00.000Z",
-    description: "The most recent change to the course or to its prerequisites.",
+    description:
+      "The most recent change to the course, to its prerequisites or to its lesson plan sequence.",
   })
   updatedAt!: Date;
 }

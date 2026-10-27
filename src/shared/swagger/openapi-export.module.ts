@@ -20,6 +20,7 @@ import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
+import { CourseLessonPlansController } from "@modules/catalog/controllers/course-lesson-plans.controller";
 import { CoursesController } from "@modules/catalog/controllers/courses.controller";
 import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
@@ -29,6 +30,7 @@ import { StudentsController } from "@modules/people/controllers/students.control
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
+import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
@@ -50,6 +52,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MembersController,
     LessonPlansController,
     CoursesController,
+    CourseLessonPlansController,
   ],
   providers: [
     {
@@ -125,6 +128,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         update: async () => ({}),
         getCourseSummary: async () => null,
       },
+    },
+    {
+      provide: CourseLessonPlansService,
+      useValue: { list: async () => ({}), replace: async () => ({}) },
     },
     {
       provide: ConfigService,

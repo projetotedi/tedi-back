@@ -224,6 +224,99 @@
         ],
         "type": "string"
       },
+      "CourseLessonPlanItemResponseDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Not null: the lesson plan was archived after it entered the sequence. It stays, tagged 'Arquivado' (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "contents": {
+            "description": "Contents in the order they are taught.",
+            "example": [
+              "Teclado e mouse",
+              "Janelas do sistema"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "courseCount": {
+            "description": "How many courses use this lesson plan, this one and archived ones included.",
+            "example": 2,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expectedDurationMinutes": {
+            "description": "Expected duration in minutes. It counts toward the workload of the course.",
+            "example": 90,
+            "type": "integer"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "materialUrl": {
+            "description": "Link to the material. The system stores the link, not the file.",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "nullable": true,
+            "type": "string"
+          },
+          "position": {
+            "description": "Place of the lesson plan in the sequence of this course, from 1.",
+            "example": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "lessonPlanId",
+          "title",
+          "contents",
+          "expectedDurationMinutes",
+          "materialUrl",
+          "courseCount",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
+      "CourseLessonPlansResponseDto": {
+        "properties": {
+          "courseId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000002",
+            "format": "uuid",
+            "type": "string"
+          },
+          "items": {
+            "description": "The lesson plans of the course ordered by position. Empty when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/CourseLessonPlanItemResponseDto"
+            },
+            "type": "array"
+          },
+          "plannedWorkloadMinutes": {
+            "description": "Sum of expectedDurationMinutes of the sequence, never typed (RF-018, RN-24). 0 for an empty sequence.",
+            "example": 270,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "courseId",
+          "plannedWorkloadMinutes",
+          "items"
+        ],
+        "type": "object"
+      },
       "CourseReferenceResponseDto": {
         "properties": {
           "id": {
@@ -317,7 +410,7 @@
             "example": "active"
           },
           "updatedAt": {
-            "description": "The most recent change to the course or to its prerequisites.",
+            "description": "The most recent change to the course, to its prerequisites or to its lesson plan sequence.",
             "example": "2026-10-01T13:00:00.000Z",
             "format": "date-time",
             "type": "string"
@@ -1726,6 +1819,28 @@
         },
         "required": [
           "note"
+        ],
+        "type": "object"
+      },
+      "ReplaceCourseLessonPlansDto": {
+        "properties": {
+          "lessonPlanIds": {
+            "description": "The whole sequence, in the order of the course. Replaces the current one; [] clears it. A repeated id answers 400 DUPLICATE_LESSON_PLAN.",
+            "example": [
+              "01999a3e-7c1b-7000-8000-000000000001",
+              "01999a3e-7c1b-7000-8000-000000000002"
+            ],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "lessonPlanIds"
         ],
         "type": "object"
       },
@@ -3217,6 +3332,188 @@
               }
             },
             "description": "COURSE_ARCHIVED | COURSE_NAME_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/courses/{id}/lesson-plans": {
+      "get": {
+        "operationId": "listCourseLessonPlans",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseLessonPlansResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      },
+      "put": {
+        "operationId": "replaceCourseLessonPlans",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceCourseLessonPlansDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseLessonPlansResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | DUPLICATE_LESSON_PLAN | LESSON_PLAN_NOT_FOUND | LESSON_PLAN_ARCHIVED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_ARCHIVED"
           },
           "500": {
             "content": {
