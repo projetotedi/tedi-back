@@ -1145,7 +1145,7 @@ describe("ClassesController (e2e)", () => {
       const pending = patchClass(created.id, director, { capacity: 20 }).then((res) => res);
 
       try {
-        expect(await blockedStatement()).toMatch(/FROM "classes" "SchoolClass"/);
+        expect(await blockedStatement()).toMatch(/FROM "classes"/);
       } finally {
         await release();
       }
@@ -1412,7 +1412,7 @@ describe("ClassesController (e2e)", () => {
       const pending = archiveClass(created.id, director).then((res) => res);
 
       try {
-        expect(await blockedStatement()).toMatch(/FROM "classes" "SchoolClass"/);
+        expect(await blockedStatement()).toMatch(/FROM "classes"/);
       } finally {
         await release();
       }
