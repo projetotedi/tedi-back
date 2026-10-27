@@ -7,6 +7,7 @@ import { HealthController } from "@shared/health/health.controller";
 import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { AuthModule } from "@modules/auth/auth.module";
 import { PeopleModule } from "@modules/people/people.module";
+import { CatalogModule } from "@modules/catalog/catalog.module";
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { PeopleModule } from "@modules/people/people.module";
     TypeOrmModule.forRoot(dataSourceOptions),
     AuthModule,
     PeopleModule,
+    CatalogModule,
     // Módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md):
     // TurmasModule, AulasModule, ...
   ],

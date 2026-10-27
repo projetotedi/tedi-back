@@ -279,6 +279,58 @@
         ],
         "type": "object"
       },
+      "CreateLessonPlanDto": {
+        "properties": {
+          "contents": {
+            "description": "Contents of the lesson plan, in the order they are taught. At least one.",
+            "example": [
+              "Teclado e mouse",
+              "Janelas do sistema"
+            ],
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "expectedDurationMinutes": {
+            "description": "Expected duration in minutes. It counts toward the workload of the courses.",
+            "example": 90,
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "materialUrl": {
+            "description": "Link to the material, http or https. The system stores the link, not the file. Null or empty means not informed.",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "format": "uri",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "objective": {
+            "description": "Null or empty means not informed.",
+            "example": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "expectedDurationMinutes",
+          "contents"
+        ],
+        "type": "object"
+      },
       "CreateStudentDto": {
         "properties": {
           "accessibilityNeed": {
@@ -572,6 +624,96 @@
           "password_reset"
         ],
         "type": "string"
+      },
+      "LessonPlanResponseDto": {
+        "properties": {
+          "archiveReason": {
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedAt": {
+            "description": "Null while the lesson plan is active (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedById": {
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "contents": {
+            "description": "Contents in the order they are taught.",
+            "example": [
+              "Teclado e mouse",
+              "Janelas do sistema"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Id of the person who created the lesson plan.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "expectedDurationMinutes": {
+            "description": "Expected duration in minutes.",
+            "example": 90,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "materialUrl": {
+            "description": "Link to the material. The system stores the link, not the file.",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "nullable": true,
+            "type": "string"
+          },
+          "objective": {
+            "example": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "The most recent change to the lesson plan or to its contents.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "objective",
+          "expectedDurationMinutes",
+          "contents",
+          "materialUrl",
+          "archivedAt",
+          "archivedById",
+          "archiveReason",
+          "createdById",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
       },
       "LoginDto": {
         "properties": {
@@ -1888,6 +2030,54 @@
         "required": [
           "role"
         ],
+        "type": "object"
+      },
+      "UpdateLessonPlanDto": {
+        "properties": {
+          "contents": {
+            "description": "Replaces the whole list, in this order. Omit to keep. Never null or empty.",
+            "example": [
+              "Teclado e mouse",
+              "Janelas do sistema"
+            ],
+            "items": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+          },
+          "expectedDurationMinutes": {
+            "description": "Expected duration in minutes. It counts toward the workload of the courses. Omit to keep. Never null.",
+            "example": 120,
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "materialUrl": {
+            "description": "Link to the material, http or https. The system stores the link, not the file. Null or empty means not informed.",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "format": "uri",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "objective": {
+            "description": "Null or empty means not informed.",
+            "example": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "Omit to keep. Never null.",
+            "example": "Teclado, mouse e janelas",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "UpdateStudentDto": {
@@ -3256,6 +3446,443 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/lesson-plans": {
+      "post": {
+        "operationId": "createLessonPlan",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLessonPlanDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonPlanResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/lesson-plans/{id}": {
+      "get": {
+        "operationId": "getLessonPlan",
+        "parameters": [
+          {
+            "description": "Id of the lesson plan.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonPlanResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_PLAN_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      },
+      "patch": {
+        "operationId": "updateLessonPlan",
+        "parameters": [
+          {
+            "description": "Id of the lesson plan.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLessonPlanDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonPlanResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_PLAN_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_PLAN_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/lesson-plans/{id}/archive": {
+      "patch": {
+        "operationId": "archiveLessonPlan",
+        "parameters": [
+          {
+            "description": "Id of the lesson plan.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveDto"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonPlanResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_PLAN_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/lesson-plans/{id}/unarchive": {
+      "patch": {
+        "operationId": "unarchiveLessonPlan",
+        "parameters": [
+          {
+            "description": "Id of the lesson plan.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonPlanResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_PLAN_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
         ]
       }
     },
