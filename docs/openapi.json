@@ -215,6 +215,189 @@
         ],
         "type": "string"
       },
+      "CourseCategory": {
+        "description": "Level of the content. A class takes the category of its course when created.",
+        "enum": [
+          "basic",
+          "intermediate",
+          "advanced"
+        ],
+        "type": "string"
+      },
+      "CourseReferenceResponseDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CourseResponseDto": {
+        "properties": {
+          "archiveReason": {
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedAt": {
+            "description": "Null while the course is active (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedById": {
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Level of the content.",
+            "example": "intermediate"
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Id of the person who created the course.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "description": {
+            "example": "Planilhas, textos e apresentações para o dia a dia.",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000002",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Intermediária",
+            "type": "string"
+          },
+          "objective": {
+            "example": "Preparar o aluno para as ferramentas de escritório.",
+            "nullable": true,
+            "type": "string"
+          },
+          "prerequisites": {
+            "description": "Courses required before this one, ordered by name. Empty when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/CourseReferenceResponseDto"
+            },
+            "type": "array"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseStatus"
+              }
+            ],
+            "description": "Derived from archivedAt: archived when it is set, active otherwise (RN-27).",
+            "example": "active"
+          },
+          "updatedAt": {
+            "description": "The most recent change to the course or to its prerequisites.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "objective",
+          "category",
+          "status",
+          "prerequisites",
+          "archivedAt",
+          "archivedById",
+          "archiveReason",
+          "createdById",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CourseStatus": {
+        "description": "Derived from archivedAt: archived when it is set, active otherwise (RN-27).",
+        "enum": [
+          "active",
+          "archived"
+        ],
+        "type": "string"
+      },
+      "CreateCourseDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Level of the content. A class takes the category of its course when created.",
+            "example": "basic"
+          },
+          "description": {
+            "example": "Fundamentos do uso do computador: teclado, mouse, arquivos e internet.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "name": {
+            "description": "Unique among all courses, archived ones included, ignoring case.",
+            "example": "Informática Básica",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "objective": {
+            "description": "Null or empty means not informed.",
+            "example": "Deixar o aluno à vontade para usar o computador no dia a dia.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "prerequisiteIds": {
+            "description": "Ids of the courses a student must have taken before this one (RF-021). Omit for none.",
+            "example": [
+              "01999a3e-7c1b-7000-8000-000000000001"
+            ],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "category"
+        ],
+        "type": "object"
+      },
       "CreateDepartmentDto": {
         "properties": {
           "name": {
@@ -1875,6 +2058,52 @@
         ],
         "type": "object"
       },
+      "UpdateCourseDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Omit to keep. Never null. Changing the category does not change the classes already created (RN-18).",
+            "example": "intermediate"
+          },
+          "description": {
+            "description": "Omit to keep. Never null.",
+            "example": "Fundamentos do uso do computador: teclado, mouse, arquivos e internet.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "name": {
+            "description": "Omit to keep. Never null. Unique among all courses, archived ones included, ignoring case.",
+            "example": "Informática Básica",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "objective": {
+            "description": "Null or empty means not informed.",
+            "example": "Deixar o aluno à vontade para usar o computador no dia a dia.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "prerequisiteIds": {
+            "description": "Replaces the whole list. Omit to keep, send [] to clear. Never null. A course cannot require itself or form a cycle.",
+            "example": [
+              "01999a3e-7c1b-7000-8000-000000000001"
+            ],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "type": "object"
+      },
       "UpdateLessonPlanDto": {
         "properties": {
           "contents": {
@@ -2809,6 +3038,199 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/courses": {
+      "post": {
+        "operationId": "createCourse",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCourseDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | PREREQUISITE_NOT_FOUND | PREREQUISITE_ARCHIVED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NAME_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/courses/{id}": {
+      "patch": {
+        "operationId": "updateCourse",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCourseDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | PREREQUISITE_NOT_FOUND | PREREQUISITE_ARCHIVED | PREREQUISITE_CYCLE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_ARCHIVED | COURSE_NAME_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
         ]
       }
     },

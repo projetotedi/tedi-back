@@ -42,6 +42,10 @@ export enum AuditableAction {
   LESSON_PLAN_UPDATED = "LESSON_PLAN_UPDATED",
   LESSON_PLAN_ARCHIVED = "LESSON_PLAN_ARCHIVED",
   LESSON_PLAN_UNARCHIVED = "LESSON_PLAN_UNARCHIVED",
+  /** A course was created, with its prerequisites (GUS-97). */
+  COURSE_CREATED = "COURSE_CREATED",
+  /** Course data or prerequisites changed. Payload carries only the changed fields plus changedFields (GUS-97). */
+  COURSE_UPDATED = "COURSE_UPDATED",
 }
 
 /**
@@ -51,7 +55,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change
