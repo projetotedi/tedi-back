@@ -130,7 +130,8 @@ export class CreateClassDto {
     enumName: "ClassStatus",
     default: ClassStatus.PLANNED,
     example: ClassStatus.PLANNED,
-    description: "Omit for planned.",
+    // Also the description of the shared ClassStatus schema (the first property to use it names it).
+    description: "Status of the class (RF-034). Omit for planned.",
   })
   @IsOptional()
   @IsEnum(ClassStatus)
