@@ -224,6 +224,117 @@
         ],
         "type": "string"
       },
+      "CourseDetailDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Level of the content.",
+            "example": "intermediate"
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonReferenceResponseDto"
+              }
+            ],
+            "description": "Null when the person who created the course was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "description": {
+            "example": "Planilhas, textos e apresentações para o dia a dia.",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000002",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonPlanCount": {
+            "description": "How many lesson plans the course has. 0 when there are none.",
+            "example": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lessonPlans": {
+            "description": "The lesson plans of the course ordered by position. Empty when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/CourseLessonPlanItemResponseDto"
+            },
+            "type": "array"
+          },
+          "name": {
+            "example": "Informática Intermediária",
+            "type": "string"
+          },
+          "objective": {
+            "example": "Preparar o aluno para as ferramentas de escritório.",
+            "nullable": true,
+            "type": "string"
+          },
+          "plannedWorkloadMinutes": {
+            "description": "Sum of expectedDurationMinutes of the lesson plans, never typed (RF-018, RN-24). 0 when there are none.",
+            "example": 270,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prerequisites": {
+            "description": "Courses required before this one, archived ones included, ordered by name. Empty when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/RelatedCourseResponseDto"
+            },
+            "type": "array"
+          },
+          "requiredBy": {
+            "description": "Courses that require this one, archived ones included, ordered by name. Empty when no course requires it.",
+            "items": {
+              "$ref": "#/components/schemas/RelatedCourseResponseDto"
+            },
+            "type": "array"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseStatus"
+              }
+            ],
+            "description": "Derived from archivedAt: archived when it is set, active otherwise (RN-27).",
+            "example": "active"
+          },
+          "updatedAt": {
+            "description": "The most recent change to the course, to its prerequisites or to its lesson plan sequence.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "objective",
+          "category",
+          "status",
+          "createdAt",
+          "createdBy",
+          "updatedAt",
+          "prerequisites",
+          "requiredBy",
+          "lessonPlans",
+          "plannedWorkloadMinutes",
+          "lessonPlanCount"
+        ],
+        "type": "object"
+      },
       "CourseLessonPlanItemResponseDto": {
         "properties": {
           "archivedAt": {
@@ -1808,6 +1919,24 @@
         ],
         "type": "object"
       },
+      "PersonReferenceResponseDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Carla Menezes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "RejectMemberRegistrationDto": {
         "properties": {
           "note": {
@@ -1819,6 +1948,44 @@
         },
         "required": [
           "note"
+        ],
+        "type": "object"
+      },
+      "RelatedCourseResponseDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Level of the content.",
+            "example": "basic"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseStatus"
+              }
+            ],
+            "description": "Derived from archivedAt: archived when it is set, active otherwise (RN-27).",
+            "example": "active"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "status"
         ],
         "type": "object"
       },
@@ -3248,6 +3415,86 @@
       }
     },
     "/courses/{id}": {
+      "get": {
+        "operationId": "getCourse",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseDetailDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      },
       "patch": {
         "operationId": "updateCourse",
         "parameters": [

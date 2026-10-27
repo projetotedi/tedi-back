@@ -35,7 +35,7 @@ Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuár
 
 ```
 auth       → people   (o guard carrega a Person e a situação do cadastro de membro a cada request)
-people       ← classes, assignments, hours, imports
+people       ← catalog, classes, assignments, hours, imports   (catalog: nome de quem criou o curso, GUS-100)
 catalog      ← classes, lessons
 classes      ← lessons, attendance
 lessons      ← assignments, attendance
