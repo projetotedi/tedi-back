@@ -46,6 +46,14 @@ export enum AuditableAction {
   COURSE_CREATED = "COURSE_CREATED",
   /** Course data or prerequisites changed. Payload carries only the changed fields plus changedFields (GUS-97). */
   COURSE_UPDATED = "COURSE_UPDATED",
+  /** A class was created, with its edition when that did not exist yet (GUS-101). */
+  CLASS_CREATED = "CLASS_CREATED",
+  /** Class data changed, or its edition. Payload carries only the changed fields plus changedFields (GUS-101). */
+  CLASS_UPDATED = "CLASS_UPDATED",
+  /** A class was archived instead of deleted (RN-27, GUS-101). */
+  CLASS_ARCHIVED = "CLASS_ARCHIVED",
+  /** An archived class was reactivated (GUS-101). */
+  CLASS_UNARCHIVED = "CLASS_UNARCHIVED",
 }
 
 /**
@@ -55,7 +63,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change
