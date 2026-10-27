@@ -263,8 +263,10 @@ export class CourseLessonPlansService {
    * `::int` because COUNT is a bigint, which the driver would hand over as a string. It counts the
    * courses that use the plan, this one and archived ones included: a change of duration reaches
    * them all (RN-24).
+   *
+   * Also read by CourseDetailService (GUS-100). `courseId` must be the id of the database.
    */
-  private async readSequence(
+  async readSequence(
     manager: EntityManager,
     courseId: string,
   ): Promise<CourseLessonPlansResponseDto> {

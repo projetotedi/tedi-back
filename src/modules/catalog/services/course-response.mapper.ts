@@ -1,11 +1,17 @@
-import { isArchived } from "@shared/entities/archivable.columns";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { Course } from "../entities/course.entity";
 import { CourseStatus } from "../enums/course-status.enum";
 
-/** The status is not a column: it follows `archived_at` (RN-27). */
+/**
+ * The status is not a column: it follows `archived_at` (RN-27). For whoever only has the column,
+ * like the rows of a raw query; with the entity at hand use `courseStatusOf`.
+ */
+export function courseStatusFromArchivedAt(archivedAt: Date | null): CourseStatus {
+  return archivedAt != null ? CourseStatus.ARCHIVED : CourseStatus.ACTIVE;
+}
+
 export function courseStatusOf(course: Course): CourseStatus {
-  return isArchived(course.archive) ? CourseStatus.ARCHIVED : CourseStatus.ACTIVE;
+  return courseStatusFromArchivedAt(course.archive?.archivedAt ?? null);
 }
 
 export function toCourseResponse(
