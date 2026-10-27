@@ -69,6 +69,55 @@ interface CourseBody extends Record<string, unknown> {
   prerequisites: Array<{ id: string; name: string }>;
 }
 
+interface PlanBody extends Record<string, unknown> {
+  id: string;
+  title: string;
+}
+
+interface RelatedCourseBody {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+}
+
+interface SequenceItemBody {
+  position: number;
+  lessonPlanId: string;
+  title: string;
+  contents: string[];
+  expectedDurationMinutes: number;
+  materialUrl: string | null;
+  courseCount: number;
+  archivedAt: string | null;
+}
+
+interface CourseDetailBody extends Record<string, unknown> {
+  id: string;
+  name: string;
+  status: string;
+  createdBy: { id: string; name: string } | null;
+  prerequisites: RelatedCourseBody[];
+  requiredBy: RelatedCourseBody[];
+  lessonPlans: SequenceItemBody[];
+  plannedWorkloadMinutes: number;
+  lessonPlanCount: number;
+}
+
+/** The item of the sequence that a plan made by `createPlans` has in a course used by it alone. */
+function sequenceItem(plan: PlanBody, position: number, minutes: number): SequenceItemBody {
+  return {
+    position,
+    lessonPlanId: plan.id,
+    title: plan.title,
+    contents: [`Conteúdo de ${plan.title}`],
+    expectedDurationMinutes: minutes,
+    materialUrl: null,
+    courseCount: 1,
+    archivedAt: null,
+  };
+}
+
 function fieldsOf(body: { details?: FieldError[] }): string[] {
   return (body.details ?? []).map((detail) => detail.field).sort();
 }
@@ -131,7 +180,7 @@ describe("CoursesController (e2e)", () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      "TRUNCATE TABLE course_prerequisites, courses, people RESTART IDENTITY CASCADE",
+      "TRUNCATE TABLE course_lesson_plans, course_prerequisites, courses, lesson_plan_contents, lesson_plans, people RESTART IDENTITY CASCADE",
     );
 
     director = await createActor("Director", Role.DIRECTOR);
@@ -159,6 +208,57 @@ describe("CoursesController (e2e)", () => {
   ): Promise<CourseBody> {
     const res = await postCourse(actor, body).expect(201);
     return res.body as CourseBody;
+  }
+
+  async function createLessonPlan(
+    title: string,
+    expectedDurationMinutes: number,
+  ): Promise<PlanBody> {
+    const res = await request(app.getHttpServer())
+      .post("/lesson-plans")
+      .set("Cookie", director.cookie)
+      .send({ title, expectedDurationMinutes, contents: [`Conteúdo de ${title}`] })
+      .expect(201);
+    return res.body as PlanBody;
+  }
+
+  /** Creates plans P1..Pn (the titles are "P1".."Pn") with the durations in minutes. */
+  async function createPlans(...durations: number[]): Promise<PlanBody[]> {
+    const plans: PlanBody[] = [];
+    for (const [index, minutes] of durations.entries()) {
+      plans.push(await createLessonPlan(`P${index + 1}`, minutes));
+    }
+    return plans;
+  }
+
+  /** Puts the sequence of a course, expecting 200. */
+  async function putSequence(courseId: string, lessonPlanIds: string[]): Promise<void> {
+    await request(app.getHttpServer())
+      .put(`/courses/${courseId}/lesson-plans`)
+      .set("Cookie", director.cookie)
+      .send({ lessonPlanIds })
+      .expect(200);
+  }
+
+  function getCourse(id: string, actor: Actor) {
+    return request(app.getHttpServer()).get(`/courses/${id}`).set("Cookie", actor.cookie);
+  }
+
+  /** The page of a course through the API, expecting it to be there. */
+  async function detailOf(id: string, actor = director): Promise<CourseDetailBody> {
+    const res = await getCourse(id, actor).expect(200);
+    return res.body as CourseDetailBody;
+  }
+
+  /** The SQL that the database ran while `work` was running, the lookups of the guard included. */
+  async function queriesDuring(work: () => PromiseLike<unknown>): Promise<string[]> {
+    const spy = jest.spyOn(dataSource.logger, "logQuery");
+    try {
+      await work();
+      return spy.mock.calls.map(([query]) => query);
+    } finally {
+      spy.mockRestore();
+    }
   }
 
   function patchCourse(id: string, actor: Actor, body: Record<string, unknown>) {
@@ -580,6 +680,384 @@ describe("CoursesController (e2e)", () => {
       await postCourse(member, BASIC).expect(403);
 
       expect(events).toHaveLength(0);
+    });
+  });
+
+  describe("GET /courses/:id (getCourse)", () => {
+    it("answers data, prerequisites, requiredBy, the sequence and the workload in one call", async () => {
+      const basic = await createCourse(BASIC);
+      const intermediate = await createCourse({ ...INTERMEDIATE, prerequisiteIds: [basic.id] });
+      const [p1, p2, p3] = await createPlans(90, 120, 60);
+      await putSequence(basic.id, [p1.id, p2.id, p3.id]);
+
+      const res = await getCourse(basic.id, director).expect(200);
+
+      expect(res.body).toEqual({
+        id: basic.id,
+        name: "Informática Básica",
+        description: BASIC.description,
+        objective: BASIC.objective,
+        category: "basic",
+        status: "active",
+        createdAt: basic.createdAt,
+        createdBy: { id: director.id, name: "Director" },
+        updatedAt: expect.any(String),
+        prerequisites: [],
+        requiredBy: [
+          {
+            id: intermediate.id,
+            name: "Informática Intermediária",
+            category: "intermediate",
+            status: "active",
+          },
+        ],
+        lessonPlans: [sequenceItem(p1, 1, 90), sequenceItem(p2, 2, 120), sequenceItem(p3, 3, 60)],
+        plannedWorkloadMinutes: 270,
+        lessonPlanCount: 3,
+      });
+
+      // The other side of the link: Intermediária requires Básica and nobody requires it.
+      const other = await getCourse(intermediate.id, director).expect(200);
+      expect(other.body).toEqual({
+        id: intermediate.id,
+        name: "Informática Intermediária",
+        description: INTERMEDIATE.description,
+        objective: null,
+        category: "intermediate",
+        status: "active",
+        createdAt: intermediate.createdAt,
+        createdBy: { id: director.id, name: "Director" },
+        updatedAt: expect.any(String),
+        prerequisites: [
+          { id: basic.id, name: "Informática Básica", category: "basic", status: "active" },
+        ],
+        requiredBy: [],
+        lessonPlans: [],
+        plannedWorkloadMinutes: 0,
+        lessonPlanCount: 0,
+      });
+    });
+
+    it("answers lessonPlans in the order of position, not of creation", async () => {
+      const course = await createCourse(BASIC);
+      const [p1, p2, p3] = await createPlans(90, 120, 60);
+      await putSequence(course.id, [p3.id, p1.id, p2.id]);
+
+      const detail = await detailOf(course.id);
+
+      expect(detail.lessonPlans.map((item) => [item.position, item.lessonPlanId])).toEqual([
+        [1, p3.id],
+        [2, p1.id],
+        [3, p2.id],
+      ]);
+      expect(detail.lessonPlans.map((item) => item.title)).toEqual(["P3", "P1", "P2"]);
+      expect(detail.plannedWorkloadMinutes).toBe(270);
+      expect(detail.lessonPlanCount).toBe(3);
+
+      await putSequence(course.id, [p2.id, p3.id]);
+
+      const reordered = await detailOf(course.id);
+      expect(reordered.lessonPlans.map((item) => [item.position, item.title])).toEqual([
+        [1, "P2"],
+        [2, "P3"],
+      ]);
+      expect(reordered.plannedWorkloadMinutes).toBe(180);
+      expect(reordered.lessonPlanCount).toBe(2);
+    });
+
+    it("answers lessonPlans [], plannedWorkloadMinutes 0 and lessonPlanCount 0 for a course without plans", async () => {
+      const course = await createCourse(BASIC);
+
+      const detail = await detailOf(course.id);
+
+      expect(detail.lessonPlans).toEqual([]);
+      expect(detail.plannedWorkloadMinutes).toBe(0);
+      expect(detail.lessonPlanCount).toBe(0);
+      expect(detail.prerequisites).toEqual([]);
+      expect(detail.requiredBy).toEqual([]);
+
+      // A sequence that was emptied again is the same page.
+      const [p1] = await createPlans(90);
+      await putSequence(course.id, [p1.id]);
+      await putSequence(course.id, []);
+
+      const emptied = await detailOf(course.id);
+      expect(emptied.lessonPlans).toEqual([]);
+      expect(emptied.plannedWorkloadMinutes).toBe(0);
+      expect(emptied.lessonPlanCount).toBe(0);
+    });
+
+    it("recalculates plannedWorkloadMinutes when the duration of a lesson plan of the sequence changes", async () => {
+      const course = await createCourse(BASIC);
+      const [p1, p2] = await createPlans(90, 120);
+      await putSequence(course.id, [p1.id, p2.id]);
+      expect((await detailOf(course.id)).plannedWorkloadMinutes).toBe(210);
+
+      await request(app.getHttpServer())
+        .patch(`/lesson-plans/${p1.id}`)
+        .set("Cookie", director.cookie)
+        .send({ expectedDurationMinutes: 30 })
+        .expect(200);
+
+      const detail = await detailOf(course.id);
+      expect(detail.plannedWorkloadMinutes).toBe(150);
+      expect(detail.lessonPlans.map((item) => item.expectedDurationMinutes)).toEqual([30, 120]);
+    });
+
+    it("keeps an archived lesson plan of the sequence, with archivedAt set, and counts its duration", async () => {
+      const course = await createCourse(BASIC);
+      const [p1, p2] = await createPlans(90, 120);
+      await putSequence(course.id, [p1.id, p2.id]);
+      await request(app.getHttpServer())
+        .patch(`/lesson-plans/${p2.id}/archive`)
+        .set("Cookie", coordinator.cookie)
+        .send({})
+        .expect(200);
+
+      const detail = await detailOf(course.id);
+
+      expect(detail.lessonPlans.map((item) => item.lessonPlanId)).toEqual([p1.id, p2.id]);
+      expect(detail.lessonPlans[0].archivedAt).toBeNull();
+      expect(detail.lessonPlans[1].archivedAt).toEqual(expect.any(String));
+      expect(detail.plannedWorkloadMinutes).toBe(210);
+      expect(detail.lessonPlanCount).toBe(2);
+    });
+
+    it("lists in requiredBy the courses that require this one, ordered by name", async () => {
+      const base = await createCourse({ ...BASIC, name: "Base" });
+      const zeta = await createCourse({ ...BASIC, name: "Zeta", prerequisiteIds: [base.id] });
+      const tree = await createCourse({ ...BASIC, name: "Árvore", prerequisiteIds: [base.id] });
+      const bank = await createCourse({ ...BASIC, name: "Banco", prerequisiteIds: [base.id] });
+      await createCourse({ ...BASIC, name: "Solto" });
+      const grandchild = await createCourse({
+        ...BASIC,
+        name: "Neto",
+        prerequisiteIds: [zeta.id],
+      });
+
+      const detail = await detailOf(base.id);
+
+      // pt-BR order: "Árvore" before "Banco", which the order of the database would not give.
+      expect(detail.requiredBy.map((course) => course.name)).toEqual(["Árvore", "Banco", "Zeta"]);
+      expect(detail.requiredBy.map((course) => course.id)).toEqual([tree.id, bank.id, zeta.id]);
+      expect(detail.prerequisites).toEqual([]);
+
+      // Only the direct links: Neto requires Zeta, not Base.
+      const zetaDetail = await detailOf(zeta.id);
+      expect(zetaDetail.requiredBy.map((course) => course.id)).toEqual([grandchild.id]);
+      expect(zetaDetail.prerequisites.map((course) => course.id)).toEqual([base.id]);
+    });
+
+    it("lists the prerequisites ordered by name too, each with its category and status", async () => {
+      const zeta = await createCourse({ ...BASIC, name: "Zeta" });
+      const tree = await createCourse({ ...INTERMEDIATE, name: "Árvore" });
+      const bank = await createCourse({ ...BASIC, name: "Banco" });
+      const top = await createCourse({
+        ...INTERMEDIATE,
+        name: "Topo",
+        prerequisiteIds: [zeta.id, tree.id, bank.id],
+      });
+
+      const detail = await detailOf(top.id);
+
+      expect(detail.prerequisites).toEqual([
+        { id: tree.id, name: "Árvore", category: "intermediate", status: "active" },
+        { id: bank.id, name: "Banco", category: "basic", status: "active" },
+        { id: zeta.id, name: "Zeta", category: "basic", status: "active" },
+      ]);
+    });
+
+    it("answers 200 with status archived for an archived course", async () => {
+      const basic = await createCourse(BASIC);
+      const [p1, p2] = await createPlans(90, 120);
+      await putSequence(basic.id, [p1.id, p2.id]);
+      await archiveCourse(basic.id);
+
+      const res = await getCourse(basic.id, director).expect(200);
+
+      expect(res.body).toMatchObject({
+        id: basic.id,
+        name: "Informática Básica",
+        status: "archived",
+        plannedWorkloadMinutes: 210,
+        lessonPlanCount: 2,
+      });
+      expect(res.body.lessonPlans.map((item: SequenceItemBody) => item.lessonPlanId)).toEqual([
+        p1.id,
+        p2.id,
+      ]);
+      // The page is the same for whoever can see the catalog.
+      const asMember = await getCourse(basic.id, member).expect(200);
+      expect(asMember.body.status).toBe("archived");
+    });
+
+    it("keeps an archived prerequisite and an archived course in requiredBy, with status archived", async () => {
+      const activeBase = await createCourse({ ...BASIC, name: "Base ativa" });
+      const oldBase = await createCourse({ ...BASIC, name: "Base antiga" });
+      const subject = await createCourse({
+        ...INTERMEDIATE,
+        name: "Curso",
+        prerequisiteIds: [activeBase.id, oldBase.id],
+      });
+      const activeNext = await createCourse({
+        ...INTERMEDIATE,
+        name: "Próximo ativo",
+        prerequisiteIds: [subject.id],
+      });
+      const oldNext = await createCourse({
+        ...INTERMEDIATE,
+        name: "Próximo antigo",
+        prerequisiteIds: [subject.id],
+      });
+      await archiveCourse(oldBase.id);
+      await archiveCourse(oldNext.id);
+
+      const detail = await detailOf(subject.id);
+
+      expect(detail.status).toBe("active");
+      expect(detail.prerequisites.map((course) => [course.id, course.status])).toEqual([
+        [oldBase.id, "archived"],
+        [activeBase.id, "active"],
+      ]);
+      expect(detail.requiredBy.map((course) => [course.id, course.status])).toEqual([
+        [oldNext.id, "archived"],
+        [activeNext.id, "active"],
+      ]);
+    });
+
+    it("answers createdBy { id, name } of who created the course and nothing else of the person", async () => {
+      const author = await createActor("Carla Menezes", Role.COORDINATOR);
+      await dataSource.query(`UPDATE people SET email = $2, ra = $3 WHERE id = $1`, [
+        author.id,
+        "carla@example.com",
+        "ra123",
+      ]);
+      const course = await createCourse(BASIC, author);
+
+      const detail = await detailOf(course.id, member);
+
+      expect(detail.createdBy).toEqual({ id: author.id, name: "Carla Menezes" });
+      expect(Object.keys(detail.createdBy ?? {}).sort()).toEqual(["id", "name"]);
+      expect(detail).not.toHaveProperty("createdById");
+    });
+
+    it("answers createdBy null when the creator was removed", async () => {
+      const author = await createActor("Carla Menezes", Role.COORDINATOR);
+      const course = await createCourse(BASIC, author);
+      expect((await detailOf(course.id)).createdBy).toEqual({
+        id: author.id,
+        name: "Carla Menezes",
+      });
+
+      await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [author.id]);
+
+      const detail = await detailOf(course.id);
+      expect(detail.createdBy).toBeNull();
+      expect(detail).toMatchObject({ id: course.id, name: "Informática Básica", status: "active" });
+    });
+
+    it("returns 404 COURSE_NOT_FOUND for an unknown and a malformed id", async () => {
+      for (const id of [UNKNOWN_ID, "not-a-uuid"]) {
+        const res = await getCourse(id, director).expect(404);
+
+        expect(res.body.error).toBe("COURSE_NOT_FOUND");
+        expect(res.body.message).toBe("Course not found.");
+      }
+    });
+
+    it("finds the course by an id in upper case and answers the id stored in the database", async () => {
+      const basic = await createCourse(BASIC);
+      const intermediate = await createCourse({ ...INTERMEDIATE, prerequisiteIds: [basic.id] });
+      const [p1] = await createPlans(90);
+      await putSequence(basic.id, [p1.id]);
+
+      const res = await getCourse(basic.id.toUpperCase(), director).expect(200);
+
+      expect(res.body.id).toBe(basic.id);
+      expect(res.body.requiredBy.map((course: RelatedCourseBody) => course.id)).toEqual([
+        intermediate.id,
+      ]);
+      expect(res.body.lessonPlans.map((item: SequenceItemBody) => item.lessonPlanId)).toEqual([
+        p1.id,
+      ]);
+      expect(res.body.plannedWorkloadMinutes).toBe(90);
+    });
+
+    it("returns 200 for a member", async () => {
+      const basic = await createCourse(BASIC);
+
+      const res = await getCourse(basic.id, member).expect(200);
+
+      expect(res.body.id).toBe(basic.id);
+      await getCourse(basic.id, coordinator).expect(200);
+    });
+
+    it("returns 401 without a session cookie", async () => {
+      const basic = await createCourse(BASIC);
+
+      await request(app.getHttpServer()).get(`/courses/${basic.id}`).expect(401);
+      await request(app.getHttpServer()).get(`/courses/${UNKNOWN_ID}`).expect(401);
+    });
+
+    it("does not shadow GET /courses/:id/lesson-plans", async () => {
+      const basic = await createCourse(BASIC);
+      const [p1] = await createPlans(90);
+      await putSequence(basic.id, [p1.id]);
+
+      const res = await request(app.getHttpServer())
+        .get(`/courses/${basic.id}/lesson-plans`)
+        .set("Cookie", director.cookie)
+        .expect(200);
+
+      expect(Object.keys(res.body).sort()).toEqual(["courseId", "items", "plannedWorkloadMinutes"]);
+      expect(res.body.courseId).toBe(basic.id);
+    });
+
+    it("reads only: no event, no change to the course and the same page for everyone", async () => {
+      const basic = await createCourse(BASIC);
+      const events = collectEvents();
+
+      const first = await getCourse(basic.id, director).expect(200);
+      const second = await getCourse(basic.id, member).expect(200);
+
+      expect(events).toHaveLength(0);
+      expect(first.body.updatedAt).toBe(basic.updatedAt);
+      expect(second.body).toEqual(first.body);
+    });
+
+    it("reads with the same number of queries whatever the size of the lists, and takes no transaction and no lock", async () => {
+      async function createCourseWithLists(name: string, size: number): Promise<CourseBody> {
+        const prerequisiteIds: string[] = [];
+        for (let index = 0; index < size; index++) {
+          const base = await createCourse({ ...BASIC, name: `${name} base ${index}` });
+          prerequisiteIds.push(base.id);
+        }
+        const course = await createCourse({ ...INTERMEDIATE, name, prerequisiteIds });
+        for (let index = 0; index < size; index++) {
+          await createCourse({
+            ...INTERMEDIATE,
+            name: `${name} next ${index}`,
+            prerequisiteIds: [course.id],
+          });
+        }
+        const planIds: string[] = [];
+        for (let index = 0; index < size; index++) {
+          planIds.push((await createLessonPlan(`${name} plan ${index}`, 30)).id);
+        }
+        await putSequence(course.id, planIds);
+        return course;
+      }
+      const small = await createCourseWithLists("Small", 1);
+      const large = await createCourseWithLists("Large", 5);
+
+      const smallQueries = await queriesDuring(() => getCourse(small.id, director).expect(200));
+      const largeQueries = await queriesDuring(() => getCourse(large.id, director).expect(200));
+
+      expect(largeQueries.length).toBeGreaterThan(0);
+      expect(largeQueries).toHaveLength(smallQueries.length);
+      for (const sql of [...smallQueries, ...largeQueries]) {
+        expect(sql).not.toMatch(/START TRANSACTION|FOR UPDATE|FOR SHARE/i);
+      }
     });
   });
 
