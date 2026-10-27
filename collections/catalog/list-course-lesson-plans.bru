@@ -1,0 +1,30 @@
+meta {
+  name: list-course-lesson-plans
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/courses/:id/lesson-plans
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000002
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Sequência de planos de aula de um curso, em ordem, com a carga horária prevista.
+  Requer cookie tedi_session e a permissão catalog.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Cada item traz position (a partir de 1; é a posição do plano neste curso, o mesmo plano pode ter outra em outro curso), lessonPlanId, title, contents (na ordem em que são dados), expectedDurationMinutes, materialUrl, courseCount (em quantos cursos o plano está, este e os arquivados inclusive) e archivedAt.
+  plannedWorkloadMinutes é a soma das expectedDurationMinutes dos itens, calculada na hora e nunca digitada: mudar a duração de um plano muda a carga de todos os cursos que o usam. Curso sem planos responde items [] e plannedWorkloadMinutes 0.
+  archivedAt diferente de null: o plano foi arquivado depois de entrar na sequência. Ele continua nela (o front mostra a tag "Arquivado") e a duração dele continua contando na carga.
+  Curso arquivado continua acessível, somente leitura.
+  Retorna 200 CourseLessonPlansResponseDto.
+  Erros possíveis: 401, 403 FORBIDDEN, 404 COURSE_NOT_FOUND (id inexistente ou mal formado).
+}
