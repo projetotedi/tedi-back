@@ -268,7 +268,8 @@ export class ClassesService {
    * A class with active enrollments cannot be archived: 409 CLASS_HAS_ACTIVE_ENROLLMENTS. Until
    * GUS-108 there is no enrollment, so the count is 0 (see EnrollmentCountsService).
    *
-   * Emits CLASS_ARCHIVED after the commit, only when the class was archived now.
+   * `archivedAt` and `updatedAt` are the same instant, read once from the clock. Emits
+   * CLASS_ARCHIVED after the commit, only when the class was archived now.
    */
   async archive(
     requestedId: string,
@@ -286,6 +287,9 @@ export class ClassesService {
         if (active > 0) throw classHasActiveEnrollments();
 
         changed = markArchived(schoolClass.archive, actorId, dto?.reason ?? null, now);
+        // The instant of the archive is the one of the update, as in the edit. Left alone, the
+        // table would fill updated_at with its own CURRENT_TIMESTAMP, from another clock.
+        schoolClass.updatedAt = now;
         await manager.save(schoolClass);
       }
 
@@ -310,11 +314,14 @@ export class ClassesService {
   }
 
   /**
-   * Reactivates an archived class: clears the three archive columns. A class that is not archived
-   * is a no-op that answers 200 (no write, no event). Emits CLASS_UNARCHIVED after the commit,
-   * only when the class was reactivated now.
+   * Reactivates an archived class: clears the three archive columns and takes `updatedAt` from the
+   * clock, as the archive and the edit do. A class that is not archived is a no-op that answers 200
+   * (no write, no event). Emits CLASS_UNARCHIVED after the commit, only when the class was
+   * reactivated now.
    */
   async unarchive(requestedId: string, actorId: string): Promise<ClassResponseDto> {
+    const now = this.clock.now();
+
     const result = await this.runInTransaction(async (manager) => {
       const schoolClass = await this.loadClass(manager, requestedId);
 
@@ -324,7 +331,10 @@ export class ClassesService {
         archiveReason: schoolClass.archive.archiveReason,
       };
       const changed = markUnarchived(schoolClass.archive);
-      if (changed) await manager.save(schoolClass);
+      if (changed) {
+        schoolClass.updatedAt = now;
+        await manager.save(schoolClass);
+      }
 
       const edition = await this.loadEdition(manager, schoolClass.editionId);
       return { schoolClass, edition, before, changed };

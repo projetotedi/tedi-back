@@ -20,6 +20,7 @@ import { EditionsService } from "../services/editions.service";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
 
 const NOW = new Date("2026-10-02T01:30:00.000Z");
+const LATER = new Date("2026-10-02T01:30:05.000Z");
 const CREATED_AT = new Date("2026-09-01T12:00:00.000Z");
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
@@ -109,6 +110,8 @@ describe("ClassesService", () => {
   };
   const dataSource = { transaction: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
+  // Fixed at NOW. A test that needs to tell two reads of the clock apart makes the next ones LATER.
+  const clock = { now: jest.fn() };
   const editions = { findOrCreate: jest.fn() };
   const enrollmentCounts = { countActive: jest.fn() };
 
@@ -168,6 +171,7 @@ describe("ClassesService", () => {
       order.push("emit");
       return true;
     });
+    clock.now.mockReturnValue(NOW);
     editions.findOrCreate.mockImplementation(async () => {
       order.push("find-or-create-edition");
       return state.found;
@@ -182,7 +186,7 @@ describe("ClassesService", () => {
         ClassesService,
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },
-        { provide: Clock, useValue: { now: () => NOW } },
+        { provide: Clock, useValue: clock },
         { provide: EditionsService, useValue: editions },
         { provide: EnrollmentCountsService, useValue: enrollmentCounts },
       ],
@@ -955,6 +959,7 @@ describe("ClassesService", () => {
         archivedAt: NOW,
         archivedById: ACTOR_ID,
         archiveReason: "Turma encerrada.",
+        updatedAt: NOW,
         // Archiving never touches the status (RF-034).
         status: ClassStatus.PLANNED,
         edition: { id: EDITION_ID, name: "2026.1" },
@@ -968,6 +973,20 @@ describe("ClassesService", () => {
         "commit",
         "emit",
       ]);
+    });
+
+    it("takes archivedAt and updatedAt from the same read of the clock, in the row it saves", async () => {
+      // The first read is the time of the archive; the event reads the clock again, later.
+      clock.now.mockReturnValueOnce(NOW).mockReturnValue(LATER);
+
+      const result = await service.archive(CLASS_ID, undefined, ACTOR_ID);
+
+      const [saved] = manager.save.mock.calls[0] as [SchoolClass];
+      expect(saved.archive.archivedAt).toEqual(NOW);
+      expect(saved.updatedAt).toEqual(NOW);
+      expect(result.archivedAt).toEqual(NOW);
+      expect(result.updatedAt).toEqual(NOW);
+      expect(emittedEvents()[0].occurredAt).toEqual(LATER);
     });
 
     it("stores a null reason when there is no body or no reason", async () => {
@@ -1005,6 +1024,7 @@ describe("ClassesService", () => {
         archivedAt: CREATED_AT,
         archivedById: "someone-else",
         archiveReason: "First.",
+        updatedAt: CREATED_AT,
       });
       expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
       expect(manager.save).not.toHaveBeenCalled();
@@ -1056,6 +1076,7 @@ describe("ClassesService", () => {
         archivedAt: null,
         archivedById: null,
         archiveReason: null,
+        updatedAt: NOW,
         // Reactivating never touches the status either.
         status: ClassStatus.COMPLETED,
       });
@@ -1075,10 +1096,24 @@ describe("ClassesService", () => {
       expect(event.after).toEqual({ archivedAt: null });
     });
 
+    it("takes updatedAt from the clock, in the row it saves, like the edit does", async () => {
+      state.row = buildClass({ archive });
+      // The first read is the time of the reactivation; the event reads the clock again, later.
+      clock.now.mockReturnValueOnce(NOW).mockReturnValue(LATER);
+
+      const result = await service.unarchive(CLASS_ID, ACTOR_ID);
+
+      const [saved] = manager.save.mock.calls[0] as [SchoolClass];
+      expect(saved.updatedAt).toEqual(NOW);
+      expect(result.updatedAt).toEqual(NOW);
+      expect(emittedEvents()[0].occurredAt).toEqual(LATER);
+    });
+
     it("is a no-op without event when the class is not archived", async () => {
       const result = await service.unarchive(CLASS_ID, ACTOR_ID);
 
       expect(result.archivedAt).toBeNull();
+      expect(result.updatedAt).toEqual(CREATED_AT);
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });

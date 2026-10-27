@@ -1323,14 +1323,24 @@ describe("ClassesController (e2e)", () => {
       expect(await storedClass(created.id)).toMatchObject({ archived_at: null });
     });
 
-    it("moves updatedAt forward when it archives and when it unarchives, and the answer carries the value of the table", async () => {
+    it("archives with one instant for archivedAt and updatedAt, moves updatedAt forward when it unarchives, and answers with the value of the table", async () => {
       const created = await createClass();
 
       const archived = await archiveClass(created.id, director).expect(200);
+      // One clock for the operation: the instant of the archive is the one of the update, as in the
+      // edit, which takes updatedAt from the clock too and not from the table.
+      expect(archived.body.updatedAt).toBe(archived.body.archivedAt);
       expect(new Date(archived.body.updatedAt).getTime()).toBeGreaterThan(
         new Date(created.updatedAt).getTime(),
       );
       expect((await storedClass(created.id)).updated_at).toEqual(new Date(archived.body.updatedAt));
+      // Compared by the database, in microseconds: a JS Date keeps only milliseconds, and the
+      // CURRENT_TIMESTAMP that the table fills by itself would hide in the rounding.
+      const same: Array<{ same: boolean }> = await dataSource.query(
+        `SELECT updated_at = archived_at AS same FROM classes WHERE id = $1`,
+        [created.id],
+      );
+      expect(same[0].same).toBe(true);
 
       const unarchived = await unarchiveClass(created.id, director).expect(200);
       expect(new Date(unarchived.body.updatedAt).getTime()).toBeGreaterThan(
