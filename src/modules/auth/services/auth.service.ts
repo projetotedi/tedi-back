@@ -27,7 +27,9 @@ export class AuthService {
    *    (GUS-91, RN-08; only after the password is right, like ACCESS_DISABLED: decision 29)
    * 6. role == null → INVALID_CREDENTIALS
    * 7. !accessEnabled → ACCESS_DISABLED
-   * 8. Return MeResponseDto
+   * 8. people.recordLogin (last access, GUS-122): only here, after every check passed, so a
+   *    failed attempt writes nothing and reveals nothing (decision 29)
+   * 9. Return MeResponseDto
    */
   async login(dto: LoginDto): Promise<MeResponseDto> {
     const person = await this.people.findByRa(dto.ra);
@@ -89,6 +91,10 @@ export class AuthService {
         401,
       );
     }
+
+    // Every check passed: this is a successful login. Awaited on purpose, so a login that
+    // answers 200 has already moved last_login_at (the next /members/me reads it).
+    await this.people.recordLogin(person.id);
 
     return {
       id: person.id,
