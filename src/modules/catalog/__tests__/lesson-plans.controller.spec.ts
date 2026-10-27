@@ -5,7 +5,10 @@ import { Role } from "@shared/enums/role.enum";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { LessonPlansController } from "../controllers/lesson-plans.controller";
+import { LessonPlanDetailDto } from "../dto/lesson-plan-detail.response.dto";
+import { LessonPlanUsageResponseDto } from "../dto/lesson-plan-usage.response.dto";
 import { LessonPlanResponseDto } from "../dto/lesson-plan.response.dto";
+import { LessonPlanUsageService } from "../services/lesson-plan-usage.service";
 import { LessonPlansService } from "../services/lesson-plans.service";
 
 const PLAN_ID = "01999a3e-7c1b-7000-8000-000000000001";
@@ -19,6 +22,7 @@ describe("LessonPlansController", () => {
   it.each([
     ["createLessonPlan", Permission.LESSON_PLANS_MANAGE],
     ["getLessonPlan", Permission.CATALOG_VIEW],
+    ["getLessonPlanUsage", Permission.CATALOG_VIEW],
     ["updateLessonPlan", Permission.LESSON_PLANS_MANAGE],
     ["archiveLessonPlan", Permission.LESSON_PLANS_MANAGE],
     ["unarchiveLessonPlan", Permission.LESSON_PLANS_MANAGE],
@@ -31,18 +35,25 @@ describe("LessonPlansController", () => {
 
   describe("delegation", () => {
     const plan = { id: PLAN_ID } as LessonPlanResponseDto;
+    const detail = { id: PLAN_ID } as LessonPlanDetailDto;
+    const usage = { lessonPlanId: PLAN_ID } as LessonPlanUsageResponseDto;
     const service = {
       create: jest.fn(),
-      findById: jest.fn(),
       update: jest.fn(),
       archive: jest.fn(),
       unarchive: jest.fn(),
     };
-    const controller = new LessonPlansController(service as unknown as LessonPlansService);
+    const usageService = { getDetail: jest.fn(), getUsage: jest.fn() };
+    const controller = new LessonPlansController(
+      service as unknown as LessonPlansService,
+      usageService as unknown as LessonPlanUsageService,
+    );
 
     beforeEach(() => {
       jest.clearAllMocks();
       for (const method of Object.values(service)) method.mockResolvedValue(plan);
+      usageService.getDetail.mockResolvedValue(detail);
+      usageService.getUsage.mockResolvedValue(usage);
     });
 
     it("delegates createLessonPlan to LessonPlansService.create with the actor id", async () => {
@@ -53,10 +64,24 @@ describe("LessonPlansController", () => {
       expect(service.create).toHaveBeenCalledWith(dto, ACTOR.id);
     });
 
-    it("delegates getLessonPlan to LessonPlansService.findById", async () => {
-      await expect(controller.getLessonPlan(PLAN_ID)).resolves.toBe(plan);
+    it("delegates getLessonPlan to LessonPlanUsageService.getDetail", async () => {
+      await expect(controller.getLessonPlan(PLAN_ID)).resolves.toBe(detail);
 
-      expect(service.findById).toHaveBeenCalledWith(PLAN_ID);
+      expect(usageService.getDetail).toHaveBeenCalledWith(PLAN_ID);
+    });
+
+    it("delegates getLessonPlanUsage to LessonPlanUsageService.getUsage with the id and the duration", async () => {
+      await expect(
+        controller.getLessonPlanUsage(PLAN_ID, { expectedDurationMinutes: 120 }),
+      ).resolves.toBe(usage);
+
+      expect(usageService.getUsage).toHaveBeenCalledWith(PLAN_ID, 120);
+    });
+
+    it("delegates getLessonPlanUsage with no duration when the query has none", async () => {
+      await expect(controller.getLessonPlanUsage(PLAN_ID, {})).resolves.toBe(usage);
+
+      expect(usageService.getUsage).toHaveBeenCalledWith(PLAN_ID, undefined);
     });
 
     it("delegates updateLessonPlan to LessonPlansService.update with the actor id", async () => {
