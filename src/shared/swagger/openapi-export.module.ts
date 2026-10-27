@@ -32,6 +32,7 @@ import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
 import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
 import { CoursesService } from "@modules/catalog/services/courses.service";
+import { LessonPlanUsageService } from "@modules/catalog/services/lesson-plan-usage.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
@@ -120,6 +121,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
       },
+    },
+    {
+      provide: LessonPlanUsageService,
+      useValue: { getDetail: async () => ({}), getUsage: async () => ({}) },
     },
     {
       provide: CoursesService,
