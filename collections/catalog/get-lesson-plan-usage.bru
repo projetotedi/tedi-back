@@ -1,0 +1,35 @@
+meta {
+  name: get-lesson-plan-usage
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/lesson-plans/:id/usage
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+params:query {
+  expectedDurationMinutes: 120
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Simula o efeito de uma nova duração prevista na carga horária dos cursos que usam o plano de aula (RF-017). Alimenta a confirmação mostrada antes de salvar a mudança de duração.
+  Requer cookie tedi_session e a permissão catalog.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  ?expectedDurationMinutes (opcional) é a duração nova em minutos: inteiro de 1 a 1440. Sem o parâmetro, a duração nova é a atual e newWorkloadMinutes de cada curso é igual a currentWorkloadMinutes.
+  A resposta traz lessonPlanId, currentDurationMinutes (a duração salva hoje), newDurationMinutes (a simulada) e courses, ordenado pelo nome do curso (acento não muda a ordem) e com os cursos arquivados. Cada curso traz courseId, courseName, position (a posição do plano no curso), lessonPlanCount (quantos planos a sequência tem), currentWorkloadMinutes (a soma das durações da sequência hoje, o mesmo plannedWorkloadMinutes de listCourseLessonPlans) e newWorkloadMinutes (a soma com a duração nova no lugar da duração deste plano).
+  Exemplo: plano de 90 min na posição 2 do curso A (carga 360) e na posição 5 do curso B (carga 600). Com ?expectedDurationMinutes=120, A vai de 360 para 390 e B de 600 para 630. Plano que não está em nenhum curso responde courses [].
+  Nada é gravado: a rota não altera o plano nem os cursos e não emite evento. Quem salva a nova duração é PATCH /lesson-plans/:id (updateLessonPlan).
+  Plano arquivado pode ser simulado (a leitura continua permitida), embora o PATCH nele responda 409 LESSON_PLAN_ARCHIVED. A duração de um plano arquivado que ficou na sequência continua contando na carga.
+  Retorna 200 LessonPlanUsageResponseDto.
+  Erros possíveis: 400 VALIDATION_FAILED (expectedDurationMinutes fora de 1 a 1440, não inteiro ou não numérico; details[].field), 401, 403 FORBIDDEN, 404 LESSON_PLAN_NOT_FOUND (id inexistente ou mal formado).
+}
