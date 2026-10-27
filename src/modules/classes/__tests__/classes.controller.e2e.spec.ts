@@ -235,7 +235,7 @@ describe("ClassesController (e2e)", () => {
     const rows: Array<Record<string, unknown>> = await dataSource.query(
       `SELECT code, name, course_id, edition_id, start_date::text AS start_date,
               end_date::text AS end_date, location, capacity, status, created_by_id,
-              archived_at, archived_by_id, archive_reason, deleted_at
+              archived_at, archived_by_id, archive_reason, deleted_at, updated_at
          FROM classes WHERE id = $1`,
       [id],
     );
@@ -1321,6 +1321,24 @@ describe("ClassesController (e2e)", () => {
       expect(res.body.error).toBe("VALIDATION_FAILED");
       expect(fieldsOf(res.body)).toEqual(["reason"]);
       expect(await storedClass(created.id)).toMatchObject({ archived_at: null });
+    });
+
+    it("moves updatedAt forward when it archives and when it unarchives, and the answer carries the value of the table", async () => {
+      const created = await createClass();
+
+      const archived = await archiveClass(created.id, director).expect(200);
+      expect(new Date(archived.body.updatedAt).getTime()).toBeGreaterThan(
+        new Date(created.updatedAt).getTime(),
+      );
+      expect((await storedClass(created.id)).updated_at).toEqual(new Date(archived.body.updatedAt));
+
+      const unarchived = await unarchiveClass(created.id, director).expect(200);
+      expect(new Date(unarchived.body.updatedAt).getTime()).toBeGreaterThan(
+        new Date(archived.body.updatedAt).getTime(),
+      );
+      expect((await storedClass(created.id)).updated_at).toEqual(
+        new Date(unarchived.body.updatedAt),
+      );
     });
 
     it("keeps the first archive when archiving twice, and emits one event", async () => {
