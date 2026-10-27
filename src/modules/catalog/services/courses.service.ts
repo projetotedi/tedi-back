@@ -33,7 +33,7 @@ export function courseNotFound(): HttpException {
   return new HttpException({ error: "COURSE_NOT_FOUND", message: "Course not found." }, 404);
 }
 
-function courseArchived(): HttpException {
+export function courseArchived(): HttpException {
   return new HttpException(
     { error: "COURSE_ARCHIVED", message: "Archived courses are read-only." },
     409,

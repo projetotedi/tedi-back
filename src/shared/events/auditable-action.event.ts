@@ -46,6 +46,8 @@ export enum AuditableAction {
   COURSE_CREATED = "COURSE_CREATED",
   /** Course data or prerequisites changed. Payload carries only the changed fields plus changedFields (GUS-97). */
   COURSE_UPDATED = "COURSE_UPDATED",
+  /** The lesson plan sequence of a course was replaced; before and after carry lessonPlanIds in order (GUS-98). */
+  COURSE_LESSON_PLANS_REPLACED = "COURSE_LESSON_PLANS_REPLACED",
 }
 
 /**
