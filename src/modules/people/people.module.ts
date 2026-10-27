@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Clock } from "@shared/dates/clock";
 import { DepartmentsController } from "./controllers/departments.controller";
+import { MembersController } from "./controllers/members.controller";
 import { MemberRegistrationsController } from "./controllers/member-registrations.controller";
 import { MyProfileController } from "./controllers/my-profile.controller";
 import { StudentsController } from "./controllers/students.controller";
@@ -24,6 +25,7 @@ import { StudentsService } from "./services/students.service";
     StudentsController,
     MemberRegistrationsController,
     DepartmentsController,
+    MembersController,
   ],
   providers: [
     PeopleService,

@@ -21,6 +21,7 @@ import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
+import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
@@ -45,6 +46,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MemberRegistrationsController,
     DepartmentsController,
     MyProfileController,
+    MembersController,
   ],
   providers: [
     {
@@ -93,6 +95,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         submitFromInvite: async () => ({}),
         findAccessFacts: async () => ({ registrationStatus: null, departmentIds: [] }),
         listRegistrations: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listMembers: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         getRegistration: async () => ({}),
         approve: async () => ({}),
         reject: async () => ({}),
