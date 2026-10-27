@@ -1,0 +1,37 @@
+meta {
+  name: update-lesson-plan
+  type: http
+  seq: 2
+}
+
+patch {
+  url: {{baseUrl}}/lesson-plans/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "expectedDurationMinutes": 120
+  }
+}
+
+docs {
+  Edita um plano de aula.
+  Requer cookie tedi_session e a permissão lessonPlans.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Todos os campos são opcionais: omitir não altera, null limpa objective e materialUrl. title, expectedDurationMinutes e contents podem ser omitidos, mas nunca enviados como null (400). As mesmas regras de limite do POST valem para o que for enviado.
+  contents, quando enviado, substitui a lista inteira, na ordem enviada (1 a 50 textos não vazios).
+  Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada.
+  Plano arquivado é somente leitura: 409 LESSON_PLAN_ARCHIVED (reative antes de editar).
+  Retorna 200 LessonPlanResponseDto.
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 LESSON_PLAN_NOT_FOUND (id inexistente ou mal formado), 409 LESSON_PLAN_ARCHIVED.
+}

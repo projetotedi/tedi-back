@@ -20,6 +20,7 @@ import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
+import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -27,6 +28,7 @@ import { StudentsController } from "@modules/people/controllers/students.control
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
+import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { StudentsService } from "@modules/people/services/students.service";
@@ -44,6 +46,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MemberRegistrationsController,
     DepartmentsController,
     MembersController,
+    LessonPlansController,
   ],
   providers: [
     {
@@ -101,6 +104,16 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: DepartmentsService,
       useValue: { list: async () => [], create: async () => ({}), exists: async () => false },
+    },
+    {
+      provide: LessonPlansService,
+      useValue: {
+        create: async () => ({}),
+        findById: async () => ({}),
+        update: async () => ({}),
+        archive: async () => ({}),
+        unarchive: async () => ({}),
+      },
     },
     {
       provide: ConfigService,

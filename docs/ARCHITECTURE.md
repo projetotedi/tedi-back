@@ -19,8 +19,9 @@ Monólito modular em NestJS. Um módulo por área do domínio, espelhando os ép
 | `auth`          | E9      | Login, sessão (cookie httpOnly + JWT), guard global, convites por link, gestão de acessos           |
 | `people`        | E1      | `Person` (com credenciais e perfil), membro, aluno, busca, duplicidade, inativação                  |
 | `imports`       | E2      | Upload CSV/XLSX, mapeamento de colunas, pré-visualização, fila de pré-inscrição, formulário público |
+| `catalog`       | E12     | Plano de aula, curso, sequência de planos (catálogo de conteúdo)                                    |
 | `classes`       | E3      | Edição, turma, matrícula                                                                            |
-| `lessons`       | E4, E10 | Aula, geração em série, status, calendário, catálogo de conteúdo                                    |
+| `lessons`       | E4, E10 | Aula, geração em série, status, calendário                                                          |
 | `assignments`   | E5      | Candidatura, alocação, cobertura, agenda do membro                                                  |
 | `attendance`    | E6      | Chamada de alunos, presença de membros, frequência                                                  |
 | `hours`         | E7      | Lançamento de horas, validação, extrato, consolidado                                                |
@@ -35,6 +36,7 @@ Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuár
 ```
 auth       → people   (o guard carrega a Person e a situação do cadastro de membro a cada request)
 people       ← classes, assignments, hours, imports
+catalog      ← classes, lessons
 classes      ← lessons, attendance
 lessons      ← assignments, attendance
 assignments  ← attendance
