@@ -22,6 +22,8 @@ import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
 import { CoursesController } from "@modules/catalog/controllers/courses.controller";
 import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans.controller";
+import { ClassesController } from "@modules/classes/controllers/classes.controller";
+import { EditionsController } from "@modules/classes/controllers/editions.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -31,6 +33,8 @@ import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
+import { ClassesService } from "@modules/classes/services/classes.service";
+import { EditionsService } from "@modules/classes/services/editions.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { StudentsService } from "@modules/people/services/students.service";
@@ -50,6 +54,8 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MembersController,
     LessonPlansController,
     CoursesController,
+    ClassesController,
+    EditionsController,
   ],
   providers: [
     {
@@ -125,6 +131,19 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         update: async () => ({}),
         getCourseSummary: async () => null,
       },
+    },
+    {
+      provide: ClassesService,
+      useValue: {
+        create: async () => ({}),
+        update: async () => ({}),
+        archive: async () => ({}),
+        unarchive: async () => ({}),
+      },
+    },
+    {
+      provide: EditionsService,
+      useValue: { list: async () => [], findOrCreate: async () => ({}) },
     },
     {
       provide: ConfigService,
