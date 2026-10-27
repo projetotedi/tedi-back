@@ -1,0 +1,42 @@
+meta {
+  name: replace-course-lesson-plans
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{baseUrl}}/courses/:id/lesson-plans
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000002
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "lessonPlanIds": [
+      "01952ef7-0000-7000-8000-000000000011",
+      "01952ef7-0000-7000-8000-000000000012",
+      "01952ef7-0000-7000-8000-000000000013"
+    ]
+  }
+}
+
+docs {
+  Substitui a sequência inteira de planos de aula de um curso, numa transação: adicionar, remover e reordenar numa chamada só.
+  Requer cookie tedi_session e a permissão courses.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  lessonPlanIds é obrigatório (nunca null), tem até 100 ids de planos de aula e a ordem enviada é a ordem do curso: o primeiro fica na posição 1, o segundo na 2 e assim por diante. [] limpa a sequência e a carga horária vira 0. O mesmo plano pode estar em vários cursos, cada um com a própria posição.
+  Plano repetido na lista (inclusive o mesmo id em maiúsculas e minúsculas): 400 DUPLICATE_LESSON_PLAN. Plano que não existe: 400 LESSON_PLAN_NOT_FOUND. Plano arquivado só pode entrar se já estava na sequência do curso (ele continua, com archivedAt preenchido); um arquivado que ainda não estava responde 400 LESSON_PLAN_ARCHIVED.
+  A mesma lista na mesma ordem responde 200 sem alterar nada e sem evento. Os mesmos ids em outra ordem contam como mudança, porque a ordem é o dado. Curso arquivado é somente leitura: 409 COURSE_ARCHIVED, mesmo que a lista fosse igual.
+  Duas substituições do mesmo curso ao mesmo tempo são serializadas (lock da linha do curso): vale uma das listas inteira, nunca uma mistura. Os planos da lista ficam travados até o fim da transação: se um deles está sendo arquivado naquele instante, a chamada espera e responde 400 LESSON_PLAN_ARCHIVED.
+  Retorna 200 CourseLessonPlansResponseDto: a sequência nova e plannedWorkloadMinutes recalculado. Atualiza o updatedAt do curso e registra o evento COURSE_LESSON_PLANS_REPLACED com os lessonPlanIds antes e depois, em ordem.
+  Ordem dos erros: 404 (id mal formado), 400 VALIDATION_FAILED, 400 DUPLICATE_LESSON_PLAN, 404 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED, 400 LESSON_PLAN_NOT_FOUND, 400 LESSON_PLAN_ARCHIVED.
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 400 DUPLICATE_LESSON_PLAN, 400 LESSON_PLAN_NOT_FOUND, 400 LESSON_PLAN_ARCHIVED, 401, 403 FORBIDDEN, 404 COURSE_NOT_FOUND (id inexistente ou mal formado), 409 COURSE_ARCHIVED.
+}
