@@ -719,6 +719,52 @@ describe("CoursesController (e2e)", () => {
       expect(await countRows("course_prerequisites")).toBe(0);
     });
 
+    it("returns 400 PREREQUISITE_CYCLE when the path id is in upper case", async () => {
+      // B requires A and C requires B: A cannot require C (A→C→B→A).
+      const a = await createCourse({ ...BASIC, name: "A" });
+      const b = await createCourse({ ...BASIC, name: "B", prerequisiteIds: [a.id] });
+      const c = await createCourse({ ...BASIC, name: "C", prerequisiteIds: [b.id] });
+
+      // The UUID pipe accepts upper case and Postgres finds the row, but the graph is in lower case.
+      const transitive = await patchCourse(a.id.toUpperCase(), director, {
+        prerequisiteIds: [c.id],
+      });
+      // A course that requires itself is a 400 as well, not a 500 of the check constraint.
+      const itself = await patchCourse(a.id.toUpperCase(), director, {
+        prerequisiteIds: [a.id],
+      });
+
+      expect([transitive.status, itself.status]).toEqual([400, 400]);
+      expect([transitive.body.error, itself.body.error]).toEqual([
+        "PREREQUISITE_CYCLE",
+        "PREREQUISITE_CYCLE",
+      ]);
+      expect(await storedPrerequisiteIds(a.id)).toEqual([]);
+      expect(await storedPrerequisiteIds(b.id)).toEqual([a.id]);
+      expect(await storedPrerequisiteIds(c.id)).toEqual([b.id]);
+      expect(await countRows("course_prerequisites")).toBe(2);
+    });
+
+    it("edits the course found by an id in upper case and emits the id stored in the database", async () => {
+      const a = await createCourse({ ...BASIC, name: "A" });
+      const b = await createCourse({ ...BASIC, name: "B" });
+      const events = collectEvents();
+
+      const res = await patchCourse(a.id.toUpperCase(), director, {
+        category: "advanced",
+        prerequisiteIds: [b.id],
+      }).expect(200);
+
+      expect(res.body.id).toBe(a.id);
+      expect(res.body.category).toBe("advanced");
+      expect(res.body.prerequisites).toEqual([{ id: b.id, name: "B" }]);
+      expect(await storedPrerequisiteIds(a.id)).toEqual([b.id]);
+      expect(await countRows("course_prerequisites")).toBe(1);
+      expect(events).toHaveLength(1);
+      expect(events[0].action).toBe(AuditableAction.COURSE_UPDATED);
+      expect(events[0].targetId).toBe(a.id);
+    });
+
     it("accepts a diamond of prerequisites", async () => {
       const base = await createCourse({ ...BASIC, name: "Base" });
       const left = await createCourse({ ...BASIC, name: "Left", prerequisiteIds: [base.id] });

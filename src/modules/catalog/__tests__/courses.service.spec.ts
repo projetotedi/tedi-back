@@ -778,6 +778,74 @@ describe("CoursesService", () => {
       });
     });
 
+    describe("with the id of the path in upper case", () => {
+      // The UUID pipe of the route accepts upper case and Postgres finds the row all the same, but
+      // the links of the graph and the ids of the body are the lower case ones of the database:
+      // the service has to work with the id of the course it loaded, not with the one it received.
+      const UPPER_ID = COURSE_ID.toUpperCase();
+
+      it("throws 400 PREREQUISITE_CYCLE for a transitive cycle and writes nothing", async () => {
+        // Básica requires Intermediária and Avançada requires Básica: Intermediária cannot require Avançada.
+        state.links = [];
+        state.edges = [
+          { courseId: BASIC_ID, prerequisiteId: COURSE_ID },
+          { courseId: ADVANCED_ID, prerequisiteId: BASIC_ID },
+        ];
+
+        const failure = await httpFailure(
+          service.update(UPPER_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(400);
+        expect(failure.getResponse()).toMatchObject({ error: "PREREQUISITE_CYCLE" });
+        expect(manager.delete).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("throws 400 PREREQUISITE_CYCLE, not a database error, for a course that requires itself", async () => {
+        state.links = [];
+        state.edges = [];
+
+        const failure = await httpFailure(
+          service.update(UPPER_ID, { prerequisiteIds: [COURSE_ID] }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(400);
+        expect(failure.getResponse()).toMatchObject({ error: "PREREQUISITE_CYCLE" });
+        expect(manager.delete).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+      });
+
+      it("looks the course up with the id received and writes, compares and emits with the id of the database", async () => {
+        await service.update(
+          UPPER_ID,
+          { name: "Informática Média", prerequisiteIds: [ADVANCED_ID] },
+          ACTOR_ID,
+        );
+
+        // The lookup is the one place that uses the id as it came: Postgres reads the uuid in any case.
+        expect(manager.findOne).toHaveBeenCalledWith(Course, {
+          where: { id: UPPER_ID },
+          lock: { mode: "pessimistic_write" },
+        });
+        expect(builder.andWhere).toHaveBeenCalledWith("course.id <> :exceptId", {
+          exceptId: COURSE_ID,
+        });
+        expect(manager.find).toHaveBeenCalledWith(CoursePrerequisite, {
+          where: { courseId: COURSE_ID },
+        });
+        expect(manager.delete).toHaveBeenCalledWith(CoursePrerequisite, { courseId: COURSE_ID });
+        expect(manager.create).toHaveBeenCalledWith(CoursePrerequisite, {
+          courseId: COURSE_ID,
+          prerequisiteId: ADVANCED_ID,
+        });
+        const [event] = emittedEvents();
+        expect(event.action).toBe(AuditableAction.COURSE_UPDATED);
+        expect(event.targetId).toBe(COURSE_ID);
+      });
+    });
+
     it("throws 400 PREREQUISITE_NOT_FOUND and writes nothing", async () => {
       const failure = await httpFailure(
         service.update(COURSE_ID, { prerequisiteIds: [UNKNOWN_ID] }, ACTOR_ID),

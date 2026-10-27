@@ -174,21 +174,30 @@ export class CoursesService {
    *
    * Without a change (or with an empty body) nothing is written and no event is emitted.
    * Emits COURSE_UPDATED after the commit, with only the fields that changed.
+   *
+   * `requestedId` is only the key of the lookup. The UUID pipe of the route accepts upper case and
+   * Postgres finds the row all the same, but the links of the graph and the ids of the body are
+   * the lower case ones of the database, and the cycle check compares strings. So everything
+   * after the lookup (comparisons, writes and the event) uses `course.id`, the id of the database.
    */
-  async update(id: string, dto: UpdateCourseDto, actorId: string): Promise<CourseResponseDto> {
+  async update(
+    requestedId: string,
+    dto: UpdateCourseDto,
+    actorId: string,
+  ): Promise<CourseResponseDto> {
     const changes: FieldChanges = { before: {}, after: {}, fields: [] };
 
     const updated = await this.runInTransaction(async (manager) => {
       if (dto.prerequisiteIds !== undefined) await this.lockPrerequisiteGraph(manager);
 
-      const course = await this.loadCourse(manager, id);
+      const course = await this.loadCourse(manager, requestedId);
       if (isArchived(course.archive)) throw courseArchived();
 
       if (dto.name !== undefined && dto.name !== course.name) {
-        await this.assertNameAvailable(manager, dto.name, id);
+        await this.assertNameAvailable(manager, dto.name, course.id);
       }
 
-      let prerequisites = await this.loadCurrentPrerequisites(manager, id);
+      let prerequisites = await this.loadCurrentPrerequisites(manager, course.id);
       const courseChanged = this.applyChanges(course, dto as Record<string, unknown>, changes);
 
       let prerequisitesChanged = false;
@@ -199,14 +208,16 @@ export class CoursesService {
           const next = await this.loadPrerequisiteCourses(manager, dto.prerequisiteIds, currentIds);
 
           const edges = await this.loadPrerequisiteEdges(manager);
-          if (createsPrerequisiteCycle(id, dto.prerequisiteIds, edges)) throw prerequisiteCycle();
+          if (createsPrerequisiteCycle(course.id, dto.prerequisiteIds, edges)) {
+            throw prerequisiteCycle();
+          }
 
           changes.before.prerequisiteIds = sortedIds(currentIds);
           changes.after.prerequisiteIds = sortedIds(dto.prerequisiteIds);
           changes.fields.push("prerequisiteIds");
 
-          await manager.delete(CoursePrerequisite, { courseId: id });
-          await this.insertPrerequisites(manager, id, dto.prerequisiteIds);
+          await manager.delete(CoursePrerequisite, { courseId: course.id });
+          await this.insertPrerequisites(manager, course.id, dto.prerequisiteIds);
           prerequisites = next;
           prerequisitesChanged = true;
         }
@@ -221,7 +232,7 @@ export class CoursesService {
     });
 
     if (changes.fields.length > 0) {
-      this.emit(AuditableAction.COURSE_UPDATED, actorId, id, changes.before, {
+      this.emit(AuditableAction.COURSE_UPDATED, actorId, updated.course.id, changes.before, {
         ...changes.after,
         changedFields: changes.fields,
       });
