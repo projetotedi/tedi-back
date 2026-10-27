@@ -1,0 +1,24 @@
+meta {
+  name: list-editions
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/editions
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Lista as edições (semestres) em que há turmas, da mais recente para a mais antiga: ["2026.2", "2026.1"]. Serve aos seletores das telas.
+  Requer cookie tedi_session e a permissão classes.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  A ordem é pelo nome, não pela criação: com o formato AAAA.N a ordem alfabética é a cronológica, e uma edição cadastrada depois (2026.1 criada depois de 2026.2) fica no lugar certo.
+  Não existe rota para criar, renomear ou excluir edição: ela nasce sob demanda quando uma turma usa um nome novo (create-class e update-class). A edição de uma turma arquivada continua na lista.
+  Retorna 200 EditionResponseDto[] ({ id, name }); [] enquanto não houver edição.
+  Erros possíveis: 401, 403 FORBIDDEN.
+}

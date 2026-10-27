@@ -215,6 +215,128 @@
         ],
         "type": "string"
       },
+      "ClassResponseDto": {
+        "properties": {
+          "archiveReason": {
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedAt": {
+            "description": "Null while the class is active (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedById": {
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "capacity": {
+            "description": "Number of seats.",
+            "example": 15,
+            "type": "integer"
+          },
+          "code": {
+            "description": "Unique inside its edition.",
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "courseId": {
+            "description": "Id of the course this class offers. It never changes (RN-13).",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Id of the person who created the class.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "edition": {
+            "$ref": "#/components/schemas/EditionResponseDto"
+          },
+          "endDate": {
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "location": {
+            "description": "Null when not informed.",
+            "example": "Laboratório 3, bloco B",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label. Null when not informed.",
+            "example": "Informática Básica, turma A",
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "description": "Independent of archiving: an archived class keeps its status (RF-034, RN-27).",
+            "example": "planned"
+          },
+          "updatedAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "courseId",
+          "edition",
+          "startDate",
+          "endDate",
+          "location",
+          "capacity",
+          "status",
+          "archivedAt",
+          "archivedById",
+          "archiveReason",
+          "createdById",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "ClassStatus": {
+        "description": "Status of the class (RF-034). Omit for planned.",
+        "enum": [
+          "planned",
+          "in_progress",
+          "completed",
+          "cancelled"
+        ],
+        "type": "string"
+      },
       "CourseCategory": {
         "description": "Level of the content. A class takes the category of its course when created.",
         "enum": [
@@ -347,6 +469,81 @@
           "archived"
         ],
         "type": "string"
+      },
+      "CreateClassDto": {
+        "properties": {
+          "capacity": {
+            "description": "Number of seats.",
+            "example": 15,
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "code": {
+            "description": "Unique inside its edition, ignoring case, archived classes included.",
+            "example": "INFO-A",
+            "maxLength": 30,
+            "type": "string"
+          },
+          "courseId": {
+            "description": "Id of the course this class offers. It cannot be changed after the class is created (RN-13).",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "editionName": {
+            "description": "Year and term, \"<year>.<term>\". Created on demand when it does not exist.",
+            "example": "2026.2",
+            "maxLength": 20,
+            "pattern": "^\\d{4}\\.[1-9]$",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "Last day of the class, YYYY-MM-DD. On or after startDate (RN-21), else 400 INVALID_PERIOD.",
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "location": {
+            "description": "Null or empty means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Laboratório 3, bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label. Null or empty means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Informática Básica, turma A",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "description": "First day of the class, YYYY-MM-DD.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "default": "planned",
+            "description": "Status of the class (RF-034). Omit for planned.",
+            "example": "planned"
+          }
+        },
+        "required": [
+          "courseId",
+          "code",
+          "editionName",
+          "startDate",
+          "endDate",
+          "capacity"
+        ],
+        "type": "object"
       },
       "CreateCourseDto": {
         "properties": {
@@ -613,6 +810,25 @@
           },
           "name": {
             "example": "Tecnologia",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "EditionResponseDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000e1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Year and term, \"<year>.<term>\".",
+            "example": "2026.1",
             "type": "string"
           }
         },
@@ -2058,6 +2274,67 @@
         ],
         "type": "object"
       },
+      "UpdateClassDto": {
+        "description": "Every field is optional: omit to keep. courseId is not editable (RN-13): the course of a class never changes, and a courseId in the body is ignored.",
+        "properties": {
+          "capacity": {
+            "description": "Omit to keep. Never null. Number of seats. It cannot go below the number of active enrollments (409 CAPACITY_BELOW_ENROLLED).",
+            "example": 15,
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "code": {
+            "description": "Omit to keep. Never null. Unique inside its edition, ignoring case, archived classes included.",
+            "example": "INFO-A",
+            "maxLength": 30,
+            "type": "string"
+          },
+          "editionName": {
+            "description": "Omit to keep. Never null. Year and term, \"<year>.<term>\". Created on demand when it does not exist.",
+            "example": "2026.2",
+            "maxLength": 20,
+            "pattern": "^\\d{4}\\.[1-9]$",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "Omit to keep. Never null. Last day of the class, YYYY-MM-DD. The period that results, with the dates sent and the ones kept, must end on or after it starts (RN-21), else 400 INVALID_PERIOD.",
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "location": {
+            "description": "Null or empty means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Laboratório 3, bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label. Null or empty means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Informática Básica, turma A",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Omit to keep. Never null. First day of the class, YYYY-MM-DD.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "description": "Omit to keep. Never null. No rule limits the moves between statuses yet.",
+            "example": "in_progress"
+          }
+        },
+        "type": "object"
+      },
       "UpdateCourseDto": {
         "properties": {
           "category": {
@@ -3041,6 +3318,383 @@
         ]
       }
     },
+    "/classes": {
+      "post": {
+        "operationId": "createClass",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClassDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_PERIOD | COURSE_NOT_FOUND"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_CODE_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
+    "/classes/{id}": {
+      "patch": {
+        "operationId": "updateClass",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateClassDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_PERIOD"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
+    "/classes/{id}/archive": {
+      "patch": {
+        "operationId": "archiveClass",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveDto"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_HAS_ACTIVE_ENROLLMENTS (from GUS-108, when enrollments exist)"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
+    "/classes/{id}/unarchive": {
+      "patch": {
+        "operationId": "unarchiveClass",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
     "/courses": {
       "post": {
         "operationId": "createCourse",
@@ -3394,6 +4048,80 @@
         },
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/editions": {
+      "get": {
+        "operationId": "listEditions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EditionResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
         ]
       }
     },

@@ -8,6 +8,7 @@ import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { AuthModule } from "@modules/auth/auth.module";
 import { PeopleModule } from "@modules/people/people.module";
 import { CatalogModule } from "@modules/catalog/catalog.module";
+import { ClassesModule } from "@modules/classes/classes.module";
 
 @Module({
   imports: [
@@ -16,8 +17,9 @@ import { CatalogModule } from "@modules/catalog/catalog.module";
     AuthModule,
     PeopleModule,
     CatalogModule,
+    ClassesModule,
     // Módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md):
-    // TurmasModule, AulasModule, ...
+    // LessonsModule, ...
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],

@@ -1,0 +1,42 @@
+meta {
+  name: create-class
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/classes
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "courseId": "01952ef7-0000-7000-8000-000000000001",
+    "code": "INFO-A",
+    "editionName": "2026.1",
+    "startDate": "2026-03-03",
+    "endDate": "2026-06-27",
+    "location": "Laboratório 3, bloco B",
+    "capacity": 15
+  }
+}
+
+docs {
+  Cria uma turma: a oferta de um curso numa edição, com período, local e vagas (RF-024, RN-13).
+  Requer cookie tedi_session e a permissão classes.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Obrigatórios: courseId (id de um curso que existe), code (até 30 caracteres), editionName (ano e semestre no formato AAAA.N, com N de 1 a 9, como 2026.1), startDate e endDate (AAAA-MM-DD, datas que existem no calendário) e capacity (inteiro de 1 a 1000). Os textos são aparados.
+  Opcionais: location e name (até 200 caracteres; null ou "" significa "não informado") e status (planned, in_progress, completed ou cancelled; omitir significa planned).
+  A edição é criada sob demanda: se editionName não existe, ela nasce junto com a turma, na mesma transação (se a turma falhar, a edição não fica); se já existe, é reaproveitada. Duas criações ao mesmo tempo com a mesma edição nova compartilham uma linha só.
+  O término não pode ser antes do início (RN-21): 400 INVALID_PERIOD, com details[].field = "endDate". Início e término no mesmo dia são aceitos.
+  code é único dentro da edição, sem diferenciar maiúsculas de minúsculas e contando as turmas arquivadas: INFO-A em 2026.1 e INFO-A em 2026.2 convivem; "info-a" em 2026.1 repete e responde 409 CLASS_CODE_TAKEN.
+  courseId que não existe responde 400 COURSE_NOT_FOUND (por enquanto o código sai da violação do FK; a GUS-102 passa a validar o curso, inclusive o arquivado). courseId mal formado responde 400 VALIDATION_FAILED.
+  Retorna 201 ClassResponseDto: status "planned" quando o corpo não diz outro, edition { id, name } e createdById de quem criou. Registra o evento CLASS_CREATED (editionCreated diz se a edição era nova). Não existe DELETE de turma: arquivar é a saída (archive-class).
+  Ordem dos erros: 400 INVALID_PERIOD, 409 CLASS_CODE_TAKEN, 400 COURSE_NOT_FOUND (a validação do corpo, 400 VALIDATION_FAILED, vem antes de todos).
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 400 INVALID_PERIOD, 400 COURSE_NOT_FOUND, 401, 403 FORBIDDEN, 409 CLASS_CODE_TAKEN.
+}
