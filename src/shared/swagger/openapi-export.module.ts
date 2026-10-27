@@ -20,6 +20,7 @@ import { HealthController } from "@shared/health/health.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
+import { CoursesController } from "@modules/catalog/controllers/courses.controller";
 import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
@@ -28,6 +29,7 @@ import { StudentsController } from "@modules/people/controllers/students.control
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
+import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
@@ -47,6 +49,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     DepartmentsController,
     MembersController,
     LessonPlansController,
+    CoursesController,
   ],
   providers: [
     {
@@ -113,6 +116,14 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         update: async () => ({}),
         archive: async () => ({}),
         unarchive: async () => ({}),
+      },
+    },
+    {
+      provide: CoursesService,
+      useValue: {
+        create: async () => ({}),
+        update: async () => ({}),
+        getCourseSummary: async () => null,
       },
     },
     {
