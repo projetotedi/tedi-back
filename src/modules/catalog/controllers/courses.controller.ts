@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -14,9 +14,11 @@ import { ApiErrorDto } from "@shared/dto/api-error.dto";
 import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
+import { CourseDetailDto } from "../dto/course-detail.response.dto";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CreateCourseDto } from "../dto/create-course.dto";
 import { UpdateCourseDto } from "../dto/update-course.dto";
+import { CourseDetailService } from "../services/course-detail.service";
 import { CoursesService } from "../services/courses.service";
 import { COURSE_ID, COURSE_ID_PARAM } from "./course-id.param";
 
@@ -24,7 +26,10 @@ import { COURSE_ID, COURSE_ID_PARAM } from "./course-id.param";
 @Controller("courses")
 @ApiStandardErrors()
 export class CoursesController {
-  constructor(private readonly coursesService: CoursesService) {}
+  constructor(
+    private readonly coursesService: CoursesService,
+    private readonly courseDetailService: CourseDetailService,
+  ) {}
 
   @Post()
   @RequirePermission(Permission.COURSES_MANAGE)
@@ -39,6 +44,15 @@ export class CoursesController {
     @CurrentUser() actor: AuthUser,
   ): Promise<CourseResponseDto> {
     return this.coursesService.create(dto, actor.id);
+  }
+
+  @Get(":id")
+  @RequirePermission(Permission.CATALOG_VIEW)
+  @ApiParam(COURSE_ID_PARAM)
+  @ApiOkResponse({ type: CourseDetailDto })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: "COURSE_NOT_FOUND" })
+  getCourse(@Param("id", COURSE_ID) id: string): Promise<CourseDetailDto> {
+    return this.courseDetailService.findDetail(id);
   }
 
   @Patch(":id")
