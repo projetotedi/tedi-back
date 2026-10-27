@@ -1,0 +1,43 @@
+meta {
+  name: update-course
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/courses/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000002
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "category": "advanced",
+    "prerequisiteIds": [
+      "01952ef7-0000-7000-8000-000000000001"
+    ]
+  }
+}
+
+docs {
+  Edita um curso.
+  Requer cookie tedi_session e a permissão courses.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Todos os campos são opcionais: omitir não altera, null limpa objective. name, description, category e prerequisiteIds podem ser omitidos, mas nunca enviados como null (400). As mesmas regras de limite e de nome do POST valem para o que for enviado; trocar só a caixa do próprio nome é permitido.
+  prerequisiteIds, quando enviado, substitui o conjunto inteiro (a ordem não importa) e [] limpa. Um curso não pode exigir a si mesmo nem formar ciclo (se A exige B e B exige C, C não pode exigir A): 400 PREREQUISITE_CYCLE. Um pré-requisito arquivado só pode ser adicionado se já estiver vinculado ao curso: 400 PREREQUISITE_ARCHIVED.
+  Trocar a categoria não altera as turmas já criadas (RN-18).
+  Duas edições de pré-requisitos ao mesmo tempo são serializadas (lock do grafo no banco): se juntas fechariam um ciclo, só uma passa e a outra responde 400 PREREQUISITE_CYCLE.
+  Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada e sem evento.
+  Curso arquivado é somente leitura: 409 COURSE_ARCHIVED.
+  Retorna 200 CourseResponseDto e registra o evento COURSE_UPDATED só com os campos alterados.
+  Ordem dos erros: 404, 409 COURSE_ARCHIVED, 409 COURSE_NAME_TAKEN, 400 PREREQUISITE_NOT_FOUND, 400 PREREQUISITE_ARCHIVED, 400 PREREQUISITE_CYCLE.
+  Erros possíveis: 400 VALIDATION_FAILED, 400 PREREQUISITE_NOT_FOUND, 400 PREREQUISITE_ARCHIVED, 400 PREREQUISITE_CYCLE, 401, 403 FORBIDDEN, 404 COURSE_NOT_FOUND (id inexistente ou mal formado), 409 COURSE_ARCHIVED, 409 COURSE_NAME_TAKEN.
+}
