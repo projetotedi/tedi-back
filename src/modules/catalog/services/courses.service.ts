@@ -11,19 +11,33 @@ import {
 } from "@shared/events/auditable-action.event";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CreateCourseDto } from "../dto/create-course.dto";
+import { UpdateCourseDto } from "../dto/update-course.dto";
 import { CoursePrerequisite } from "../entities/course-prerequisite.entity";
 import { Course } from "../entities/course.entity";
 import { CourseCategory } from "../enums/course-category.enum";
 import { CourseStatus } from "../enums/course-status.enum";
 import { courseStatusOf, toCourseResponse } from "./course-response.mapper";
+import { createsPrerequisiteCycle, PrerequisiteEdge } from "./prerequisite-graph";
+
+const COURSE_FIELDS = ["name", "description", "objective", "category"] as const;
 
 const COURSE_TARGET_TYPE = "course";
 
 /** The unique index on LOWER("name"), created by the migration (see Course). */
 const COURSE_NAME_INDEX = "uq_courses_name";
 
+/** Key of the advisory lock that serializes every write to the graph of prerequisites. */
+const PREREQUISITE_GRAPH_LOCK_KEY = "course_prerequisites";
+
 export function courseNotFound(): HttpException {
   return new HttpException({ error: "COURSE_NOT_FOUND", message: "Course not found." }, 404);
+}
+
+function courseArchived(): HttpException {
+  return new HttpException(
+    { error: "COURSE_ARCHIVED", message: "Archived courses are read-only." },
+    409,
+  );
 }
 
 /** The one place that builds "name taken": the pre-check and the unique violation. */
@@ -51,8 +65,28 @@ function prerequisiteArchived(): HttpException {
   );
 }
 
+function prerequisiteCycle(): HttpException {
+  return new HttpException(
+    { error: "PREREQUISITE_CYCLE", message: "The prerequisites would form a cycle." },
+    400,
+  );
+}
+
 function sortedIds(ids: readonly string[]): string[] {
   return [...ids].sort();
+}
+
+/** True when both lists hold the same ids, in any order. */
+function hasSameIds(current: readonly string[], next: readonly string[]): boolean {
+  const left = sortedIds(current);
+  const right = sortedIds(next);
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+interface FieldChanges {
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  fields: string[];
 }
 
 /**
@@ -120,6 +154,83 @@ export class CoursesService {
   }
 
   /**
+   * Edits a course. Every field is optional: omitted keeps, `objective: null` clears, and
+   * `prerequisiteIds` replaces the whole set (`[]` clears it). Changing the category does not
+   * touch the classes already created (RN-18).
+   *
+   * Errors, in the order they are answered: 404 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED (archived
+   * courses are read-only, RN-27), 409 COURSE_NAME_TAKEN, 400 PREREQUISITE_NOT_FOUND, 400
+   * PREREQUISITE_ARCHIVED (only for an id being added now: a link that already exists stays) and
+   * 400 PREREQUISITE_CYCLE (the course would end up requiring itself, directly or through other
+   * courses).
+   *
+   * Two edits of the prerequisites at once could each pass the cycle check and, together, close a
+   * cycle (A requires B and B requires A). The row lock of the course does not prevent that, since
+   * the two edits lock different rows. So an edit that sends `prerequisiteIds` first takes an
+   * advisory lock, held to the end of the transaction, which serializes all of them, and only
+   * then locks the row. The order matters: inserting a link takes FOR KEY SHARE on the
+   * prerequisite row, which FOR UPDATE conflicts with. With the row lock first, the edit of A
+   * (holding A, waiting for B) and the edit of B (holding B, waiting for A) would deadlock.
+   *
+   * Without a change (or with an empty body) nothing is written and no event is emitted.
+   * Emits COURSE_UPDATED after the commit, with only the fields that changed.
+   */
+  async update(id: string, dto: UpdateCourseDto, actorId: string): Promise<CourseResponseDto> {
+    const changes: FieldChanges = { before: {}, after: {}, fields: [] };
+
+    const updated = await this.runInTransaction(async (manager) => {
+      if (dto.prerequisiteIds !== undefined) await this.lockPrerequisiteGraph(manager);
+
+      const course = await this.loadCourse(manager, id);
+      if (isArchived(course.archive)) throw courseArchived();
+
+      if (dto.name !== undefined && dto.name !== course.name) {
+        await this.assertNameAvailable(manager, dto.name, id);
+      }
+
+      let prerequisites = await this.loadCurrentPrerequisites(manager, id);
+      const courseChanged = this.applyChanges(course, dto as Record<string, unknown>, changes);
+
+      let prerequisitesChanged = false;
+      if (dto.prerequisiteIds !== undefined) {
+        const currentIds = prerequisites.map((prerequisite) => prerequisite.id);
+
+        if (!hasSameIds(currentIds, dto.prerequisiteIds)) {
+          const next = await this.loadPrerequisiteCourses(manager, dto.prerequisiteIds, currentIds);
+
+          const edges = await this.loadPrerequisiteEdges(manager);
+          if (createsPrerequisiteCycle(id, dto.prerequisiteIds, edges)) throw prerequisiteCycle();
+
+          changes.before.prerequisiteIds = sortedIds(currentIds);
+          changes.after.prerequisiteIds = sortedIds(dto.prerequisiteIds);
+          changes.fields.push("prerequisiteIds");
+
+          await manager.delete(CoursePrerequisite, { courseId: id });
+          await this.insertPrerequisites(manager, id, dto.prerequisiteIds);
+          prerequisites = next;
+          prerequisitesChanged = true;
+        }
+      }
+
+      if (courseChanged || prerequisitesChanged) {
+        course.updatedAt = this.clock.now();
+        await manager.save(course);
+      }
+
+      return { course, prerequisites };
+    });
+
+    if (changes.fields.length > 0) {
+      this.emit(AuditableAction.COURSE_UPDATED, actorId, id, changes.before, {
+        ...changes.after,
+        changedFields: changes.fields,
+      });
+    }
+
+    return toCourseResponse(updated.course, updated.prerequisites);
+  }
+
+  /**
    * Summary of a course for another module. Null when the id is not a course or is not even a
    * UUID: whoever calls decides the error (the classes will answer for the `courseId` of their
    * body). An archived course is returned, with status archived. Pass the `manager` of a
@@ -149,6 +260,69 @@ export class CoursesService {
     } catch (error) {
       throw this.mapNameConflict(error);
     }
+  }
+
+  /** Waits for whoever is writing the graph of prerequisites; released on commit or rollback. */
+  private async lockPrerequisiteGraph(manager: EntityManager): Promise<void> {
+    await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      PREREQUISITE_GRAPH_LOCK_KEY,
+    ]);
+  }
+
+  /** The course, locked FOR UPDATE until the end of the transaction. */
+  private async loadCourse(manager: EntityManager, id: string): Promise<Course> {
+    const course = await manager.findOne(Course, {
+      where: { id },
+      lock: { mode: "pessimistic_write" },
+    });
+    if (course === null) throw courseNotFound();
+
+    return course;
+  }
+
+  /** The courses that `courseId` requires today. */
+  private async loadCurrentPrerequisites(
+    manager: EntityManager,
+    courseId: string,
+  ): Promise<Course[]> {
+    const links = await manager.find(CoursePrerequisite, { where: { courseId } });
+    if (links.length === 0) return [];
+
+    return manager.find(Course, {
+      where: { id: In(links.map((link) => link.prerequisiteId)) },
+    });
+  }
+
+  /** Every link of the graph, "courseId requires prerequisiteId", archived courses included. */
+  private loadPrerequisiteEdges(manager: EntityManager): Promise<PrerequisiteEdge[]> {
+    return manager.query(
+      `SELECT course_id AS "courseId", prerequisite_id AS "prerequisiteId"
+         FROM course_prerequisites
+        WHERE deleted_at IS NULL`,
+    );
+  }
+
+  /** Copies the fields that were sent and differ into the course, and records before and after. */
+  private applyChanges(
+    course: Course,
+    values: Readonly<Record<string, unknown>>,
+    changes: FieldChanges,
+  ): boolean {
+    const target = course as unknown as Record<string, unknown>;
+    let changed = false;
+
+    for (const field of COURSE_FIELDS) {
+      const next = values[field];
+      if (next === undefined || next === target[field]) continue;
+
+      changes.before[field] = target[field];
+      changes.after[field] = next;
+      changes.fields.push(field);
+      target[field] = next;
+      changed = true;
+    }
+
+    return changed;
   }
 
   /** 409 when another course already has the name, ignoring case. `exceptId` is the edited one. */

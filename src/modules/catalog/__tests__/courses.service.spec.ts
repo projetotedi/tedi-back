@@ -73,6 +73,17 @@ function buildAdvanced(overrides: CourseOverrides = {}): Course {
   });
 }
 
+function buildLink(prerequisiteId: string, courseId = COURSE_ID): CoursePrerequisite {
+  return Object.assign(new CoursePrerequisite(), {
+    id: `link-${courseId}-${prerequisiteId}`,
+    courseId,
+    prerequisiteId,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    deletedAt: null,
+  });
+}
+
 function uniqueViolation(constraint: string): QueryFailedError {
   const driverError = Object.assign(new Error("duplicate key value violates unique constraint"), {
     code: "23505",
@@ -124,9 +135,10 @@ describe("CoursesService", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     order = [];
+    const edited = buildCourse();
     state = {
-      course: buildCourse(),
-      courses: [buildBasic(), buildAdvanced()],
+      course: edited,
+      courses: [buildBasic(), buildAdvanced(), edited],
       links: [],
       edges: [],
       nameTaken: false,
@@ -443,6 +455,515 @@ describe("CoursesService", () => {
         .mockRejectedValueOnce(new Error("connection lost"));
 
       await expect(service.create(dto, ACTOR_ID)).rejects.toThrow("connection lost");
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("update()", () => {
+    beforeEach(() => {
+      // Informática Intermediária (the edited course) requires Informática Básica.
+      state.links = [buildLink(BASIC_ID)];
+      state.edges = [{ courseId: COURSE_ID, prerequisiteId: BASIC_ID }];
+    });
+
+    it("returns 404 COURSE_NOT_FOUND when the course does not exist", async () => {
+      state.course = null;
+
+      const failure = await httpFailure(service.update(COURSE_ID, { name: "Outro" }, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "COURSE_NOT_FOUND",
+        message: "Course not found.",
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("locks the course row for the whole edit", async () => {
+      await service.update(COURSE_ID, {}, ACTOR_ID);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(Course, {
+        where: { id: COURSE_ID },
+        lock: { mode: "pessimistic_write" },
+      });
+    });
+
+    it("takes the advisory lock before the row lock only when prerequisiteIds is sent", async () => {
+      await service.update(COURSE_ID, { prerequisiteIds: [BASIC_ID] }, ACTOR_ID);
+
+      expect(order.slice(0, 2)).toEqual(["advisory-lock", "load-course"]);
+      expect(manager.query).toHaveBeenCalledWith(expect.stringContaining("pg_advisory_xact_lock"), [
+        "course_prerequisites",
+      ]);
+
+      order.length = 0;
+      manager.query.mockClear();
+      await service.update(COURSE_ID, { name: "Informática Média" }, ACTOR_ID);
+
+      expect(order).not.toContain("advisory-lock");
+      expect(manager.query).not.toHaveBeenCalled();
+    });
+
+    it("takes the advisory lock even when the prerequisites sent are the ones it already has", async () => {
+      await service.update(COURSE_ID, { prerequisiteIds: [BASIC_ID] }, ACTOR_ID);
+
+      expect(order).toContain("advisory-lock");
+    });
+
+    it("returns 409 COURSE_ARCHIVED and writes nothing", async () => {
+      state.course = buildCourse({ archive: { archivedAt: CREATED_AT, archivedById: ACTOR_ID } });
+
+      const failure = await httpFailure(
+        service.update(
+          COURSE_ID,
+          { name: "Novo", category: CourseCategory.ADVANCED, prerequisiteIds: [] },
+          ACTOR_ID,
+        ),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "COURSE_ARCHIVED",
+        message: "Archived courses are read-only.",
+      });
+      expect(builder.getExists).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 COURSE_NAME_TAKEN for another course's name and allows its own name in another case", async () => {
+      state.nameTaken = true;
+
+      const failure = await httpFailure(
+        service.update(COURSE_ID, { name: "Informática Básica" }, ACTOR_ID),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "COURSE_NAME_TAKEN",
+        message: "A course with this name already exists.",
+      });
+      expect(builder.where).toHaveBeenCalledWith("LOWER(course.name) = LOWER(:name)", {
+        name: "Informática Básica",
+      });
+      // The edited course is left out of the check: changing only the case of its own name passes.
+      expect(builder.andWhere).toHaveBeenCalledWith("course.id <> :exceptId", {
+        exceptId: COURSE_ID,
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+
+      state.nameTaken = false;
+      const result = await service.update(
+        COURSE_ID,
+        { name: "INFORMÁTICA INTERMEDIÁRIA" },
+        ACTOR_ID,
+      );
+
+      expect(result.name).toBe("INFORMÁTICA INTERMEDIÁRIA");
+      expect(manager.save).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not check the name when it did not change", async () => {
+      await service.update(COURSE_ID, { name: "Informática Intermediária" }, ACTOR_ID);
+
+      expect(builder.getExists).not.toHaveBeenCalled();
+    });
+
+    it("maps 23505 on uq_courses_name at the save to 409 COURSE_NAME_TAKEN and keeps any other error", async () => {
+      manager.save.mockRejectedValueOnce(uniqueViolation("uq_courses_name"));
+
+      const failure = await httpFailure(
+        service.update(COURSE_ID, { name: "Outro nome" }, ACTOR_ID),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toMatchObject({ error: "COURSE_NAME_TAKEN" });
+
+      state.course = buildCourse();
+      const boom = new Error("connection lost");
+      manager.save.mockRejectedValueOnce(boom);
+      await expect(service.update(COURSE_ID, { name: "Outro nome" }, ACTOR_ID)).rejects.toBe(boom);
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("changes the category from basic to advanced and leaves the rest alone", async () => {
+      state.course = buildCourse({ category: CourseCategory.BASIC });
+
+      const result = await service.update(
+        COURSE_ID,
+        { category: CourseCategory.ADVANCED },
+        ACTOR_ID,
+      );
+
+      expect(result.category).toBe(CourseCategory.ADVANCED);
+      expect(result.name).toBe("Informática Intermediária");
+      expect(result.description).toBe("Planilhas, textos e apresentações.");
+      expect(result.objective).toBe("Preparar o aluno para as ferramentas de escritório.");
+      expect(result.status).toBe(CourseStatus.ACTIVE);
+      expect(result.prerequisites).toEqual([{ id: BASIC_ID, name: "Informática Básica" }]);
+      // Only the course row is written: no prerequisite row, and nothing about classes (RN-18).
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(manager.save).toHaveBeenCalledWith(expect.any(Course));
+      expect(manager.create).not.toHaveBeenCalled();
+      expect(manager.delete).not.toHaveBeenCalled();
+    });
+
+    it("updates the fields sent and clears objective sent as null", async () => {
+      const result = await service.update(
+        COURSE_ID,
+        { name: "Informática Média", description: "Novo texto.", objective: null },
+        ACTOR_ID,
+      );
+
+      expect(result).toMatchObject({
+        id: COURSE_ID,
+        name: "Informática Média",
+        description: "Novo texto.",
+        objective: null,
+        category: CourseCategory.INTERMEDIATE,
+        updatedAt: NOW,
+        createdAt: CREATED_AT,
+      });
+    });
+
+    it("keeps the prerequisites when prerequisiteIds is omitted and clears them with []", async () => {
+      const kept = await service.update(COURSE_ID, { name: "Informática Média" }, ACTOR_ID);
+
+      expect(kept.prerequisites).toEqual([{ id: BASIC_ID, name: "Informática Básica" }]);
+      expect(manager.delete).not.toHaveBeenCalled();
+
+      const cleared = await service.update(COURSE_ID, { prerequisiteIds: [] }, ACTOR_ID);
+
+      expect(cleared.prerequisites).toEqual([]);
+      expect(manager.delete).toHaveBeenCalledWith(CoursePrerequisite, { courseId: COURSE_ID });
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it("clears the prerequisites even when the ones it has are archived", async () => {
+      state.courses = [
+        buildBasic({ archive: { archivedAt: CREATED_AT, archivedById: ACTOR_ID } }),
+        buildAdvanced(),
+        buildCourse(),
+      ];
+
+      const result = await service.update(COURSE_ID, { prerequisiteIds: [] }, ACTOR_ID);
+
+      expect(result.prerequisites).toEqual([]);
+      expect(manager.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it("replaces the whole set of prerequisites inside the transaction", async () => {
+      const result = await service.update(COURSE_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID);
+
+      expect(order).toEqual([
+        "advisory-lock",
+        "load-course",
+        "load-links",
+        "load-prerequisites",
+        "load-prerequisites",
+        "load-edges",
+        "delete-prerequisites",
+        "insert-prerequisites",
+        "save-course",
+        "commit",
+        "emit",
+      ]);
+      expect(manager.delete).toHaveBeenCalledWith(CoursePrerequisite, { courseId: COURSE_ID });
+      expect(manager.create).toHaveBeenCalledTimes(1);
+      expect(manager.create).toHaveBeenCalledWith(CoursePrerequisite, {
+        courseId: COURSE_ID,
+        prerequisiteId: ADVANCED_ID,
+      });
+      expect(result.prerequisites).toEqual([{ id: ADVANCED_ID, name: "Informática Avançada" }]);
+    });
+
+    it("reads the graph only after it holds both locks", async () => {
+      await service.update(COURSE_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID);
+
+      const edges = order.indexOf("load-edges");
+      expect(order.indexOf("advisory-lock")).toBeLessThan(order.indexOf("load-course"));
+      expect(order.indexOf("load-course")).toBeLessThan(edges);
+      expect(edges).toBeLessThan(order.indexOf("delete-prerequisites"));
+    });
+
+    it("treats the same ids in another order as no change", async () => {
+      state.links = [buildLink(BASIC_ID), buildLink(ADVANCED_ID)];
+
+      const result = await service.update(
+        COURSE_ID,
+        { prerequisiteIds: [ADVANCED_ID, BASIC_ID] },
+        ACTOR_ID,
+      );
+
+      expect(order).not.toContain("load-edges");
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(result.prerequisites.map((prerequisite) => prerequisite.id)).toEqual([
+        ADVANCED_ID,
+        BASIC_ID,
+      ]);
+    });
+
+    describe("cycles", () => {
+      it("throws 400 PREREQUISITE_CYCLE and writes nothing when Básica would require Intermediária", async () => {
+        // Intermediária already requires Básica (state.edges).
+        state.course = buildBasic();
+        state.links = [];
+
+        const failure = await httpFailure(
+          service.update(BASIC_ID, { prerequisiteIds: [COURSE_ID] }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(400);
+        expect(failure.getResponse()).toEqual({
+          error: "PREREQUISITE_CYCLE",
+          message: "The prerequisites would form a cycle.",
+        });
+        expect(manager.delete).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("throws 400 PREREQUISITE_CYCLE for a cycle through a third course", async () => {
+        // Avançada requires Intermediária, which requires Básica: Básica cannot require Avançada.
+        state.course = buildBasic();
+        state.links = [];
+        state.edges = [
+          { courseId: ADVANCED_ID, prerequisiteId: COURSE_ID },
+          { courseId: COURSE_ID, prerequisiteId: BASIC_ID },
+        ];
+
+        const failure = await httpFailure(
+          service.update(BASIC_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID),
+        );
+
+        expect(failure.getResponse()).toMatchObject({ error: "PREREQUISITE_CYCLE" });
+        expect(manager.save).not.toHaveBeenCalled();
+      });
+
+      it("throws 400 PREREQUISITE_CYCLE for a course that requires itself", async () => {
+        const failure = await httpFailure(
+          service.update(COURSE_ID, { prerequisiteIds: [COURSE_ID] }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(400);
+        expect(failure.getResponse()).toMatchObject({ error: "PREREQUISITE_CYCLE" });
+        expect(manager.delete).not.toHaveBeenCalled();
+      });
+
+      it("accepts a new prerequisite that does not lead back to the course", async () => {
+        state.edges = [
+          { courseId: COURSE_ID, prerequisiteId: BASIC_ID },
+          { courseId: ADVANCED_ID, prerequisiteId: BASIC_ID },
+        ];
+
+        const result = await service.update(
+          COURSE_ID,
+          { prerequisiteIds: [BASIC_ID, ADVANCED_ID] },
+          ACTOR_ID,
+        );
+
+        expect(result.prerequisites.map((prerequisite) => prerequisite.id)).toEqual([
+          ADVANCED_ID,
+          BASIC_ID,
+        ]);
+        expect(manager.delete).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("throws 400 PREREQUISITE_NOT_FOUND and writes nothing", async () => {
+      const failure = await httpFailure(
+        service.update(COURSE_ID, { prerequisiteIds: [UNKNOWN_ID] }, ACTOR_ID),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toEqual({
+        error: "PREREQUISITE_NOT_FOUND",
+        message: "One or more prerequisites do not exist.",
+      });
+      expect(order).not.toContain("load-edges");
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("rejects a newly added archived prerequisite and keeps an already linked archived one", async () => {
+      const archive = { archivedAt: CREATED_AT, archivedById: ACTOR_ID };
+      state.courses = [buildBasic({ archive }), buildAdvanced({ archive }), buildCourse()];
+
+      // Avançada is archived and not linked yet: refused.
+      const failure = await httpFailure(
+        service.update(COURSE_ID, { prerequisiteIds: [BASIC_ID, ADVANCED_ID] }, ACTOR_ID),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toEqual({
+        error: "PREREQUISITE_ARCHIVED",
+        message: "An archived course cannot be added as a prerequisite.",
+      });
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+
+      // Básica is archived but already linked: it stays, next to a new active course.
+      state.courses = [buildBasic({ archive }), buildAdvanced(), buildCourse()];
+      const result = await service.update(
+        COURSE_ID,
+        { prerequisiteIds: [BASIC_ID, ADVANCED_ID] },
+        ACTOR_ID,
+      );
+
+      expect(result.prerequisites.map((prerequisite) => prerequisite.id)).toEqual([
+        ADVANCED_ID,
+        BASIC_ID,
+      ]);
+      expect(manager.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it("answers the errors of the prerequisites in the order not found, archived, cycle", async () => {
+      state.course = buildBasic();
+      state.links = [];
+      const archive = { archivedAt: CREATED_AT, archivedById: ACTOR_ID };
+
+      // Intermediária would close a cycle, is archived, and the other id does not exist.
+      state.courses = [buildBasic(), buildCourse({ archive })];
+      const notFound = await httpFailure(
+        service.update(BASIC_ID, { prerequisiteIds: [COURSE_ID, UNKNOWN_ID] }, ACTOR_ID),
+      );
+      expect(notFound.getResponse()).toMatchObject({ error: "PREREQUISITE_NOT_FOUND" });
+
+      const archived = await httpFailure(
+        service.update(BASIC_ID, { prerequisiteIds: [COURSE_ID] }, ACTOR_ID),
+      );
+      expect(archived.getResponse()).toMatchObject({ error: "PREREQUISITE_ARCHIVED" });
+
+      state.courses = [buildBasic(), buildCourse()];
+      const cycle = await httpFailure(
+        service.update(BASIC_ID, { prerequisiteIds: [COURSE_ID] }, ACTOR_ID),
+      );
+      expect(cycle.getResponse()).toMatchObject({ error: "PREREQUISITE_CYCLE" });
+    });
+
+    it("answers COURSE_NAME_TAKEN before the problems with the prerequisites", async () => {
+      state.nameTaken = true;
+
+      const failure = await httpFailure(
+        service.update(
+          COURSE_ID,
+          { name: "Informática Básica", prerequisiteIds: [UNKNOWN_ID] },
+          ACTOR_ID,
+        ),
+      );
+
+      expect(failure.getResponse()).toMatchObject({ error: "COURSE_NAME_TAKEN" });
+      expect(order).not.toContain("load-edges");
+    });
+
+    it("touches updatedAt with the clock when only the prerequisites change", async () => {
+      const result = await service.update(COURSE_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID);
+
+      // One save for the new prerequisite rows (a list) and one for the course itself.
+      const savedCourses = manager.save.mock.calls.filter((call) => call[0] instanceof Course);
+      expect(savedCourses).toHaveLength(1);
+      expect(order.slice(-4)).toEqual(["insert-prerequisites", "save-course", "commit", "emit"]);
+      expect(result.updatedAt).toEqual(NOW);
+      expect(result.createdAt).toEqual(CREATED_AT);
+    });
+
+    it("emits COURSE_UPDATED after the commit with only the changed fields", async () => {
+      await service.update(
+        COURSE_ID,
+        {
+          name: "Informática Média",
+          description: "Planilhas, textos e apresentações.",
+          objective: null,
+          category: CourseCategory.ADVANCED,
+          prerequisiteIds: [ADVANCED_ID, BASIC_ID],
+        },
+        ACTOR_ID,
+      );
+
+      expect(order.slice(-2)).toEqual(["commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(AUDITABLE_ACTION_EVENT, expect.anything());
+
+      const [event] = emittedEvents();
+      expect(event.action).toBe(AuditableAction.COURSE_UPDATED);
+      expect(event.actorId).toBe(ACTOR_ID);
+      expect(event.targetType).toBe("course");
+      expect(event.targetId).toBe(COURSE_ID);
+      // The description was sent but did not change: it is in neither snapshot.
+      expect(event.before).toEqual({
+        name: "Informática Intermediária",
+        objective: "Preparar o aluno para as ferramentas de escritório.",
+        category: CourseCategory.INTERMEDIATE,
+        prerequisiteIds: [BASIC_ID],
+      });
+      expect(event.after).toEqual({
+        name: "Informática Média",
+        objective: null,
+        category: CourseCategory.ADVANCED,
+        // Sorted: the set has no order.
+        prerequisiteIds: [BASIC_ID, ADVANCED_ID],
+        changedFields: ["name", "objective", "category", "prerequisiteIds"],
+      });
+      expect(event.occurredAt).toEqual(NOW);
+    });
+
+    it("emits only the prerequisites when only they change", async () => {
+      await service.update(COURSE_ID, { prerequisiteIds: [] }, ACTOR_ID);
+
+      const [event] = emittedEvents();
+      expect(event.before).toEqual({ prerequisiteIds: [BASIC_ID] });
+      expect(event.after).toEqual({ prerequisiteIds: [], changedFields: ["prerequisiteIds"] });
+    });
+
+    it("is a no-op without event when nothing changed", async () => {
+      const unchanged = await service.update(
+        COURSE_ID,
+        {
+          name: "Informática Intermediária",
+          description: "Planilhas, textos e apresentações.",
+          objective: "Preparar o aluno para as ferramentas de escritório.",
+          category: CourseCategory.INTERMEDIATE,
+          prerequisiteIds: [BASIC_ID],
+        },
+        ACTOR_ID,
+      );
+      const empty = await service.update(COURSE_ID, {}, ACTOR_ID);
+
+      expect(unchanged.id).toBe(COURSE_ID);
+      expect(unchanged.updatedAt).toEqual(CREATED_AT);
+      expect(empty.id).toBe(COURSE_ID);
+      expect(empty.updatedAt).toEqual(CREATED_AT);
+      expect(order).not.toContain("load-edges");
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when the transaction fails", async () => {
+      manager.save.mockRejectedValueOnce(new Error("connection lost"));
+
+      await expect(
+        service.update(COURSE_ID, { category: CourseCategory.ADVANCED }, ACTOR_ID),
+      ).rejects.toThrow("connection lost");
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when the insert of the new prerequisite rows fails", async () => {
+      manager.save.mockRejectedValueOnce(new Error("connection lost"));
+
+      await expect(
+        service.update(COURSE_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID),
+      ).rejects.toThrow("connection lost");
 
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
