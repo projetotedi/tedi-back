@@ -35,7 +35,7 @@ Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuár
 
 ```
 auth       → people   (o guard carrega a Person e a situação do cadastro de membro a cada request)
-people       ← classes, assignments, hours, imports, catalog   (catalog: nome de quem criou o plano de aula, via PeopleService.findRefsByIds, GUS-96)
+people       ← classes, assignments, hours, imports, catalog   (catalog: nome de quem criou o plano de aula, GUS-96, e o curso, GUS-100, via PeopleService.findRefsByIds)
 catalog      ← classes, lessons
 classes      ← lessons, attendance
 lessons      ← assignments, attendance
