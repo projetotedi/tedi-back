@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Param, Patch, Post } from "@nestjs/common";
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -17,11 +17,8 @@ import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CreateCourseDto } from "../dto/create-course.dto";
 import { UpdateCourseDto } from "../dto/update-course.dto";
-import { CoursesService, courseNotFound } from "../services/courses.service";
-
-const COURSE_ID = new ParseUUIDPipe({ exceptionFactory: () => courseNotFound() });
-
-const COURSE_ID_PARAM = { name: "id", format: "uuid", description: "Id of the course." };
+import { CoursesService } from "../services/courses.service";
+import { COURSE_ID, COURSE_ID_PARAM } from "./course-id.param";
 
 @ApiTags("catalog")
 @Controller("courses")
