@@ -1256,6 +1256,163 @@
         ],
         "type": "string"
       },
+      "MyProfileResponseDto": {
+        "properties": {
+          "accessEnabled": {
+            "example": true,
+            "type": "boolean"
+          },
+          "address": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "Rua das Acácias, 120, apto 42",
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "example": "1999-07-22",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "city": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "São Paulo",
+            "nullable": true,
+            "type": "string"
+          },
+          "className": {
+            "description": "Class (turma) at the university. Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "SI-2024-N",
+            "nullable": true,
+            "type": "string"
+          },
+          "course": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "Sistemas de Informação",
+            "nullable": true,
+            "type": "string"
+          },
+          "cpfMasked": {
+            "description": "CPF with only the last five digits visible; the full CPF is never returned (RNF-14). Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "***.***.247-25",
+            "nullable": true,
+            "type": "string"
+          },
+          "department": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DepartmentResponseDto"
+              }
+            ],
+            "description": "Null without a member profile or without a department.",
+            "nullable": true,
+            "type": "object"
+          },
+          "email": {
+            "example": "ana.torres@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "institutionalEmail": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "ana.torres@example.edu",
+            "nullable": true,
+            "type": "string"
+          },
+          "joinedAt": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "2026-10-01",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "lastLoginAt": {
+            "description": "The login BEFORE the current one (UTC), not the one that opened this session. Null until the person's second login.",
+            "example": "2026-10-20T13:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "mainFunction": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "Monitora de informática",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Torres",
+            "type": "string"
+          },
+          "personalEmail": {
+            "description": "Personal e-mail of the member registration (the same value as email). Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "ana.torres@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only.",
+            "example": "11981813030",
+            "nullable": true,
+            "type": "string"
+          },
+          "ra": {
+            "example": "a2210001",
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Access profile.",
+            "example": "member"
+          },
+          "semester": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": 7,
+            "nullable": true,
+            "type": "integer"
+          },
+          "state": {
+            "description": "UF. Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "SP",
+            "nullable": true,
+            "type": "string"
+          },
+          "volunteerTermUrl": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "ra",
+          "role",
+          "accessEnabled",
+          "birthDate",
+          "phone",
+          "email",
+          "personalEmail",
+          "address",
+          "city",
+          "state",
+          "institutionalEmail",
+          "course",
+          "semester",
+          "className",
+          "volunteerTermUrl",
+          "mainFunction",
+          "department",
+          "joinedAt",
+          "cpfMasked",
+          "lastLoginAt"
+        ],
+        "type": "object"
+      },
       "PasswordResetResponseDto": {
         "properties": {
           "expiresAt": {
@@ -4257,6 +4414,77 @@
                     "limit"
                   ],
                   "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
+    "/members/me": {
+      "get": {
+        "operationId": "getMyProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyProfileResponseDto"
                 }
               }
             },

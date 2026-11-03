@@ -20,6 +20,22 @@ export class PeopleService {
     return this.repository.findOne({ where: { ra: normalized } });
   }
 
+  /**
+   * Records a successful login (GUS-122): the login that was the last one becomes the previous
+   * one and the last one is now. A single UPDATE, so the right side of every SET reads the OLD
+   * row and the row lock serializes two concurrent logins of the same person.
+   *
+   * Raw SQL on purpose: a login is not a change to the person's data, so `updated_at` must not
+   * move (repository.save would bump it through @UpdateDateColumn). The id is a bound parameter.
+   * Called by AuthService.login only after every check passed (decision 29).
+   */
+  async recordLogin(personId: string): Promise<void> {
+    await this.repository.query(
+      `UPDATE "people" SET "previous_login_at" = "last_login_at", "last_login_at" = now() WHERE "id" = $1`,
+      [personId],
+    );
+  }
+
   save(person: DeepPartial<Person>): Promise<Person> {
     // repository.create() returns a real Person instance, which is what
     // triggers TypeORM lifecycle hooks like @BeforeInsert on BaseEntity

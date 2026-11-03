@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { validate } from "class-validator";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
 import { BRAZILIAN_STATES, normalizeState } from "../validators/brazilian-state";
-import { IsCpf, isValidCpf, normalizeCpf } from "../validators/cpf";
+import { IsCpf, isValidCpf, maskCpf, normalizeCpf } from "../validators/cpf";
 import { IsJoinedAt, MIN_JOINED_AT } from "../validators/is-joined-at.validator";
 
 describe("isValidCpf", () => {
@@ -43,6 +43,39 @@ describe("normalizeCpf", () => {
     expect(normalizeCpf({ value: "5299822472a" })).toBe("5299822472a");
     // Other types pass through for the validator to reject.
     expect(normalizeCpf({ value: 52998224725 })).toBe(52998224725);
+  });
+});
+
+describe("maskCpf", () => {
+  it("masks all but the last five digits", () => {
+    expect(maskCpf("52998224725")).toBe("***.***.247-25");
+    expect(maskCpf("11144477735")).toBe("***.***.777-35");
+  });
+
+  it("never lets the first six digits through", () => {
+    const masked = maskCpf("52998224725") as string;
+
+    expect(masked).not.toContain("529");
+    expect(masked).not.toContain("982");
+    expect(masked.replace(/\D/g, "")).toBe("24725");
+  });
+
+  it("keeps null as null", () => {
+    expect(maskCpf(null)).toBeNull();
+  });
+
+  it("fully masks a value that is not 11 digits", () => {
+    // Too short, too long, formatted, with a letter and with no digit at all.
+    for (const value of [
+      "",
+      "5299822472",
+      "529982247255",
+      "529.982.247-25",
+      "5299822472a",
+      "abc",
+    ]) {
+      expect(maskCpf(value)).toBe("***.***.***-**");
+    }
   });
 });
 

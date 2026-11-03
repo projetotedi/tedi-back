@@ -33,11 +33,28 @@ function makeMembers(facts: MemberAccessFacts = NO_MEMBER_PROFILE): MembersServi
   } as unknown as MembersService;
 }
 
+function makePeople(person: Person | null = makePerson()): PeopleService {
+  return {
+    findByRa: jest.fn(() => Promise.resolve(person)),
+    findById: jest.fn(() => Promise.resolve(person)),
+    recordLogin: jest.fn(() => Promise.resolve()),
+  } as unknown as PeopleService;
+}
+
+function makePassword(passwordOk = true, dummyHash = "dummy-hash"): PasswordService {
+  return {
+    verify: jest.fn(() => Promise.resolve(passwordOk)),
+    getDummyHash: jest.fn(() => Promise.resolve(dummyHash)),
+  } as unknown as PasswordService;
+}
+
 function makeService(overrides: {
   person?: Person | null;
   passwordOk?: boolean;
   dummyHash?: string;
   facts?: MemberAccessFacts;
+  people?: PeopleService;
+  password?: PasswordService;
   members?: MembersService;
 }): AuthService {
   const {
@@ -47,17 +64,11 @@ function makeService(overrides: {
     facts = NO_MEMBER_PROFILE,
   } = overrides;
 
-  const people = {
-    findByRa: jest.fn(() => Promise.resolve(person)),
-    findById: jest.fn(() => Promise.resolve(person)),
-  } as unknown as PeopleService;
-
-  const password = {
-    verify: jest.fn(() => Promise.resolve(passwordOk)),
-    getDummyHash: jest.fn(() => Promise.resolve(dummyHash)),
-  } as unknown as PasswordService;
-
-  return new AuthService(people, password, overrides.members ?? makeMembers(facts));
+  return new AuthService(
+    overrides.people ?? makePeople(person),
+    overrides.password ?? makePassword(passwordOk, dummyHash),
+    overrides.members ?? makeMembers(facts),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +278,69 @@ describe("AuthService", () => {
       });
     });
 
+    describe("GUS-122: last access", () => {
+      it("records the login only after every check passed", async () => {
+        const people = makePeople(makePerson());
+        const password = makePassword();
+        const members = makeMembers();
+        const service = makeService({ people, password, members });
+
+        await service.login(VALID_DTO);
+
+        expect(people.recordLogin).toHaveBeenCalledTimes(1);
+        expect(people.recordLogin).toHaveBeenCalledWith("uuid-1");
+        // Nothing is written before the password and the registration check have passed.
+        const recorded = (people.recordLogin as jest.Mock).mock.invocationCallOrder[0];
+        expect((password.verify as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(recorded);
+        expect((members.findAccessFacts as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+          recorded,
+        );
+      });
+
+      it("records the login of an approved member as well", async () => {
+        const people = makePeople(makePerson({ id: "uuid-approved" }));
+        const service = makeService({
+          people,
+          facts: { registrationStatus: MemberRegistrationStatus.APPROVED, departmentIds: ["d1"] },
+        });
+
+        await service.login(VALID_DTO);
+
+        expect(people.recordLogin).toHaveBeenCalledWith("uuid-approved");
+      });
+
+      const FAILURES: Array<[string, Parameters<typeof makeService>[0]]> = [
+        ["the RA is unknown", { person: null }],
+        ["the password hash is null", { person: makePerson({ passwordHash: null }) }],
+        ["the password is wrong", { passwordOk: false }],
+        [
+          "the registration is pending",
+          {
+            person: makePerson({ role: null, accessEnabled: false }),
+            facts: { registrationStatus: MemberRegistrationStatus.PENDING, departmentIds: [] },
+          },
+        ],
+        [
+          "the registration was rejected",
+          {
+            person: makePerson({ role: null, accessEnabled: false }),
+            facts: { registrationStatus: MemberRegistrationStatus.REJECTED, departmentIds: [] },
+          },
+        ],
+        ["the role is null", { person: makePerson({ role: null }) }],
+        ["the access is disabled", { person: makePerson({ accessEnabled: false }) }],
+      ];
+
+      it.each(FAILURES)("does not record the login when %s", async (_reason, overrides) => {
+        const people = makePeople(overrides.person === undefined ? makePerson() : overrides.person);
+        const service = makeService({ ...overrides, people });
+
+        await expect(service.login(VALID_DTO)).rejects.toBeInstanceOf(HttpException);
+
+        expect(people.recordLogin).not.toHaveBeenCalled();
+      });
+    });
+
     it("verifies dummy hash when person is not found (constant-time)", async () => {
       const passwordService = {
         verify: jest.fn(() => Promise.resolve(false)),
@@ -309,6 +383,15 @@ describe("AuthService", () => {
     it("throws UNAUTHORIZED when person.role is null", async () => {
       const service = makeService({ person: makePerson({ role: null }) });
       await expect(service.getMe("uuid-1")).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it("GUS-122: does not record a login (the last access is the last login, not the last request)", async () => {
+      const people = makePeople(makePerson());
+      const service = makeService({ people });
+
+      await service.getMe("uuid-1");
+
+      expect(people.recordLogin).not.toHaveBeenCalled();
     });
   });
 });

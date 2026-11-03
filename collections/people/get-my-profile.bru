@@ -1,0 +1,27 @@
+meta {
+  name: get-my-profile
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/members/me
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  "Meu perfil" (GUS-122): o cadastro da própria pessoa logada, lido do banco. Não recebe id, query nem corpo: a pessoa é sempre a da sessão, e nenhuma rota devolve o perfil de outra por aqui.
+  Requer cookie tedi_session e a permissão account.manageOwn (@RequirePermission; membro, diretoria, coordenação e superadmin, escopo own). Sem cookie: 401 UNAUTHORIZED.
+  Traz os dados da pessoa (name, ra, role, accessEnabled, birthDate, phone, email), os do perfil de membro (address, city, state, institutionalEmail, course, semester, className, volunteerTermUrl, mainFunction, joinedAt), department { id, name } e personalEmail (o mesmo valor de email, só quando há perfil de membro).
+  Quem não tem perfil de membro (coordenadora do seed, contas anteriores à GUS-91) recebe 200 com os campos de membro em null. Toda chave vem sempre na resposta, com null no lugar de ausente.
+  CPF: só cpfMasked (***.***.247-25), nunca o CPF completo (RNF-14). O CPF completo é da coordenação, em get-member-registration.
+  lastLoginAt é o login ANTERIOR ao da sessão atual (UTC, ISO 8601); null até o 2º login da pessoa. Quem grava o acesso é o login (login.bru); ler este endpoint não muda o valor. É por pessoa, não por sessão.
+  Dado pessoal (RNF-13): não cole a resposta em issue, chat ou log.
+  Retorna 200 MyProfileResponseDto.
+  Erros possíveis: 401 UNAUTHORIZED (sem cookie, token inválido, acesso desativado, cadastro pendente ou recusado, pessoa removida).
+}

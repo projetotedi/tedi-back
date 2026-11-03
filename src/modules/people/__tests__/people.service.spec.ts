@@ -7,6 +7,7 @@ import { PeopleService } from "../services/people.service";
 const mockRepository = (): Partial<Repository<Person>> => ({
   findOne: jest.fn(),
   save: jest.fn(),
+  query: jest.fn(),
   // The service uses repository.create() so the @BeforeInsert hook fires
   // on the real entity; for unit tests we just echo the input back.
   create: jest.fn((data) => data) as unknown as Repository<Person>["create"],
@@ -80,6 +81,35 @@ describe("PeopleService", () => {
 
       expect(repo.findOne).toHaveBeenCalledWith({ where: { id: "uuid-1" } });
       expect(result).toBe(person);
+    });
+  });
+
+  describe("recordLogin", () => {
+    it("updates only the row of the given person id", async () => {
+      (repo.query as jest.Mock).mockResolvedValue([[], 1]);
+
+      await service.recordLogin("uuid-1");
+
+      expect(repo.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = (repo.query as jest.Mock).mock.calls[0] as [string, unknown[]];
+      const statement = sql.replace(/\s+/g, " ").trim();
+      // One statement, one row, the id as a bound parameter (never concatenated into the SQL).
+      expect(statement).toMatch(/^UPDATE "people" SET /);
+      expect(statement).toContain('WHERE "id" = $1');
+      expect(statement).not.toContain("uuid-1");
+      expect(params).toEqual(["uuid-1"]);
+      // The last login becomes the previous one and the last one is now; nothing else moves.
+      expect(statement).toContain('"previous_login_at" = "last_login_at"');
+      expect(statement).toContain('"last_login_at" = now()');
+      expect(statement).not.toContain("updated_at");
+    });
+
+    it("does not go through repository.save, which would bump updated_at", async () => {
+      (repo.query as jest.Mock).mockResolvedValue([[], 1]);
+
+      await service.recordLogin("uuid-1");
+
+      expect(repo.save).not.toHaveBeenCalled();
     });
   });
 });
