@@ -19,9 +19,13 @@ headers {
 }
 
 docs {
-  Detalhe de um plano de aula: título, objetivo, duração prevista, conteúdos na ordem, link do material e situação de arquivamento.
+  Detalhe de um plano de aula (RF-017): título, objetivo, duração prevista, conteúdos na ordem, link do material, situação de arquivamento, quem criou o plano e em quais cursos ele está.
   Requer cookie tedi_session e a permissão catalog.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  status é derivado do uso: in_use quando o plano está na sequência de ao menos um curso (cursos arquivados contam) e unused quando não está em nenhum. Não depende do arquivamento: um plano arquivado pode estar in_use, porque continua nas sequências em que já estava.
+  createdBy traz { id, name } de quem criou o plano e é null quando essa pessoa foi excluída (createdById continua preenchido).
+  usedIn lista os cursos que têm o plano na sequência, ordenados pelo nome do curso (acento não muda a ordem) e com os arquivados: courseId, courseName, category, courseStatus (active | archived), position (a posição do plano naquele curso, a partir de 1) e lessonPlanCount (quantos planos a sequência do curso tem, para mostrar "posição X de lessonPlanCount"). Plano sem uso responde usedIn [].
   Plano arquivado continua acessível, só leitura: archivedAt, archivedById e archiveReason vêm preenchidos.
-  Retorna 200 LessonPlanResponseDto.
+  Não traz o nome de quem fez a última alteração (só updatedAt) nem as turmas que já usaram o plano.
+  Retorna 200 LessonPlanDetailDto. POST, PATCH, archive e unarchive continuam devolvendo LessonPlanResponseDto, sem status, createdBy nem usedIn.
   Erros possíveis: 401, 403 FORBIDDEN, 404 LESSON_PLAN_NOT_FOUND (id inexistente ou mal formado).
 }

@@ -474,7 +474,14 @@ describe("LessonPlansController (e2e)", () => {
       for (const actor of [director, coordinator, member]) {
         const res = await getPlan(created.id, actor).expect(200);
 
-        expect(res.body).toEqual({ ...created, contents: ["Pastas", "Janelas", "Teclado"] });
+        // The detail is the plan of the writes plus the usage (GUS-96): this plan is in no course.
+        expect(res.body).toEqual({
+          ...created,
+          contents: ["Pastas", "Janelas", "Teclado"],
+          status: "unused",
+          createdBy: { id: director.id, name: "Director" },
+          usedIn: [],
+        });
       }
     });
 
@@ -647,7 +654,8 @@ describe("LessonPlansController (e2e)", () => {
         expect(fieldsOf(res.body)).toEqual([field]);
       }
 
-      expect((await getPlan(created.id, director).expect(200)).body).toEqual(created);
+      // The detail answers the plan plus the usage (GUS-96): the fields of the plan did not change.
+      expect((await getPlan(created.id, director).expect(200)).body).toMatchObject(created);
     });
 
     it("returns 409 LESSON_PLAN_ARCHIVED for an archived plan and changes nothing", async () => {
