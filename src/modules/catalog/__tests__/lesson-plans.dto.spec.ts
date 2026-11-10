@@ -3,6 +3,7 @@ import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { flattenValidationErrors } from "@shared/filters/http-exception.filter";
 import { CreateLessonPlanDto } from "../dto/create-lesson-plan.dto";
+import { LessonPlanUsageQueryDto } from "../dto/lesson-plan-usage-query.dto";
 import { UpdateLessonPlanDto } from "../dto/update-lesson-plan.dto";
 
 const VALID_BODY = {
@@ -29,6 +30,12 @@ async function checkCreate(body: Record<string, unknown>) {
 
 async function checkUpdate(body: Record<string, unknown>) {
   const dto = plainToInstance(UpdateLessonPlanDto, body);
+  const errors = await validate(dto, { whitelist: true });
+  return { dto, errors, fields: fieldsOf(errors) };
+}
+
+async function checkUsageQuery(query: Record<string, unknown>) {
+  const dto = plainToInstance(LessonPlanUsageQueryDto, query);
   const errors = await validate(dto, { whitelist: true });
   return { dto, errors, fields: fieldsOf(errors) };
 }
@@ -279,5 +286,41 @@ describe("UpdateLessonPlanDto", () => {
     expect(blank.errors).toHaveLength(0);
     expect(blank.dto.objective).toBeNull();
     expect(blank.dto.materialUrl).toBeNull();
+  });
+});
+
+describe("LessonPlanUsageQueryDto", () => {
+  it("accepts no expectedDurationMinutes", async () => {
+    const { dto, errors } = await checkUsageQuery({});
+
+    expect(errors).toHaveLength(0);
+    expect(dto.expectedDurationMinutes).toBeUndefined();
+  });
+
+  it("converts '120' from the query string to the number 120", async () => {
+    const { dto, errors } = await checkUsageQuery({ expectedDurationMinutes: "120" });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.expectedDurationMinutes).toBe(120);
+  });
+
+  it("accepts the limits 1 and 1440 minutes", async () => {
+    for (const [value, expected] of [
+      ["1", 1],
+      ["1440", 1440],
+    ] as const) {
+      const { dto, errors } = await checkUsageQuery({ expectedDurationMinutes: value });
+
+      expect(errors).toHaveLength(0);
+      expect(dto.expectedDurationMinutes).toBe(expected);
+    }
+  });
+
+  it("rejects 0, 1441, 1.5, 'abc' and an empty string with field expectedDurationMinutes", async () => {
+    for (const value of ["0", "1441", "1.5", "abc", ""]) {
+      const { fields } = await checkUsageQuery({ expectedDurationMinutes: value });
+
+      expect(fields).toEqual(["expectedDurationMinutes"]);
+    }
   });
 });

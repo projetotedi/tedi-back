@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
 import {
+  ApiBadRequestResponse,
   ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -16,8 +17,12 @@ import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { CreateLessonPlanDto } from "../dto/create-lesson-plan.dto";
+import { LessonPlanDetailDto } from "../dto/lesson-plan-detail.response.dto";
+import { LessonPlanUsageQueryDto } from "../dto/lesson-plan-usage-query.dto";
+import { LessonPlanUsageResponseDto } from "../dto/lesson-plan-usage.response.dto";
 import { LessonPlanResponseDto } from "../dto/lesson-plan.response.dto";
 import { UpdateLessonPlanDto } from "../dto/update-lesson-plan.dto";
+import { LessonPlanUsageService } from "../services/lesson-plan-usage.service";
 import { LessonPlansService, lessonPlanNotFound } from "../services/lesson-plans.service";
 
 const LESSON_PLAN_ID = new ParseUUIDPipe({ exceptionFactory: () => lessonPlanNotFound() });
@@ -30,7 +35,10 @@ const LESSON_PLAN_ID_PARAM = { name: "id", format: "uuid", description: "Id of t
 @Controller("lesson-plans")
 @ApiStandardErrors()
 export class LessonPlansController {
-  constructor(private readonly lessonPlansService: LessonPlansService) {}
+  constructor(
+    private readonly lessonPlansService: LessonPlansService,
+    private readonly lessonPlanUsageService: LessonPlanUsageService,
+  ) {}
 
   @Post()
   @RequirePermission(Permission.LESSON_PLANS_MANAGE)
@@ -45,10 +53,23 @@ export class LessonPlansController {
   @Get(":id")
   @RequirePermission(Permission.CATALOG_VIEW)
   @ApiParam(LESSON_PLAN_ID_PARAM)
-  @ApiOkResponse({ type: LessonPlanResponseDto })
+  @ApiOkResponse({ type: LessonPlanDetailDto })
   @ApiNotFoundResponse(LESSON_PLAN_NOT_FOUND_RESPONSE)
-  getLessonPlan(@Param("id", LESSON_PLAN_ID) id: string): Promise<LessonPlanResponseDto> {
-    return this.lessonPlansService.findById(id);
+  getLessonPlan(@Param("id", LESSON_PLAN_ID) id: string): Promise<LessonPlanDetailDto> {
+    return this.lessonPlanUsageService.getDetail(id);
+  }
+
+  @Get(":id/usage")
+  @RequirePermission(Permission.CATALOG_VIEW)
+  @ApiParam(LESSON_PLAN_ID_PARAM)
+  @ApiOkResponse({ type: LessonPlanUsageResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  @ApiNotFoundResponse(LESSON_PLAN_NOT_FOUND_RESPONSE)
+  getLessonPlanUsage(
+    @Param("id", LESSON_PLAN_ID) id: string,
+    @Query() query: LessonPlanUsageQueryDto,
+  ): Promise<LessonPlanUsageResponseDto> {
+    return this.lessonPlanUsageService.getUsage(id, query.expectedDurationMinutes);
   }
 
   @Patch(":id")
