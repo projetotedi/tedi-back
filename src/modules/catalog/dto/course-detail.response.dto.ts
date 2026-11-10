@@ -1,8 +1,8 @@
 import { ApiProperty } from "@nestjs/swagger";
+import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
 import { CourseCategory } from "../enums/course-category.enum";
 import { CourseStatus } from "../enums/course-status.enum";
 import { CourseLessonPlanItemResponseDto } from "./course-lesson-plan-item.response.dto";
-import { PersonReferenceResponseDto } from "./person-reference.response.dto";
 import { RelatedCourseResponseDto } from "./related-course.response.dto";
 
 /**
@@ -51,11 +51,11 @@ export class CourseDetailDto {
   createdAt!: Date;
 
   @ApiProperty({
-    type: () => PersonReferenceResponseDto,
+    type: () => PersonRefDto,
     nullable: true,
     description: "Null when the person who created the course was removed.",
   })
-  createdBy!: PersonReferenceResponseDto | null;
+  createdBy!: PersonRefDto | null;
 
   @ApiProperty({
     type: String,

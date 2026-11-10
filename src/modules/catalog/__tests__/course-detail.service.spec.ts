@@ -110,7 +110,7 @@ describe("CourseDetailService", () => {
   const courseRepository = { findOne: jest.fn() };
   const dataSource = { getRepository: jest.fn(), transaction: jest.fn(), manager };
   const courseLessonPlansService = { readSequence: jest.fn() };
-  const peopleService = { findById: jest.fn() };
+  const peopleService = { findRefsByIds: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -125,7 +125,9 @@ describe("CourseDetailService", () => {
     courseRepository.findOne.mockImplementation(async () => state.course);
     manager.query.mockImplementation(async () => state.related);
     courseLessonPlansService.readSequence.mockImplementation(async () => state.sequence);
-    peopleService.findById.mockImplementation(async () => state.person);
+    peopleService.findRefsByIds.mockImplementation(async () =>
+      state.person === null ? [] : [state.person],
+    );
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -153,7 +155,7 @@ describe("CourseDetailService", () => {
       expect(courseRepository.findOne).toHaveBeenCalledTimes(1);
       expect(manager.query).not.toHaveBeenCalled();
       expect(courseLessonPlansService.readSequence).not.toHaveBeenCalled();
-      expect(peopleService.findById).not.toHaveBeenCalled();
+      expect(peopleService.findRefsByIds).not.toHaveBeenCalled();
     });
 
     it("reads the course once, the related courses once, the sequence once and the creator once", async () => {
@@ -164,8 +166,8 @@ describe("CourseDetailService", () => {
       expect(courseRepository.findOne).toHaveBeenCalledWith({ where: { id: COURSE_ID } });
       expect(manager.query).toHaveBeenCalledTimes(1);
       expect(courseLessonPlansService.readSequence).toHaveBeenCalledTimes(1);
-      expect(peopleService.findById).toHaveBeenCalledTimes(1);
-      expect(peopleService.findById).toHaveBeenCalledWith(CREATOR_ID);
+      expect(peopleService.findRefsByIds).toHaveBeenCalledTimes(1);
+      expect(peopleService.findRefsByIds).toHaveBeenCalledWith([CREATOR_ID]);
     });
 
     it("uses the id stored in the database, not the requested one, for the related courses and the sequence", async () => {

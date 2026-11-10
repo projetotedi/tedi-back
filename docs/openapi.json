@@ -243,7 +243,7 @@
           "createdBy": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/PersonReferenceResponseDto"
+                "$ref": "#/components/schemas/PersonRefDto"
               }
             ],
             "description": "Null when the person who created the course was removed.",
@@ -2319,24 +2319,6 @@
         "type": "object"
       },
       "PersonRefDto": {
-        "properties": {
-          "id": {
-            "example": "01999a3e-0000-7000-8000-0000000000aa",
-            "format": "uuid",
-            "type": "string"
-          },
-          "name": {
-            "example": "Carla Menezes",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ],
-        "type": "object"
-      },
-      "PersonReferenceResponseDto": {
         "properties": {
           "id": {
             "example": "01999a3e-0000-7000-8000-0000000000aa",

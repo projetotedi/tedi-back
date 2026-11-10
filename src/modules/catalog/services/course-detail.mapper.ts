@@ -1,3 +1,4 @@
+import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
 import { CourseDetailDto } from "../dto/course-detail.response.dto";
 import { CourseLessonPlansResponseDto } from "../dto/course-lesson-plans.response.dto";
 import { RelatedCourseResponseDto } from "../dto/related-course.response.dto";
@@ -16,12 +17,6 @@ export interface RelatedCourseRow {
   name: string;
   category: CourseCategory;
   archivedAt: Date | null;
-}
-
-/** Id and name of the person who created the course, read through PeopleService. */
-export interface CourseCreator {
-  id: string;
-  name: string;
 }
 
 function toRelatedCourse(row: RelatedCourseRow): RelatedCourseResponseDto {
@@ -60,7 +55,7 @@ export function toCourseDetail(
   course: Course,
   related: readonly RelatedCourseRow[],
   sequence: CourseLessonPlansResponseDto,
-  createdBy: CourseCreator | null,
+  createdBy: PersonRefDto | null,
 ): CourseDetailDto {
   return {
     id: course.id,

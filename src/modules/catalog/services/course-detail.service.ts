@@ -19,7 +19,8 @@ import { courseNotFound } from "./courses.service";
  * - the related courses, prerequisites and requiredBy together (1 query);
  * - the sequence, through `CourseLessonPlansService.readSequence` (1 query, plus 1 for the
  *   contents of the plans when the sequence is not empty);
- * - the creator, through `PeopleService.findById` (1 query).
+ * - the creator, through `PeopleService.findRefsByIds` (1 query), which hands over only
+ *   `{ id, name }` (`PersonRefDto`), never the `Person`.
  * The last three run together once the course is found. Without a transaction, a change that
  * lands between two of them can show in the same answer; that is fine for a page to look at.
  */
@@ -47,18 +48,13 @@ export class CourseDetailService {
       .findOne({ where: { id: requestedId } });
     if (course === null) throw courseNotFound();
 
-    const [related, sequence, creator] = await Promise.all([
+    const [related, sequence, [createdBy = null]] = await Promise.all([
       this.loadRelatedCourses(this.dataSource.manager, course.id),
       this.courseLessonPlansService.readSequence(this.dataSource.manager, course.id),
-      this.peopleService.findById(course.createdById),
+      this.peopleService.findRefsByIds([course.createdById]),
     ]);
 
-    return toCourseDetail(
-      course,
-      related,
-      sequence,
-      creator === null ? null : { id: creator.id, name: creator.name },
-    );
+    return toCourseDetail(course, related, sequence, createdBy);
   }
 
   /**
