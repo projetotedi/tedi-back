@@ -111,4 +111,16 @@ export class LessonPlansController {
   ): Promise<LessonPlanResponseDto> {
     return this.lessonPlansService.unarchive(id, actor.id);
   }
+
+  @Post(":id/duplicate")
+  @RequirePermission(Permission.LESSON_PLANS_MANAGE)
+  @ApiParam(LESSON_PLAN_ID_PARAM)
+  @ApiCreatedResponse({ type: LessonPlanResponseDto })
+  @ApiNotFoundResponse(LESSON_PLAN_NOT_FOUND_RESPONSE)
+  duplicateLessonPlan(
+    @Param("id", LESSON_PLAN_ID) id: string,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<LessonPlanResponseDto> {
+    return this.lessonPlansService.duplicate(id, actor.id);
+  }
 }

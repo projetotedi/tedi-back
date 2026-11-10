@@ -26,6 +26,7 @@ describe("LessonPlansController", () => {
     ["updateLessonPlan", Permission.LESSON_PLANS_MANAGE],
     ["archiveLessonPlan", Permission.LESSON_PLANS_MANAGE],
     ["unarchiveLessonPlan", Permission.LESSON_PLANS_MANAGE],
+    ["duplicateLessonPlan", Permission.LESSON_PLANS_MANAGE],
   ] as const)("protects %s with %s and no @Roles", (name, permission) => {
     const handler = LessonPlansController.prototype[name];
 
@@ -42,6 +43,7 @@ describe("LessonPlansController", () => {
       update: jest.fn(),
       archive: jest.fn(),
       unarchive: jest.fn(),
+      duplicate: jest.fn(),
     };
     const usageService = { getDetail: jest.fn(), getUsage: jest.fn() };
     const controller = new LessonPlansController(
@@ -104,6 +106,12 @@ describe("LessonPlansController", () => {
       await expect(controller.unarchiveLessonPlan(PLAN_ID, ACTOR)).resolves.toBe(plan);
 
       expect(service.unarchive).toHaveBeenCalledWith(PLAN_ID, ACTOR.id);
+    });
+
+    it("delegates duplicateLessonPlan to LessonPlansService.duplicate with the actor id", async () => {
+      await expect(controller.duplicateLessonPlan(PLAN_ID, ACTOR)).resolves.toBe(plan);
+
+      expect(service.duplicate).toHaveBeenCalledWith(PLAN_ID, ACTOR.id);
     });
   });
 });
