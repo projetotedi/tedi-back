@@ -18,7 +18,9 @@ const NOW = new Date("2026-10-02T01:30:00.000Z");
 const CREATED_AT = new Date("2026-09-01T12:00:00.000Z");
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
+const OTHER_ACTOR_ID = "01999a3e-0000-7000-8000-0000000000bb";
 const PLAN_ID = "01999a3e-7c1b-7000-8000-000000000001";
+const COPY_ID = "01999a3e-7c1b-7000-8000-000000000002";
 
 function buildPlan(
   overrides: Partial<Omit<LessonPlan, "archive">> & { archive?: Partial<ArchivableColumns> } = {},
@@ -608,6 +610,166 @@ describe("LessonPlansService", () => {
         error: "LESSON_PLAN_NOT_FOUND",
         message: "Lesson plan not found.",
       });
+    });
+  });
+
+  describe("duplicate()", () => {
+    beforeEach(() => {
+      // The outer mock gives PLAN_ID to any LessonPlan it creates. Here the copy gets its own id, or
+      // a test on the id of the copy (the target of the event, the parent of the contents) proves nothing.
+      const createDefault = manager.create.getMockImplementation();
+      manager.create.mockImplementation((target: unknown, data: Record<string, unknown>) => {
+        const entity = createDefault?.(target, data);
+        return target === LessonPlan ? Object.assign(entity, { id: COPY_ID }) : entity;
+      });
+    });
+
+    it("copies title with ' (cópia)', objective, duration, material and contents in order, with createdById = actor", async () => {
+      const result = await service.duplicate(PLAN_ID, OTHER_ACTOR_ID);
+
+      expect(manager.create).toHaveBeenCalledTimes(3);
+      expect(manager.create).toHaveBeenNthCalledWith(1, LessonPlan, {
+        title: "Teclado, mouse e janelas (cópia)",
+        objective: "Familiarizar o aluno com o teclado.",
+        expectedDurationMinutes: 90,
+        materialUrl: "https://drive.google.com/file/d/exemplo/view",
+        createdById: OTHER_ACTOR_ID,
+      });
+      expect(manager.create).toHaveBeenNthCalledWith(2, LessonPlanContent, {
+        lessonPlanId: COPY_ID,
+        position: 0,
+        text: "Teclado e mouse",
+      });
+      expect(manager.create).toHaveBeenNthCalledWith(3, LessonPlanContent, {
+        lessonPlanId: COPY_ID,
+        position: 1,
+        text: "Janelas do sistema",
+      });
+
+      // The source was created by ACTOR_ID: the copy belongs to whoever duplicated it.
+      expect(result).toEqual({
+        id: COPY_ID,
+        title: "Teclado, mouse e janelas (cópia)",
+        objective: "Familiarizar o aluno com o teclado.",
+        expectedDurationMinutes: 90,
+        contents: ["Teclado e mouse", "Janelas do sistema"],
+        materialUrl: "https://drive.google.com/file/d/exemplo/view",
+        archivedAt: null,
+        archivedById: null,
+        archiveReason: null,
+        createdById: OTHER_ACTOR_ID,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      });
+    });
+
+    it("loads the source with pessimistic_read and its contents ordered by position", async () => {
+      await service.duplicate(PLAN_ID, ACTOR_ID);
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(LessonPlan, {
+        where: { id: PLAN_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+      expect(manager.find).toHaveBeenCalledTimes(1);
+      expect(manager.find).toHaveBeenCalledWith(LessonPlanContent, {
+        where: { lessonPlanId: PLAN_ID },
+        order: { position: "ASC" },
+      });
+    });
+
+    it("creates an active copy of an archived source", async () => {
+      state.plan = buildPlan({
+        archive: {
+          archivedAt: CREATED_AT,
+          archivedById: ACTOR_ID,
+          archiveReason: "Conteúdo revisado.",
+        },
+      });
+
+      const result = await service.duplicate(PLAN_ID, ACTOR_ID);
+
+      expect(manager.create.mock.calls[0][1]).not.toHaveProperty("archive");
+      expect(result.id).toBe(COPY_ID);
+      expect(result.archivedAt).toBeNull();
+      expect(result.archivedById).toBeNull();
+      expect(result.archiveReason).toBeNull();
+      expect(result.contents).toEqual(["Teclado e mouse", "Janelas do sistema"]);
+    });
+
+    it("never saves or changes the source", async () => {
+      await service.duplicate(PLAN_ID, OTHER_ACTOR_ID);
+
+      const saved = manager.save.mock.calls.map((call) => call[0]);
+      expect(saved).toHaveLength(2);
+      expect(saved).not.toContain(state.plan);
+      expect(saved[0]).toBeInstanceOf(LessonPlan);
+      expect(saved[0]).toHaveProperty("id", COPY_ID);
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(state.plan).toEqual(buildPlan());
+      expect(state.contents).toEqual(buildContents(["Teclado e mouse", "Janelas do sistema"]));
+    });
+
+    it("does everything in one transaction and emits after the commit", async () => {
+      await service.duplicate(PLAN_ID, ACTOR_ID);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(order).toEqual(["save-plan", "insert-contents", "commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(AUDITABLE_ACTION_EVENT, expect.anything());
+    });
+
+    it("emits LESSON_PLAN_DUPLICATED with the copy as target and sourceLessonPlanId from the database", async () => {
+      // The id of the URL may be in upper case: the source and the event carry the id stored in the database.
+      await service.duplicate(PLAN_ID.toUpperCase(), OTHER_ACTOR_ID);
+
+      expect(manager.findOne).toHaveBeenCalledWith(LessonPlan, {
+        where: { id: PLAN_ID.toUpperCase() },
+        lock: { mode: "pessimistic_read" },
+      });
+      expect(manager.find).toHaveBeenCalledWith(LessonPlanContent, {
+        where: { lessonPlanId: PLAN_ID },
+        order: { position: "ASC" },
+      });
+
+      const [event] = emittedEvents();
+      expect(event.action).toBe(AuditableAction.LESSON_PLAN_DUPLICATED);
+      expect(event.actorId).toBe(OTHER_ACTOR_ID);
+      expect(event.targetType).toBe("lesson_plan");
+      expect(event.targetId).toBe(COPY_ID);
+      expect(event.before).toBeNull();
+      expect(event.after).toEqual({
+        sourceLessonPlanId: PLAN_ID,
+        title: "Teclado, mouse e janelas (cópia)",
+        objective: "Familiarizar o aluno com o teclado.",
+        expectedDurationMinutes: 90,
+        materialUrl: "https://drive.google.com/file/d/exemplo/view",
+        contents: ["Teclado e mouse", "Janelas do sistema"],
+      });
+      expect(event.occurredAt).toEqual(NOW);
+    });
+
+    it("throws 404 LESSON_PLAN_NOT_FOUND and emits nothing when the source does not exist", async () => {
+      state.plan = null;
+
+      const failure = await httpFailure(service.duplicate(PLAN_ID, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "LESSON_PLAN_NOT_FOUND",
+        message: "Lesson plan not found.",
+      });
+      expect(manager.find).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when the transaction fails", async () => {
+      manager.save.mockRejectedValueOnce(new Error("connection lost"));
+
+      await expect(service.duplicate(PLAN_ID, ACTOR_ID)).rejects.toThrow("connection lost");
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 });

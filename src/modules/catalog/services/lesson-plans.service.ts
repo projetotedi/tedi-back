@@ -14,6 +14,7 @@ import { LessonPlanResponseDto } from "../dto/lesson-plan.response.dto";
 import { UpdateLessonPlanDto } from "../dto/update-lesson-plan.dto";
 import { LessonPlanContent } from "../entities/lesson-plan-content.entity";
 import { LessonPlan } from "../entities/lesson-plan.entity";
+import { copyTitle } from "./lesson-plan-copy-title";
 import { toLessonPlanResponse } from "./lesson-plan-response.mapper";
 
 const PLAN_FIELDS = ["title", "objective", "expectedDurationMinutes", "materialUrl"] as const;
@@ -194,10 +195,58 @@ export class LessonPlansService {
     return toLessonPlanResponse(result.plan, result.contents);
   }
 
-  private async loadPlan(manager: EntityManager, id: string): Promise<LessonPlan> {
+  /**
+   * Creates a new lesson plan from an existing one, archived or not (GUS-118).
+   *
+   * Copies the objective, the expected duration, the material link and the contents, in order. The
+   * title is the original plus " (cópia)", cut to fit the column. Does not copy the links with
+   * courses: the copy is born unused, and the source stays as it was, in every course it is in. The
+   * copy is born active, with `createdById` set to whoever duplicates.
+   *
+   * The source is locked FOR SHARE, so a concurrent edit of it, which deletes and rewrites its
+   * contents, cannot leave the copy with a title from one version and contents from another;
+   * duplications of the same source do not wait for each other. After the lookup, everything uses
+   * `source.id`, the id stored in the database, not `requestedId`, which may differ in case.
+   */
+  async duplicate(requestedId: string, actorId: string): Promise<LessonPlanResponseDto> {
+    const result = await this.dataSource.transaction(async (manager) => {
+      const source = await this.loadPlan(manager, requestedId, "pessimistic_read");
+      const texts = (await this.loadContents(manager, source.id)).map((content) => content.text);
+
+      const copy = await manager.save(
+        manager.create(LessonPlan, {
+          title: copyTitle(source.title),
+          objective: source.objective,
+          expectedDurationMinutes: source.expectedDurationMinutes,
+          materialUrl: source.materialUrl,
+          createdById: actorId,
+        }),
+      );
+      const contents = await this.insertContents(manager, copy.id, texts);
+
+      return { sourceId: source.id, copy, contents, texts };
+    });
+
+    this.emit(AuditableAction.LESSON_PLAN_DUPLICATED, actorId, result.copy.id, null, {
+      sourceLessonPlanId: result.sourceId,
+      title: result.copy.title,
+      objective: result.copy.objective,
+      expectedDurationMinutes: result.copy.expectedDurationMinutes,
+      materialUrl: result.copy.materialUrl,
+      contents: result.texts,
+    });
+
+    return toLessonPlanResponse(result.copy, result.contents);
+  }
+
+  private async loadPlan(
+    manager: EntityManager,
+    id: string,
+    mode: "pessimistic_write" | "pessimistic_read" = "pessimistic_write",
+  ): Promise<LessonPlan> {
     const plan = await manager.findOne(LessonPlan, {
       where: { id },
-      lock: { mode: "pessimistic_write" },
+      lock: { mode },
     });
     if (plan === null) throw lessonPlanNotFound();
 
