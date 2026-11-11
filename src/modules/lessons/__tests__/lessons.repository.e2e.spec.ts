@@ -12,6 +12,11 @@ import { ClassesModule } from "@modules/classes/classes.module";
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { PeopleModule } from "@modules/people/people.module";
 import { PeopleService } from "@modules/people/services/people.service";
+import {
+  LESSON_LOCATION_MAX_LENGTH,
+  LESSON_SUBJECT_MAX_LENGTH,
+  LESSON_TITLE_MAX_LENGTH,
+} from "../dto/lesson-limits";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
 
@@ -356,6 +361,27 @@ describe("lessons repository (e2e)", () => {
       expect(definitions.ck_lessons_expected_monitors).toMatch(/expected_monitors\s*>=\s*0/);
       expect(definitions.ck_lessons_cancellation).toMatch(/status\s*=\s*'cancelled'/);
       expect(definitions.ck_lessons_cancellation).toMatch(/cancelled_at IS NOT NULL/);
+    });
+
+    it("keeps the limits of the DTOs equal to the length of the varchar columns", async () => {
+      // A DTO that accepts more than the column holds would turn into a 500 at the insert.
+      const lengths = Object.fromEntries(
+        (await actualColumns("lessons")).map((column) => [column.name, column.length]),
+      );
+
+      expect(lengths.title).toBe(LESSON_TITLE_MAX_LENGTH);
+      expect(lengths.location).toBe(LESSON_LOCATION_MAX_LENGTH);
+      expect(lengths.subject).toBe(LESSON_SUBJECT_MAX_LENGTH);
+      // The free texts are `text` columns: the DTOs cap them, the database does not.
+      for (const column of [
+        "objective",
+        "post_notes",
+        "cancel_reason",
+        "reschedule_reason",
+        "reschedule_note",
+      ]) {
+        expect(lengths[column]).toBeNull();
+      }
     });
 
     it("has no archive columns: a lesson ends cancelled, not archived", async () => {
