@@ -50,6 +50,8 @@ export enum AuditableAction {
   COURSE_UPDATED = "COURSE_UPDATED",
   /** The lesson plan sequence of a course was replaced; before and after carry lessonPlanIds in order (GUS-98). */
   COURSE_LESSON_PLANS_REPLACED = "COURSE_LESSON_PLANS_REPLACED",
+  /** A course was duplicated (GUS-117). Target is the copy; after carries sourceCourseId, the copied fields and lessonPlanIds in order. */
+  COURSE_DUPLICATED = "COURSE_DUPLICATED",
   /** A class was created, with its edition when that did not exist yet (GUS-101). */
   CLASS_CREATED = "CLASS_CREATED",
   /** Class data changed, or its edition. Payload carries only the changed fields plus changedFields (GUS-101). */
