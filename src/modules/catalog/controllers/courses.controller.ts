@@ -17,6 +17,7 @@ import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator
 import { CourseDetailDto } from "../dto/course-detail.response.dto";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CreateCourseDto } from "../dto/create-course.dto";
+import { DuplicateCourseDto } from "../dto/duplicate-course.dto";
 import { UpdateCourseDto } from "../dto/update-course.dto";
 import { CourseDetailService } from "../services/course-detail.service";
 import { CoursesService } from "../services/courses.service";
@@ -72,5 +73,20 @@ export class CoursesController {
     @CurrentUser() actor: AuthUser,
   ): Promise<CourseResponseDto> {
     return this.coursesService.update(id, dto, actor.id);
+  }
+
+  @Post(":id/duplicate")
+  @RequirePermission(Permission.COURSES_DUPLICATE_ARCHIVE)
+  @ApiParam(COURSE_ID_PARAM)
+  @ApiCreatedResponse({ type: CourseResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: "COURSE_NOT_FOUND" })
+  @ApiConflictResponse({ type: ApiErrorDto, description: "COURSE_NAME_TAKEN" })
+  duplicateCourse(
+    @Param("id", COURSE_ID) id: string,
+    @Body() dto: DuplicateCourseDto,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<CourseResponseDto> {
+    return this.coursesService.duplicate(id, dto, actor.id);
   }
 }

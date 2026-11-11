@@ -24,6 +24,7 @@ describe("CoursesController", () => {
     ["createCourse", Permission.COURSES_MANAGE],
     ["getCourse", Permission.CATALOG_VIEW],
     ["updateCourse", Permission.COURSES_MANAGE],
+    ["duplicateCourse", Permission.COURSES_DUPLICATE_ARCHIVE],
   ] as const)("protects %s with %s and no @Roles", (name, permission) => {
     const handler = CoursesController.prototype[name];
 
@@ -34,7 +35,7 @@ describe("CoursesController", () => {
   describe("delegation", () => {
     const course = { id: COURSE_ID } as CourseResponseDto;
     const detail = { id: COURSE_ID } as CourseDetailDto;
-    const service = { create: jest.fn(), update: jest.fn() };
+    const service = { create: jest.fn(), update: jest.fn(), duplicate: jest.fn() };
     const detailService = { findDetail: jest.fn() };
     const controller = new CoursesController(
       service as unknown as CoursesService,
@@ -75,6 +76,17 @@ describe("CoursesController", () => {
       await expect(controller.updateCourse(COURSE_ID, dto, ACTOR)).resolves.toBe(course);
 
       expect(service.update).toHaveBeenCalledWith(COURSE_ID, dto, ACTOR.id);
+    });
+
+    it("delegates duplicateCourse to CoursesService.duplicate with the id, the body and the actor id", async () => {
+      const dto = { name: "Informática Intermediária (2026.2)" };
+
+      await expect(controller.duplicateCourse(COURSE_ID, dto, ACTOR)).resolves.toBe(course);
+
+      expect(service.duplicate).toHaveBeenCalledTimes(1);
+      expect(service.duplicate).toHaveBeenCalledWith(COURSE_ID, dto, ACTOR.id);
+      expect(service.create).not.toHaveBeenCalled();
+      expect(service.update).not.toHaveBeenCalled();
     });
   });
 });
