@@ -100,6 +100,12 @@ export interface CourseSummary {
   status: CourseStatus;
 }
 
+/** Options of `CoursesService.getCourseSummary`. */
+export interface GetCourseSummaryOptions {
+  /** Reads the row `FOR SHARE` until the end of the transaction. Needs the `manager` of one. */
+  lockForShare?: boolean;
+}
+
 /**
  * Courses of the catalog (RF-013, RF-021): create, edit and the prerequisites between them.
  * Exported by CatalogModule for `classes` through `getCourseSummary`.
@@ -155,8 +161,9 @@ export class CoursesService {
 
   /**
    * Edits a course. Every field is optional: omitted keeps, `objective: null` clears, and
-   * `prerequisiteIds` replaces the whole set (`[]` clears it). Changing the category does not
-   * touch the classes already created (RN-18).
+   * `prerequisiteIds` replaces the whole set (`[]` clears it). Changing the category writes
+   * nothing to the classes: a class has no category of its own and always shows the current one of
+   * its course (RN-14, GUS-102).
    *
    * Errors, in the order they are answered: 404 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED (archived
    * courses are read-only, RN-27), 409 COURSE_NAME_TAKEN, 400 PREREQUISITE_NOT_FOUND, 400
@@ -243,17 +250,34 @@ export class CoursesService {
 
   /**
    * Summary of a course for another module. Null when the id is not a course or is not even a
-   * UUID: whoever calls decides the error (the classes will answer for the `courseId` of their
-   * body). An archived course is returned, with status archived. Pass the `manager` of a
-   * transaction to read inside it. No transaction, no lock and no event of its own.
+   * UUID: whoever calls decides the error (the classes answer for the `courseId` of their body).
+   * An archived course is returned, with status archived. Pass the `manager` of a transaction to
+   * read inside it. No transaction and no event of its own, and no lock unless asked.
+   *
+   * `lockForShare` reads the row `FOR SHARE` until the end of the transaction of the `manager`
+   * (so it needs one: without it this throws, as a bug of the caller). It is for whoever is about
+   * to write something that depends on the course staying active, as a class being created in it
+   * (RF-020). `FOR SHARE` conflicts with the `FOR UPDATE` that an edit of the course takes
+   * (`update`), and the archive of a course (another card) has to take it too. If the archive
+   * commits first, the reader waits and then sees the course archived; if the reader locks first,
+   * the archive waits until the work of the reader commits. Without the lock a class could be
+   * created in a course that is being archived at the same instant.
    */
-  async getCourseSummary(id: string, manager?: EntityManager): Promise<CourseSummary | null> {
+  async getCourseSummary(
+    id: string,
+    manager?: EntityManager,
+    options: GetCourseSummaryOptions = {},
+  ): Promise<CourseSummary | null> {
+    if (options.lockForShare === true && manager === undefined) {
+      throw new Error("lockForShare needs the manager of a transaction");
+    }
     // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
     if (!isUUID(id)) return null;
 
-    const course = await (manager ?? this.dataSource)
-      .getRepository(Course)
-      .findOne({ where: { id } });
+    const course = await (manager ?? this.dataSource).getRepository(Course).findOne({
+      where: { id },
+      ...(options.lockForShare === true ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
     if (course === null) return null;
 
     return {
@@ -416,3 +440,8 @@ export class CoursesService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+// The enums of the contract of `getCourseSummary`, re-exported so that `classes` imports them from
+// the service CatalogModule exports and never from `catalog/enums/*` (module is a closed box).
+export { CourseCategory } from "../enums/course-category.enum";
+export { CourseStatus } from "../enums/course-status.enum";

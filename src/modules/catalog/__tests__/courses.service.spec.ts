@@ -1160,5 +1160,76 @@ describe("CoursesService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
       expect(courseRepository.findOne.mock.calls[0][0]).not.toHaveProperty("lock");
     });
+
+    it("locks the course FOR SHARE when asked, inside the manager given", async () => {
+      const inTransaction = { findOne: jest.fn().mockResolvedValue(buildBasic()) };
+      manager.getRepository.mockReturnValue(inTransaction);
+
+      const summary = await service.getCourseSummary(
+        BASIC_ID,
+        manager as unknown as Parameters<CoursesService["getCourseSummary"]>[1],
+        { lockForShare: true },
+      );
+
+      expect(summary?.id).toBe(BASIC_ID);
+      // pessimistic_read is the FOR SHARE of Postgres: it conflicts with the FOR UPDATE that an
+      // edit of the course takes, and does not conflict with another FOR SHARE.
+      expect(inTransaction.findOne).toHaveBeenCalledTimes(1);
+      expect(inTransaction.findOne).toHaveBeenCalledWith({
+        where: { id: BASIC_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("does not lock when the options leave lockForShare out or false, manager or not", async () => {
+      const inTransaction = { findOne: jest.fn().mockResolvedValue(buildBasic()) };
+      manager.getRepository.mockReturnValue(inTransaction);
+      const transactionManager = manager as unknown as Parameters<
+        CoursesService["getCourseSummary"]
+      >[1];
+
+      await service.getCourseSummary(BASIC_ID, transactionManager, {});
+      await service.getCourseSummary(BASIC_ID, transactionManager, { lockForShare: false });
+
+      for (const [options] of inTransaction.findOne.mock.calls) {
+        expect(options).toEqual({ where: { id: BASIC_ID } });
+        expect(options).not.toHaveProperty("lock");
+      }
+      expect(inTransaction.findOne).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps answering null for an unknown course when it asks for the lock", async () => {
+      const inTransaction = { findOne: jest.fn().mockResolvedValue(null) };
+      manager.getRepository.mockReturnValue(inTransaction);
+      const transactionManager = manager as unknown as Parameters<
+        CoursesService["getCourseSummary"]
+      >[1];
+
+      await expect(
+        service.getCourseSummary(UNKNOWN_ID, transactionManager, { lockForShare: true }),
+      ).resolves.toBeNull();
+
+      // A malformed id still never reaches the database, locked or not.
+      inTransaction.findOne.mockClear();
+      await expect(
+        service.getCourseSummary("not-a-uuid", transactionManager, { lockForShare: true }),
+      ).resolves.toBeNull();
+      expect(inTransaction.findOne).not.toHaveBeenCalled();
+    });
+
+    it("throws when lockForShare is asked without a manager", async () => {
+      await expect(
+        service.getCourseSummary(BASIC_ID, undefined, { lockForShare: true }),
+      ).rejects.toThrow("lockForShare needs the manager of a transaction");
+
+      // It is a bug of the caller, so it fails whatever the id is, and nothing is read.
+      await expect(
+        service.getCourseSummary("not-a-uuid", undefined, { lockForShare: true }),
+      ).rejects.toThrow("lockForShare needs the manager of a transaction");
+      expect(courseRepository.findOne).not.toHaveBeenCalled();
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
   });
 });

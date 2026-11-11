@@ -56,7 +56,7 @@ export class UpdateCourseDto extends PartialType(
     enumName: "CourseCategory",
     example: CourseCategory.INTERMEDIATE,
     description:
-      "Omit to keep. Never null. Changing the category does not change the classes already created (RN-18).",
+      "Omit to keep. Never null. A class has no category of its own: changing it changes the category its classes show (RN-14).",
   })
   @ValidateIf((_, value) => value !== undefined)
   @IsEnum(CourseCategory)
