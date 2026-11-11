@@ -11,6 +11,9 @@ import { ClassStatus } from "../enums/class-status.enum";
 import { courseNotFound } from "./class-course.errors";
 import { EnrollmentCountsService } from "./enrollment-counts.service";
 
+/** The statuses that count as `active` in the summary: the offers still running (P13). */
+const ACTIVE_STATUSES: readonly ClassStatus[] = [ClassStatus.PLANNED, ClassStatus.IN_PROGRESS];
+
 /** One row of the list of the classes of a course, as the query selects it. */
 interface CourseClassRow {
   id: string;
@@ -123,13 +126,13 @@ export class CourseClassesService {
     const rows: SummaryRow[] = await this.dataSource.query(
       `SELECT course_id AS "courseId",
               COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE status IN ('planned', 'in_progress'))::int AS active
+              COUNT(*) FILTER (WHERE status = ANY($2::classes_status_enum[]))::int AS active
          FROM classes
         WHERE course_id = ANY($1::uuid[])
           AND archived_at IS NULL
           AND deleted_at IS NULL
         GROUP BY course_id`,
-      [unique],
+      [unique, ACTIVE_STATUSES],
     );
     const byCourse = new Map(rows.map((row) => [row.courseId, row]));
 

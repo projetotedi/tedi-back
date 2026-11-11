@@ -352,7 +352,10 @@ describe("CourseClassesService", () => {
 
       expect(dataSource.query).toHaveBeenCalledTimes(1);
       const [sql, parameters] = dataSource.query.mock.calls[0] as [string, unknown[]];
-      expect(parameters).toEqual([[BASIC_ID, SMARTPHONES_ID]]);
+      expect(parameters).toEqual([
+        [BASIC_ID, SMARTPHONES_ID],
+        ["planned", "in_progress"],
+      ]);
       expect(sql).toContain("course_id = ANY($1::uuid[])");
       expect(sql).toContain("GROUP BY course_id");
     });
@@ -362,10 +365,11 @@ describe("CourseClassesService", () => {
 
       await service.summarizeByCourse([BASIC_ID]);
 
-      const [sql] = dataSource.query.mock.calls[0] as [string];
+      const [sql, parameters] = dataSource.query.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("archived_at IS NULL");
       expect(sql).toContain("deleted_at IS NULL");
-      expect(sql).toContain("COUNT(*) FILTER (WHERE status IN ('planned', 'in_progress'))::int");
+      expect(sql).toContain("COUNT(*) FILTER (WHERE status = ANY($2::classes_status_enum[]))::int");
+      expect(parameters[1]).toEqual([ClassStatus.PLANNED, ClassStatus.IN_PROGRESS]);
       expect(sql).toContain("COUNT(*)::int AS total");
     });
 
