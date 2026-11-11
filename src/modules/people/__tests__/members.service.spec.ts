@@ -1228,12 +1228,13 @@ describe("MembersService", () => {
         });
         answerMemberRecordFromState();
         await service.getMember(PERSON_ID, COORDINATOR);
-        await service
-          .getMember(PERSON_ID, DIRECTOR_OF_OTHER_DEPARTMENT)
-          .catch((error: unknown) => expectNoSensitiveValue(JSON.stringify(error)));
-        await service
-          .getMember("not-a-uuid", COORDINATOR)
-          .catch((error: unknown) => expectNoSensitiveValue(JSON.stringify(error)));
+        // httpFailure fails the test if the call stops rejecting, so the check below always runs.
+        const forbidden = await httpFailure(
+          service.getMember(PERSON_ID, DIRECTOR_OF_OTHER_DEPARTMENT),
+        );
+        expectNoSensitiveValue(JSON.stringify(forbidden));
+        const notFound = await httpFailure(service.getMember("not-a-uuid", COORDINATOR));
+        expectNoSensitiveValue(JSON.stringify(notFound));
 
         for (const spy of spies) {
           expectNoSensitiveValue(JSON.stringify(spy.mock.calls));
