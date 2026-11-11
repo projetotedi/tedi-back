@@ -1,5 +1,6 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
+import { isUUID } from "class-validator";
 import { DataSource, EntityManager, QueryFailedError } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { ArchiveDto } from "@shared/dto/archive.dto";
@@ -86,6 +87,26 @@ function capacityBelowEnrolled(): HttpException {
     },
     409,
   );
+}
+
+/**
+ * What another module needs to know about a class (the lessons check the `classId` of their body,
+ * the period their dates must fall in and whether the class is archived, RN-20, RN-21, RN-27).
+ * The shape is the contract of `getClassSummary`: the entity itself never leaves this module.
+ */
+export interface ClassSummary {
+  id: string;
+  code: string;
+  name: string | null;
+  courseId: string;
+  edition: { id: string; name: string };
+  /** First day of the class, "YYYY-MM-DD". */
+  startDate: string;
+  /** Last day of the class, "YYYY-MM-DD". */
+  endDate: string;
+  status: ClassStatus;
+  /** Null while the class is active; the instant of the archive otherwise (RN-27). */
+  archivedAt: Date | null;
 }
 
 interface FieldChanges {
@@ -347,6 +368,53 @@ export class ClassesService {
     }
 
     return toClassResponse(result.schoolClass, result.edition);
+  }
+
+  /**
+   * Summary of a class for another module (the lessons, GUS-151). Null when the id is not a class
+   * or is not even a UUID: whoever calls decides the error (the lessons answer for the `classId`
+   * of their body). An archived class is returned too, with `archivedAt` set, so the caller can
+   * answer 409 CLASS_ARCHIVED for a write and still read the class of a lesson that exists.
+   *
+   * Pass the `manager` of a transaction to read inside it. `forShare` locks the row of the class
+   * FOR SHARE until the end of that transaction (it needs the `manager` of one: Postgres only
+   * keeps a row lock inside a transaction). That lock conflicts with the FOR UPDATE that `update`
+   * and `archive` take, so creating a lesson and archiving the class (or changing its period) at
+   * the same time are serialized: either the lesson sees the class as it was archived or moved, or
+   * the archive waits for the lesson. Shared locks do not conflict with each other, so lessons of
+   * the same class do not wait for one another. Without `forShare` it is a plain read.
+   *
+   * It emits no event and writes nothing.
+   */
+  async getClassSummary(
+    id: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<ClassSummary | null> {
+    // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
+    if (!isUUID(id)) return null;
+
+    const source = manager ?? this.dataSource.manager;
+    const schoolClass = await source.findOne(SchoolClass, {
+      where: { id },
+      ...(options.forShare ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
+    if (schoolClass === null) return null;
+
+    const edition = await this.loadEdition(source, schoolClass.editionId);
+
+    return {
+      id: schoolClass.id,
+      code: schoolClass.code,
+      name: schoolClass.name ?? null,
+      courseId: schoolClass.courseId,
+      edition: { id: edition.id, name: edition.name },
+      startDate: schoolClass.startDate,
+      endDate: schoolClass.endDate,
+      status: schoolClass.status,
+      // The embedded columns are missing on an entity that was just inserted, not loaded.
+      archivedAt: schoolClass.archive?.archivedAt ?? null,
+    };
   }
 
   /**

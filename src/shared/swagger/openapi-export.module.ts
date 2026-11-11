@@ -164,6 +164,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         update: async () => ({}),
         archive: async () => ({}),
         unarchive: async () => ({}),
+        getClassSummary: async () => null,
       },
     },
     {
