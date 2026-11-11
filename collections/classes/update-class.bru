@@ -1,0 +1,44 @@
+meta {
+  name: update-class
+  type: http
+  seq: 2
+}
+
+patch {
+  url: {{baseUrl}}/classes/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000003
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "capacity": 20,
+    "location": null,
+    "status": "in_progress"
+  }
+}
+
+docs {
+  Edita uma turma.
+  Requer cookie tedi_session e a permissão classes.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Todos os campos são opcionais: omitir não altera. name e location aceitam null (ou "") para limpar o valor. code, editionName, startDate, endDate, capacity e status podem ser omitidos, mas nunca enviados como null (400). As mesmas regras de limite do POST valem para o que for enviado; trocar só a caixa do próprio código é permitido.
+  courseId não é editável (RN-13): a turma é a oferta de um curso. Se vier no corpo, é ignorado, sem mudar a turma e sem acusar erro.
+  editionName move a turma para essa edição, criada sob demanda como no POST. O código da turma é conferido na edição nova.
+  O período é conferido com as datas que ficam: mandar só endDate compara com o startDate gravado, e mandar só startDate compara com o endDate gravado (400 INVALID_PERIOD).
+  status aceita qualquer valor: as regras de transição entre situações ainda não existem (F2.6).
+  capacity não pode ficar abaixo do número de matrículas ativas: 409 CAPACITY_BELOW_ENROLLED. Enquanto a matrícula não existe (GUS-108) o número é 0 e a regra não dispara.
+  Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada e sem evento.
+  Turma arquivada é somente leitura: 409 CLASS_ARCHIVED. A linha da turma fica travada durante a edição: duas edições ao mesmo tempo são feitas uma depois da outra.
+  Retorna 200 ClassResponseDto e registra o evento CLASS_UPDATED só com os campos alterados (trocar a edição registra editionId e editionName).
+  Ordem dos erros: 404, 409 CLASS_ARCHIVED, 400 INVALID_PERIOD, 409 CLASS_CODE_TAKEN, 409 CAPACITY_BELOW_ENROLLED (a validação do corpo, 400 VALIDATION_FAILED, vem antes de todos).
+  Erros possíveis: 400 VALIDATION_FAILED, 400 INVALID_PERIOD, 401, 403 FORBIDDEN, 404 CLASS_NOT_FOUND (id inexistente ou mal formado), 409 CLASS_ARCHIVED, 409 CLASS_CODE_TAKEN, 409 CAPACITY_BELOW_ENROLLED.
+}
