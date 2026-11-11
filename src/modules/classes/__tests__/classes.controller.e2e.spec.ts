@@ -1095,22 +1095,301 @@ describe("ClassesController (e2e)", () => {
       });
     });
 
-    it("ignores courseId: the course of a class never changes", async () => {
-      const created = await createClass();
-      const otherCourse = await createCourse("Informática Intermediária");
+    describe("the course", () => {
+      it("CT3: a planned class without enrollments changes course (200, course of the new one); with 1 enrollment answers 409 COURSE_CHANGE_NOT_ALLOWED", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
 
-      const res = await patchClass(created.id, director, {
-        courseId: otherCourse,
-        capacity: 20,
-      }).expect(200);
+        // With one enrollment the course stays, whatever else is sent.
+        enrollmentCounts.countActive.mockResolvedValue(1);
+        const refused = await patchClass(created.id, director, {
+          courseId: intermediate,
+          capacity: 20,
+        }).expect(409);
+        expect(refused.body).toEqual({
+          statusCode: 409,
+          error: "COURSE_CHANGE_NOT_ALLOWED",
+          message:
+            "The course of a class can only change while it is planned and has no active enrollments.",
+        });
+        expect(enrollmentCounts.countActive).toHaveBeenCalledWith(expect.anything(), created.id);
+        expect(await storedClass(created.id)).toMatchObject({ course_id: courseId, capacity: 15 });
 
-      expect(res.body.courseId).toBe(courseId);
-      expect(res.body.capacity).toBe(20);
-      expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+        // Without enrollment it moves, and the answer is the class with the course of the new one.
+        enrollmentCounts.countActive.mockResolvedValue(0);
+        const moved = await patchClass(created.id, director, { courseId: intermediate }).expect(
+          200,
+        );
+        expect(moved.body).toEqual({
+          ...created,
+          courseId: intermediate,
+          course: {
+            id: intermediate,
+            name: "Informática Intermediária",
+            category: "intermediate",
+            status: "active",
+          },
+          updatedAt: expect.any(String),
+        });
+        expect(new Date(moved.body.updatedAt).getTime()).toBeGreaterThan(
+          new Date(created.updatedAt).getTime(),
+        );
+        expect(await storedClass(created.id)).toMatchObject({ course_id: intermediate });
+      });
 
-      // Not even a malformed one is reported: the field does not exist for this body.
-      await patchClass(created.id, director, { courseId: "not-a-uuid" }).expect(200);
-      expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+      it("moves the class back to the first course, and the one that did it is in the event", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
+        const events = collectEvents();
+
+        await patchClass(created.id, coordinator, { courseId: intermediate }).expect(200);
+        const back = await patchClass(created.id, director, {
+          courseId: courseId.toUpperCase(),
+        }).expect(200);
+
+        expect(back.body.courseId).toBe(courseId);
+        expect(back.body.course).toEqual(BASIC_COURSE());
+        expect(events).toHaveLength(2);
+        expect(events[0].action).toBe(AuditableAction.CLASS_UPDATED);
+        expect(events[0].actorId).toBe(coordinator.id);
+        expect(events[0].targetId).toBe(created.id);
+        expect(events[0].before).toEqual({ courseId });
+        expect(events[0].after).toEqual({ courseId: intermediate, changedFields: ["courseId"] });
+        expect(events[1].actorId).toBe(director.id);
+        expect(events[1].before).toEqual({ courseId: intermediate });
+        expect(events[1].after).toEqual({ courseId, changedFields: ["courseId"] });
+      });
+
+      it("writes the course with the other fields of the edit, in one change", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
+        const events = collectEvents();
+
+        const res = await patchClass(created.id, director, {
+          courseId: intermediate,
+          code: "INFO-B",
+          capacity: 20,
+        }).expect(200);
+
+        expect(res.body).toMatchObject({ courseId: intermediate, code: "INFO-B", capacity: 20 });
+        expect(await storedClass(created.id)).toMatchObject({
+          course_id: intermediate,
+          code: "INFO-B",
+          capacity: 20,
+        });
+        expect(events).toHaveLength(1);
+        expect(events[0].after).toEqual({
+          courseId: intermediate,
+          code: "INFO-B",
+          capacity: 20,
+          changedFields: ["courseId", "code", "capacity"],
+        });
+      });
+
+      it("returns 409 COURSE_CHANGE_NOT_ALLOWED for a class that is not planned, even if the body sends planned", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
+
+        for (const status of ["in_progress", "completed", "cancelled"]) {
+          await patchClass(created.id, director, { status }).expect(200);
+
+          const res = await patchClass(created.id, director, { courseId: intermediate }).expect(
+            409,
+          );
+          expect(res.body.error).toBe("COURSE_CHANGE_NOT_ALLOWED");
+
+          // The status of the body does not count: the one stored does.
+          const withPlanned = await patchClass(created.id, director, {
+            courseId: intermediate,
+            status: "planned",
+          }).expect(409);
+          expect(withPlanned.body.error).toBe("COURSE_CHANGE_NOT_ALLOWED");
+          expect(await storedClass(created.id)).toMatchObject({ course_id: courseId, status });
+        }
+
+        // Back to planned, the course can change.
+        await patchClass(created.id, director, { status: "planned" }).expect(200);
+        await patchClass(created.id, director, { courseId: intermediate }).expect(200);
+      });
+
+      it("treats the same courseId as no change, even for a class in progress: 200, nothing written, no event", async () => {
+        const created = await createClass(body({ status: "in_progress" }));
+        enrollmentCounts.countActive.mockResolvedValue(3);
+        const events = collectEvents();
+
+        // The front sends the whole form back, the course included.
+        const res = await patchClass(created.id, director, {
+          courseId,
+          code: "INFO-A",
+          status: "in_progress",
+          capacity: 15,
+        }).expect(200);
+
+        expect(res.body).toEqual(created);
+        expect(events).toHaveLength(0);
+        expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+      });
+
+      it("returns 409 COURSE_ARCHIVED for an archived target course and 400 COURSE_NOT_FOUND for an unknown one", async () => {
+        const created = await createClass();
+        const smartphones = await createCourse("Smartphones");
+        await archiveCourse(dataSource, smartphones, coordinator.id);
+
+        const archived = await patchClass(created.id, director, {
+          courseId: smartphones,
+          capacity: 20,
+        }).expect(409);
+        expect(archived.body).toEqual({
+          statusCode: 409,
+          error: "COURSE_ARCHIVED",
+          message: "An archived course cannot receive new classes.",
+        });
+
+        const unknown = await patchClass(created.id, director, {
+          courseId: UNKNOWN_ID,
+          capacity: 20,
+        }).expect(400);
+        expect(unknown.body).toEqual({
+          statusCode: 400,
+          error: "COURSE_NOT_FOUND",
+          message: "Course not found.",
+        });
+
+        // The whole edit is refused, the seats included.
+        expect(await storedClass(created.id)).toMatchObject({ course_id: courseId, capacity: 15 });
+      });
+
+      it("answers the errors of a course change in the order archived, period, change not allowed, course", async () => {
+        const created = await createClass(body({ status: "in_progress" }));
+        const smartphones = await createCourse("Smartphones");
+        await archiveCourse(dataSource, smartphones, coordinator.id);
+
+        // In progress and a target that does not exist: the change is not allowed comes first.
+        const notAllowed = await patchClass(created.id, director, {
+          courseId: UNKNOWN_ID,
+        }).expect(409);
+        expect(notAllowed.body.error).toBe("COURSE_CHANGE_NOT_ALLOWED");
+
+        // The period comes before the change.
+        const period = await patchClass(created.id, director, {
+          courseId: smartphones,
+          endDate: "2026-03-02",
+        }).expect(400);
+        expect(period.body.error).toBe("INVALID_PERIOD");
+
+        // Planned again: the target is looked at, not found before archived.
+        await patchClass(created.id, director, { status: "planned" }).expect(200);
+        const notFound = await patchClass(created.id, director, { courseId: UNKNOWN_ID }).expect(
+          400,
+        );
+        expect(notFound.body.error).toBe("COURSE_NOT_FOUND");
+        const archived = await patchClass(created.id, director, { courseId: smartphones }).expect(
+          409,
+        );
+        expect(archived.body.error).toBe("COURSE_ARCHIVED");
+
+        // And the course comes before the code and the seats.
+        await createClass(body({ code: "INFO-B" }));
+        enrollmentCounts.countActive.mockResolvedValue(0);
+        const beforeCode = await patchClass(created.id, director, {
+          courseId: smartphones,
+          code: "INFO-B",
+        }).expect(409);
+        expect(beforeCode.body.error).toBe("COURSE_ARCHIVED");
+
+        // The class archived answers before all of them.
+        await archiveClass(created.id, director).expect(200);
+        const classArchived = await patchClass(created.id, director, {
+          courseId: smartphones,
+          endDate: "2026-03-02",
+        }).expect(409);
+        expect(classArchived.body.error).toBe("CLASS_ARCHIVED");
+      });
+
+      it("moves a class out of an archived course into an active one, and a class of an archived course stays editable", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
+        await archiveCourse(dataSource, courseId, coordinator.id);
+
+        // The course stays: the edit goes through, and the answer shows the course as archived.
+        const edited = await patchClass(created.id, director, { courseId, capacity: 20 }).expect(
+          200,
+        );
+        expect(edited.body.course).toEqual({ ...BASIC_COURSE(), status: "archived" });
+
+        // It leaves the archived course for an active one.
+        const moved = await patchClass(created.id, director, { courseId: intermediate }).expect(
+          200,
+        );
+        expect(moved.body.course).toMatchObject({ id: intermediate, status: "active" });
+      });
+
+      it("waits for whoever holds the new course row and answers 409 COURSE_ARCHIVED when that one archives it", async () => {
+        const created = await createClass();
+        const smartphones = await createCourse("Smartphones");
+        const holder = dataSource.createQueryRunner();
+        await holder.connect();
+        await holder.startTransaction();
+        await holder.query(`SELECT id FROM courses WHERE id = $1 FOR UPDATE`, [smartphones]);
+
+        const pending = patchClass(created.id, director, { courseId: smartphones }).then(
+          (res) => res,
+        );
+
+        try {
+          // The class is locked first (it is a FROM "classes" that the edit reads), and then the
+          // new course, whose locking read waits here.
+          expect(await blockedStatement()).toMatch(/FROM "courses"/);
+          await holder.query(
+            `UPDATE courses SET archived_at = now(), archived_by_id = $2 WHERE id = $1`,
+            [smartphones, coordinator.id],
+          );
+        } finally {
+          await holder.commitTransaction();
+          await holder.release();
+        }
+
+        const res = await pending;
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe("COURSE_ARCHIVED");
+        expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+      });
+
+      it("returns 400 VALIDATION_FAILED with field courseId when it is null, empty or malformed", async () => {
+        const created = await createClass();
+
+        for (const courseIdValue of [null, "", " ", "not-a-uuid", 12, true, [courseId]]) {
+          const res = await patchClass(created.id, director, {
+            courseId: courseIdValue,
+          }).expect(400);
+
+          expect(res.body.error).toBe("VALIDATION_FAILED");
+          expect(fieldsOf(res.body)).toEqual(["courseId"]);
+        }
+        expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+      });
+
+      it("ignores a category sent in the body: the category is the one of the course", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
+
+        const res = await patchClass(created.id, director, {
+          courseId: intermediate,
+          category: "advanced",
+        }).expect(200);
+
+        expect(res.body.course.category).toBe("intermediate");
+        expect(res.body).not.toHaveProperty("category");
+      });
+
+      it("returns 403 FORBIDDEN for a member, and the course stays", async () => {
+        const created = await createClass();
+        const intermediate = await createCourse("Informática Intermediária", "intermediate");
+
+        await patchClass(created.id, member, { courseId: intermediate }).expect(403);
+
+        expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+      });
     });
 
     it("returns 409 CAPACITY_BELOW_ENROLLED when the seats fall below the active enrollments, and 200 for as many seats as enrolled", async () => {

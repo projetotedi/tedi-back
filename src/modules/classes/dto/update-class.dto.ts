@@ -5,6 +5,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -20,18 +21,24 @@ import {
   EDITION_NAME_MAX_LENGTH,
   EDITION_NAME_PATTERN,
 } from "./class-limits";
-import { CreateClassDto } from "./create-class.dto";
+import { CreateClassDto, lowerCase } from "./create-class.dto";
 
 /**
  * Edit of a class. Every field is optional: omitted keeps. `name` and `location` take null to
  * clear; every other field is never null.
  *
- * There is no `courseId` on purpose: a class is the offering of one course and never changes it
- * (RN-13), so a `courseId` in the body is ignored.
+ * `courseId` moves the class to another course, and only while the class is planned and has no
+ * active enrollments (RN-13, GUS-102): the service answers 409 COURSE_CHANGE_NOT_ALLOWED otherwise.
+ * The same course the class has is not a change. There is no `category`: a class shows the one of
+ * its course (RN-14), so a `category` in the body is ignored.
+ *
+ * `courseId` is left out of the base (the `OmitType` below) and declared here, in the "never null"
+ * pattern of the file. The one inherited from the create body would carry `@IsOptional`, which
+ * lets null through.
  */
 @ApiSchema({
   description:
-    "Every field is optional: omit to keep. courseId is not editable (RN-13): the course of a class never changes, and a courseId in the body is ignored.",
+    "Every field is optional: omit to keep. courseId moves the class to another course, only while it is planned and has no active enrollments. There is no category: the class shows the one of its course, and a category in the body is ignored.",
 })
 export class UpdateClassDto extends PartialType(
   OmitType(CreateClassDto, [
@@ -44,6 +51,18 @@ export class UpdateClassDto extends PartialType(
     "status",
   ] as const),
 ) {
+  @ApiPropertyOptional({
+    type: String,
+    format: "uuid",
+    example: "01999a3e-7c1b-7000-8000-000000000001",
+    description:
+      "Omit to keep. Never null. Id of another course. It changes only while the class is planned and has no active enrollments (409 COURSE_CHANGE_NOT_ALLOWED), and the new course must be active (400 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED). The course the class already has is not a change.",
+  })
+  @ValidateIf((_, value) => value !== undefined)
+  @Transform(lowerCase)
+  @IsUUID("all")
+  courseId?: string;
+
   @ApiPropertyOptional({
     type: String,
     maxLength: CLASS_CODE_MAX_LENGTH,

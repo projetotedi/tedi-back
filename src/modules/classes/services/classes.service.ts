@@ -20,7 +20,11 @@ import { UpdateClassDto } from "../dto/update-class.dto";
 import { SchoolClass } from "../entities/class.entity";
 import { Edition } from "../entities/edition.entity";
 import { ClassStatus } from "../enums/class-status.enum";
-import { courseArchived, courseNotFoundInBody } from "./class-course.errors";
+import {
+  courseArchived,
+  courseChangeNotAllowed,
+  courseNotFoundInBody,
+} from "./class-course.errors";
 import { invalidPeriod, isValidPeriod } from "./class-period";
 import { toClassResponse } from "./class-response.mapper";
 import { EditionsService } from "./editions.service";
@@ -180,22 +184,34 @@ export class ClassesService {
 
   /**
    * Edits a class. Every field is optional: omitted keeps, `name` and `location` sent as null
-   * clear. `editionName` moves the class to that edition, created on demand. The course never
-   * changes (RN-13), and the status takes any value: the rules of the moves between statuses are
-   * the F2.6 card.
+   * clear. `editionName` moves the class to that edition, created on demand. `courseId` moves the
+   * class to another course (RN-13, GUS-102), but only while the class is planned and has no
+   * active enrollments. The status that counts is the one stored, not the one in the body: the
+   * rule protects a class that has already started, and a body that sends `planned` together with
+   * a new course does not get around it. The same course the class has is not a change, so a form
+   * that sends every field back works for a class in progress too. The status takes any value: the
+   * rules of the moves between statuses are the F2.6 card.
    *
    * Errors, in the order they are answered: 404 CLASS_NOT_FOUND, 409 CLASS_ARCHIVED (archived
    * classes are read-only, RN-27), 400 INVALID_PERIOD (the period that results, with the dates
-   * sent and the ones already stored, must end on or after it starts), 409 CLASS_CODE_TAKEN (only
-   * when the code or the edition changes; the class itself is left out of the check, so changing
-   * only the case of its own code passes) and 409 CAPACITY_BELOW_ENROLLED (only when the seats
-   * change, and below the number of active enrollments).
+   * sent and the ones already stored, must end on or after it starts), 409
+   * COURSE_CHANGE_NOT_ALLOWED (only when the course changes: the class is not planned, or has
+   * active enrollments), 400 COURSE_NOT_FOUND and 409 COURSE_ARCHIVED (only for the new course,
+   * read `FOR SHARE`, see `loadActiveCourse`), 409 CLASS_CODE_TAKEN (only when the code or the
+   * edition changes; the class itself is left out of the check, so changing only the case of its
+   * own code passes) and 409 CAPACITY_BELOW_ENROLLED (only when the seats change, and below the
+   * number of active enrollments).
+   *
+   * A class of an archived course is still edited, as long as the course stays: archived courses
+   * refuse new classes (RF-020), not the ones they already have (RN-27).
    *
    * The row of the class is locked FOR UPDATE until the end of the transaction, so two edits of
-   * the same class are serialized, and so is an edit and an archive.
+   * the same class are serialized, and so is an edit and an archive. Counting the enrollments
+   * under that lock is what GUS-108 must keep: an enrollment has to take the same lock, or it and
+   * a change of course could both pass their checks.
    *
    * Without a change (or with an empty body) nothing is written and no event is emitted. Emits
-   * CLASS_UPDATED after the commit, with only the fields that changed.
+   * CLASS_UPDATED after the commit, with only the fields that changed (`courseId` included).
    *
    * `requestedId` is only the key of the lookup. The UUID pipe of the route accepts upper case and
    * Postgres finds the row all the same, but the ids of the database are lower case. So everything
@@ -219,7 +235,24 @@ export class ClassesService {
         if (!isValidPeriod(startDate, endDate)) throw invalidPeriod();
       }
 
-      const course = await this.loadCourseSummary(manager, schoolClass.courseId);
+      const nextCourseId = dto.courseId;
+      const courseChanged = nextCourseId !== undefined && nextCourseId !== schoolClass.courseId;
+      let course: CourseSummary;
+      if (courseChanged) {
+        if (schoolClass.status !== ClassStatus.PLANNED) throw courseChangeNotAllowed();
+        const active = await this.enrollmentCounts.countActive(manager, schoolClass.id);
+        if (active > 0) throw courseChangeNotAllowed();
+
+        course = await this.loadActiveCourse(manager, nextCourseId);
+
+        changes.before.courseId = schoolClass.courseId;
+        changes.after.courseId = course.id;
+        changes.fields.push("courseId");
+
+        schoolClass.courseId = course.id;
+      } else {
+        course = await this.loadCourseSummary(manager, schoolClass.courseId);
+      }
 
       let edition = await this.loadEdition(manager, schoolClass.editionId);
       let editionChanged = false;
@@ -254,7 +287,7 @@ export class ClassesService {
 
       const classChanged = this.applyChanges(schoolClass, dto as Record<string, unknown>, changes);
 
-      if (classChanged || editionChanged) {
+      if (classChanged || editionChanged || courseChanged) {
         schoolClass.updatedAt = this.clock.now();
         await manager.save(schoolClass);
       }

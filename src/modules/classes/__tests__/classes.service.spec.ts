@@ -31,6 +31,7 @@ const CREATED_AT = new Date("2026-09-01T12:00:00.000Z");
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
 const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000001";
+const OTHER_COURSE_ID = "01999a3e-7c1b-7000-8000-000000000002";
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
 const EDITION_ID = "01999a3e-7c1b-7000-8000-0000000000e1";
 const NEXT_EDITION_ID = "01999a3e-7c1b-7000-8000-0000000000e2";
@@ -653,7 +654,13 @@ describe("ClassesService", () => {
       const failure = await httpFailure(
         service.update(
           CLASS_ID,
-          { code: "INFO-B", startDate: "2026-12-01", capacity: 5, editionName: "2026.2" },
+          {
+            courseId: OTHER_COURSE_ID,
+            code: "INFO-B",
+            startDate: "2026-12-01",
+            capacity: 5,
+            editionName: "2026.2",
+          },
           ACTOR_ID,
         ),
       );
@@ -666,6 +673,7 @@ describe("ClassesService", () => {
       expect(editions.findOrCreate).not.toHaveBeenCalled();
       expect(builder.getExists).not.toHaveBeenCalled();
       expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
+      expect(courses.getCourseSummary).not.toHaveBeenCalled();
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
@@ -1003,15 +1011,287 @@ describe("ClassesService", () => {
       });
     });
 
-    it("never changes the course", async () => {
-      const result = await service.update(
-        CLASS_ID,
-        { courseId: "01999a3e-7c1b-7000-8000-0000000000ff", capacity: 20 } as never,
-        ACTOR_ID,
-      );
+    describe("the course", () => {
+      const target = (overrides: Partial<CourseSummary> = {}): CourseSummary =>
+        buildCourse({
+          id: OTHER_COURSE_ID,
+          name: "Informática Intermediária",
+          category: CourseCategory.INTERMEDIATE,
+          ...overrides,
+        });
 
-      expect(result.courseId).toBe(COURSE_ID);
-      expect(emittedEvents()[0].after).not.toHaveProperty("courseId");
+      beforeEach(() => {
+        // What the catalog answers for the course the edit asks for.
+        state.course = target();
+      });
+
+      it("changes the course of a planned class without active enrollments and records courseId in CLASS_UPDATED", async () => {
+        const result = await service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID);
+
+        expect(result.courseId).toBe(OTHER_COURSE_ID);
+        expect(result.course).toEqual({
+          id: OTHER_COURSE_ID,
+          name: "Informática Intermediária",
+          category: CourseCategory.INTERMEDIATE,
+          status: CourseStatus.ACTIVE,
+        });
+        // The new course is read FOR SHARE inside the transaction, once; the old one is not read.
+        expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
+        expect(courses.getCourseSummary).toHaveBeenCalledWith(OTHER_COURSE_ID, manager, {
+          lockForShare: true,
+        });
+        expect(manager.save).toHaveBeenCalledTimes(1);
+        expect(manager.save).toHaveBeenCalledWith(
+          expect.objectContaining({ id: CLASS_ID, courseId: OTHER_COURSE_ID, updatedAt: NOW }),
+        );
+        expect(result.updatedAt).toEqual(NOW);
+
+        expect(order.slice(-3)).toEqual(["save-class", "commit", "emit"]);
+        const [event] = emittedEvents();
+        expect(event.action).toBe(AuditableAction.CLASS_UPDATED);
+        expect(event.targetId).toBe(CLASS_ID);
+        expect(event.before).toEqual({ courseId: COURSE_ID });
+        expect(event.after).toEqual({ courseId: OTHER_COURSE_ID, changedFields: ["courseId"] });
+      });
+
+      it("checks the status, then counts the enrollments under the lock of the class, then reads the new course", async () => {
+        await service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID);
+
+        expect(order).toEqual([
+          "load-class",
+          "count-active",
+          "load-course",
+          "load-edition",
+          "save-class",
+          "commit",
+          "emit",
+        ]);
+        expect(enrollmentCounts.countActive).toHaveBeenCalledWith(manager, CLASS_ID);
+      });
+
+      it("refuses with 409 COURSE_CHANGE_NOT_ALLOWED when countActive > 0", async () => {
+        state.active = 1;
+
+        const failure = await httpFailure(
+          service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "COURSE_CHANGE_NOT_ALLOWED",
+          message:
+            "The course of a class can only change while it is planned and has no active enrollments.",
+        });
+        expect(enrollmentCounts.countActive).toHaveBeenCalledWith(manager, CLASS_ID);
+        // Refused before it reads the new course, and nothing is written.
+        expect(courses.getCourseSummary).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("refuses with 409 COURSE_CHANGE_NOT_ALLOWED when the stored status is not planned, even if the body sends planned", async () => {
+        for (const status of [
+          ClassStatus.IN_PROGRESS,
+          ClassStatus.COMPLETED,
+          ClassStatus.CANCELLED,
+        ]) {
+          state.row = buildClass({ status });
+
+          const failure = await httpFailure(
+            service.update(
+              CLASS_ID,
+              { courseId: OTHER_COURSE_ID, status: ClassStatus.PLANNED },
+              ACTOR_ID,
+            ),
+          );
+
+          expect(failure.getStatus()).toBe(409);
+          expect(failure.getResponse()).toMatchObject({ error: "COURSE_CHANGE_NOT_ALLOWED" });
+        }
+
+        // The status is the first thing looked at: nobody counts, reads or writes.
+        expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
+        expect(courses.getCourseSummary).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("treats the same courseId as no change: no check, no write, no event, even for a class in progress", async () => {
+        state.row = buildClass({ status: ClassStatus.IN_PROGRESS });
+        state.active = 5;
+        state.course = buildCourse();
+
+        const result = await service.update(
+          CLASS_ID,
+          { courseId: COURSE_ID, status: ClassStatus.IN_PROGRESS },
+          ACTOR_ID,
+        );
+
+        expect(result.courseId).toBe(COURSE_ID);
+        expect(result.course).toEqual(COURSE_RESPONSE);
+        expect(result.updatedAt).toEqual(CREATED_AT);
+        expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
+        // The course of the answer is read as in any other edit: no lock.
+        expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
+        expect(courses.getCourseSummary).toHaveBeenCalledWith(COURSE_ID, manager);
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("answers 400 COURSE_NOT_FOUND for a course that does not exist, and writes nothing", async () => {
+        state.course = null;
+
+        const failure = await httpFailure(
+          service.update(CLASS_ID, { courseId: OTHER_COURSE_ID, capacity: 20 }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(400);
+        expect(failure.getResponse()).toEqual({
+          error: "COURSE_NOT_FOUND",
+          message: "Course not found.",
+        });
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("answers 409 COURSE_ARCHIVED for an archived course, and writes nothing", async () => {
+        state.course = target({ status: CourseStatus.ARCHIVED });
+
+        const failure = await httpFailure(
+          service.update(CLASS_ID, { courseId: OTHER_COURSE_ID, capacity: 20 }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "COURSE_ARCHIVED",
+          message: "An archived course cannot receive new classes.",
+        });
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("answers the errors of a change in the order period, change not allowed, course not found, course archived, code, seats", async () => {
+        state.codeTaken = true;
+        state.active = 10;
+        state.row = buildClass({ status: ClassStatus.IN_PROGRESS });
+        const body = {
+          courseId: OTHER_COURSE_ID,
+          code: "INFO-B",
+          capacity: 5,
+        };
+
+        const period = await httpFailure(
+          service.update(CLASS_ID, { ...body, endDate: "2026-03-02" }, ACTOR_ID),
+        );
+        expect(period.getResponse()).toMatchObject({ error: "INVALID_PERIOD" });
+
+        const notAllowed = await httpFailure(service.update(CLASS_ID, body, ACTOR_ID));
+        expect(notAllowed.getResponse()).toMatchObject({ error: "COURSE_CHANGE_NOT_ALLOWED" });
+
+        state.row = buildClass();
+        state.active = 0;
+        state.course = null;
+        const notFound = await httpFailure(service.update(CLASS_ID, body, ACTOR_ID));
+        expect(notFound.getResponse()).toMatchObject({ error: "COURSE_NOT_FOUND" });
+
+        state.course = target({ status: CourseStatus.ARCHIVED });
+        const archived = await httpFailure(service.update(CLASS_ID, body, ACTOR_ID));
+        expect(archived.getResponse()).toMatchObject({ error: "COURSE_ARCHIVED" });
+
+        state.course = target();
+        const code = await httpFailure(service.update(CLASS_ID, body, ACTOR_ID));
+        expect(code.getResponse()).toMatchObject({ error: "CLASS_CODE_TAKEN" });
+
+        state.codeTaken = false;
+        state.active = 10;
+        const seats = await httpFailure(service.update(CLASS_ID, body, ACTOR_ID));
+        expect(seats.getResponse()).toMatchObject({ error: "CAPACITY_BELOW_ENROLLED" });
+      });
+
+      it("writes the course with the other fields in one save and records them all in one event", async () => {
+        const result = await service.update(
+          CLASS_ID,
+          { courseId: OTHER_COURSE_ID, code: "INFO-B", capacity: 20, location: "Sala 2" },
+          ACTOR_ID,
+        );
+
+        expect(result).toMatchObject({
+          courseId: OTHER_COURSE_ID,
+          code: "INFO-B",
+          capacity: 20,
+          location: "Sala 2",
+        });
+        expect(manager.save).toHaveBeenCalledTimes(1);
+        expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+        const [event] = emittedEvents();
+        expect(event.before).toEqual({
+          courseId: COURSE_ID,
+          code: "INFO-A",
+          location: null,
+          capacity: 15,
+        });
+        expect(event.after).toEqual({
+          courseId: OTHER_COURSE_ID,
+          code: "INFO-B",
+          location: "Sala 2",
+          capacity: 20,
+          changedFields: ["courseId", "code", "location", "capacity"],
+        });
+      });
+
+      it("moves a class out of an archived course into an active one", async () => {
+        // If the old course were read, it would be archived. The class does not depend on it: only
+        // the course it goes to has to be active, and the old one is not even read.
+        courses.getCourseSummary.mockImplementation(async (id: string) =>
+          id === COURSE_ID ? buildCourse({ status: CourseStatus.ARCHIVED }) : target(),
+        );
+
+        const result = await service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID);
+
+        expect(result.courseId).toBe(OTHER_COURSE_ID);
+        expect(result.course.status).toBe(CourseStatus.ACTIVE);
+        expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
+        expect(courses.getCourseSummary).toHaveBeenCalledWith(OTHER_COURSE_ID, manager, {
+          lockForShare: true,
+        });
+      });
+
+      it("keeps editing a class whose course was archived when the course does not change", async () => {
+        state.course = buildCourse({ status: CourseStatus.ARCHIVED });
+
+        const result = await service.update(
+          CLASS_ID,
+          { courseId: COURSE_ID, capacity: 20 },
+          ACTOR_ID,
+        );
+
+        expect(result.capacity).toBe(20);
+        expect(result.courseId).toBe(COURSE_ID);
+        expect(result.course.status).toBe(CourseStatus.ARCHIVED);
+        expect(manager.save).toHaveBeenCalledTimes(1);
+      });
+
+      it("maps 23503 on fk_classes_course_id at the save to 400 COURSE_NOT_FOUND, as a safety net", async () => {
+        manager.save.mockRejectedValueOnce(violation("23503", "fk_classes_course_id"));
+
+        const failure = await httpFailure(
+          service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID),
+        );
+
+        expect(failure.getStatus()).toBe(400);
+        expect(failure.getResponse()).toMatchObject({ error: "COURSE_NOT_FOUND" });
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it("does not emit when the save of the new course fails", async () => {
+        manager.save.mockRejectedValueOnce(new Error("connection lost"));
+
+        await expect(
+          service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID),
+        ).rejects.toThrow("connection lost");
+
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
     });
 
     it("is a no-op without event when nothing changed", async () => {
