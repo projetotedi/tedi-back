@@ -42,6 +42,8 @@ export enum AuditableAction {
   LESSON_PLAN_UPDATED = "LESSON_PLAN_UPDATED",
   LESSON_PLAN_ARCHIVED = "LESSON_PLAN_ARCHIVED",
   LESSON_PLAN_UNARCHIVED = "LESSON_PLAN_UNARCHIVED",
+  /** A lesson plan was duplicated (GUS-118). Target is the copy; after carries sourceLessonPlanId and the copied fields. */
+  LESSON_PLAN_DUPLICATED = "LESSON_PLAN_DUPLICATED",
   /** A course was created, with its prerequisites (GUS-97). */
   COURSE_CREATED = "COURSE_CREATED",
   /** Course data or prerequisites changed. Payload carries only the changed fields plus changedFields (GUS-97). */
