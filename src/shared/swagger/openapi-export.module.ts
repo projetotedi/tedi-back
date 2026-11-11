@@ -113,6 +113,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         findAccessFacts: async () => ({ registrationStatus: null, departmentIds: [] }),
         listRegistrations: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         listMembers: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getMember: async () => ({}),
         getRegistration: async () => ({}),
         approve: async () => ({}),
         reject: async () => ({}),
