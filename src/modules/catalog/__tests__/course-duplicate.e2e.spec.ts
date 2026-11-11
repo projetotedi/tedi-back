@@ -243,11 +243,10 @@ describe("Course duplicate (e2e)", () => {
   async function createSource(...durations: number[]) {
     const source = await createCourse(SOURCE);
     const plans = await createPlans(...durations);
-    if (plans.length > 0)
-      await putSequence(
-        source.id,
-        plans.map((plan) => plan.id),
-      );
+    if (plans.length > 0) {
+      const lessonPlanIds = plans.map((plan) => plan.id);
+      await putSequence(source.id, lessonPlanIds);
+    }
     return { source, plans };
   }
 
