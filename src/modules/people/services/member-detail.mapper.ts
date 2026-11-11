@@ -17,8 +17,9 @@ import { toDepartmentResponse } from "./member-registration.mapper";
  *  - `reviewedBy` is { id, name } of the reviewer; null when there is none (pending, approved by
  *    the backfill, or the reviewer was deleted).
  *
- * If open question Q9.4 ends up restricting phone and address to coordination, the cut goes
- * here: this is the one place that decides what the record shows.
+ * Phone and address are shown to every reader of the record, the director of the member's
+ * department included (Q9.4, answered on 2026-11-11). This is the one place that decides what the
+ * record shows.
  */
 export function toMemberDetail(
   person: Person,

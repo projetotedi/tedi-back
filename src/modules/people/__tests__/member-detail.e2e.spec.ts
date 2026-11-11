@@ -342,10 +342,16 @@ describe("GET /members/:id (e2e)", () => {
 
       const res = await getMember(personId, directorTech).expect(200);
 
+      // Q9.4 (answered on 2026-11-11): the director of the department sees phone and address too.
       expect(res.body).toMatchObject({
         id: personId,
         name: "Bruno Lima",
         role: "member",
+        email: "aluno2@example.com",
+        phone: "11981813030",
+        address: "Rua das Acácias, 120, apto 42",
+        city: "São Paulo",
+        state: "SP",
         cpfMasked: "***.***.777-35",
         department: { id: tech, name: "Tecnologia" },
         registrationStatus: "approved",
