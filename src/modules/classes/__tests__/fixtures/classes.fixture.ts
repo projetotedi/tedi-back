@@ -52,7 +52,8 @@ export async function insertEdition(dataSource: DataSource, name: string): Promi
 
 /**
  * INSERT INTO classes ... RETURNING id. Archived when `archivedById` is given. The status is
- * planned unless it is given, as the column does.
+ * planned, the period 2026-03-03 to 2026-06-27 and the seats 15 unless they are given, and the name
+ * is null.
  */
 export async function insertClass(
   dataSource: DataSource,
@@ -61,16 +62,20 @@ export async function insertClass(
     editionId: string;
     createdById: string;
     code?: string;
+    name?: string;
+    startDate?: string;
+    endDate?: string;
+    capacity?: number;
     archivedById?: string;
     status?: ClassStatus;
   },
 ): Promise<string> {
   const rows: Array<{ id: string }> = await dataSource.query(
     `INSERT INTO classes (id, code, course_id, edition_id, start_date, end_date, capacity,
-                          created_by_id, archived_at, archived_by_id, status)
-     VALUES (gen_random_uuid(), $4, $1, $2, '2026-03-03', '2026-06-27', 15, $3,
+                          created_by_id, archived_at, archived_by_id, status, name)
+     VALUES (gen_random_uuid(), $4, $1, $2, $8::date, $9::date, $10, $3,
              CASE WHEN $5::uuid IS NULL THEN NULL ELSE now() END, $5::uuid,
-             $6::classes_status_enum)
+             $6::classes_status_enum, $7)
      RETURNING id`,
     [
       input.courseId,
@@ -79,6 +84,10 @@ export async function insertClass(
       input.code ?? "INFO-A",
       input.archivedById ?? null,
       input.status ?? ClassStatus.PLANNED,
+      input.name ?? null,
+      input.startDate ?? "2026-03-03",
+      input.endDate ?? "2026-06-27",
+      input.capacity ?? 15,
     ],
   );
   return rows[0].id;
