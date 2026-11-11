@@ -58,6 +58,14 @@ export enum AuditableAction {
   CLASS_ARCHIVED = "CLASS_ARCHIVED",
   /** An archived class was reactivated (GUS-101). */
   CLASS_UNARCHIVED = "CLASS_UNARCHIVED",
+  /** A lesson was created, alone or from a lesson plan (GUS-151). */
+  LESSON_CREATED = "LESSON_CREATED",
+  /** Lesson data changed. Payload carries only the changed fields plus changedFields; the free text of postNotes is never in it (RNF-13, GUS-151). */
+  LESSON_UPDATED = "LESSON_UPDATED",
+  /** A lesson was cancelled with a reason; it stays, with status cancelled. The reason is not in the payload (RNF-13, GUS-151). */
+  LESSON_CANCELLED = "LESSON_CANCELLED",
+  /** A lesson moved to another date or time. It is the same lesson: before and after carry the schedule (GUS-151). */
+  LESSON_RESCHEDULED = "LESSON_RESCHEDULED",
 }
 
 /**
@@ -67,7 +75,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change
