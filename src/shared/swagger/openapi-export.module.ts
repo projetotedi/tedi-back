@@ -25,6 +25,7 @@ import { CoursesController } from "@modules/catalog/controllers/courses.controll
 import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans.controller";
 import { ClassesController } from "@modules/classes/controllers/classes.controller";
 import { EditionsController } from "@modules/classes/controllers/editions.controller";
+import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -40,6 +41,7 @@ import { LessonPlanUsageService } from "@modules/catalog/services/lesson-plan-us
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -64,6 +66,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     CourseLessonPlansController,
     ClassesController,
     EditionsController,
+    LessonsController,
   ],
   providers: [
     {
@@ -175,6 +178,16 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: EditionsService,
       useValue: { list: async () => [], findOrCreate: async () => ({}) },
+    },
+    {
+      provide: LessonsService,
+      useValue: {
+        create: async () => ({}),
+        findById: async () => ({}),
+        update: async () => ({}),
+        cancel: async () => ({}),
+        reschedule: async () => ({}),
+      },
     },
     {
       provide: ConfigService,
