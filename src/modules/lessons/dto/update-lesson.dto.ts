@@ -64,7 +64,6 @@ export class UpdateLessonDto extends PartialType(
     enum: LessonStatus,
     enumName: "LessonStatus",
     example: LessonStatus.CONFIRMED,
-    // Also the description of the shared LessonStatus schema (the first property to use it names it).
     description:
       "Status of the lesson (F4.5). cancelled is rejected with 400 VALIDATION_FAILED: use cancelLesson, which records the reason. Omit to keep. Never null. No rule limits the moves between the other statuses yet.",
   })
