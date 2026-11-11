@@ -35,7 +35,7 @@ Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuár
 
 ```
 auth       → people   (o guard carrega a Person e a situação do cadastro de membro a cada request)
-people       ← classes, assignments, hours, imports, catalog   (catalog: nome de quem criou o plano de aula, via PeopleService.findRefsByIds, GUS-96)
+people       ← classes, assignments, hours, imports, catalog   (catalog: nome de quem criou o plano de aula, GUS-96, e o curso, GUS-100, via PeopleService.findRefsByIds)
 catalog      ← classes, lessons
 classes      ← lessons, attendance
 lessons      ← assignments, attendance
@@ -367,7 +367,7 @@ A situação mora no perfil; o acesso continua na `Person`.
 
 `auth` só usa o que o `PeopleModule` exporta: `MembersService`, `DepartmentsService` e os tipos do contrato desses services (`MemberRegistrationFormDto`, `DepartmentResponseDto`, `MemberRegistrationStatus`, `MemberAccessFacts`). `InvitesService.accept` abre a transação e chama `MembersService.submitFromInvite(manager, ...)`, para a `Person`, o perfil e o `invite.usedAt` saírem no mesmo commit; o evento é montado em `people` (dono da allow-list) e emitido por `auth` depois do commit. `GET /auth/invites/:token` devolve `departments` para o formulário público (só quem tem um convite válido vê os nomes).
 
-`catalog` também importa o `PeopleModule` (GUS-96), só para `PeopleService.findRefsByIds`, que devolve `PersonRefDto { id, name }`: o nome de quem criou um plano de aula, no detalhe. É a mesma regra: nenhuma entidade `Person` sai de `people`, e `PersonRefDto` é um tipo do contrato do `PeopleService`, como os da lista acima. `catalog` não lê a tabela `people` por SQL.
+`catalog` também importa o `PeopleModule` (GUS-96), só para `PeopleService.findRefsByIds`, que devolve `PersonRefDto { id, name }`: o nome de quem criou um plano de aula ou um curso (GUS-100), no detalhe de cada um. É a mesma regra: nenhuma entidade `Person` sai de `people`, e `PersonRefDto` é um tipo do contrato do `PeopleService`, como os da lista acima. `catalog` não lê a tabela `people` por SQL.
 
 ## 12. Busca textual (GUS-115)
 

@@ -10,6 +10,7 @@ import { CoursePrerequisite } from "./entities/course-prerequisite.entity";
 import { Course } from "./entities/course.entity";
 import { LessonPlanContent } from "./entities/lesson-plan-content.entity";
 import { LessonPlan } from "./entities/lesson-plan.entity";
+import { CourseDetailService } from "./services/course-detail.service";
 import { CourseLessonPlansService } from "./services/course-lesson-plans.service";
 import { CoursesService } from "./services/courses.service";
 import { LessonPlanUsageService } from "./services/lesson-plan-usage.service";
@@ -17,7 +18,7 @@ import { LessonPlansService } from "./services/lesson-plans.service";
 
 @Module({
   imports: [
-    // The detail of a lesson plan shows who created it: PeopleService.findRefsByIds (GUS-96).
+    // Name of who created a lesson plan (GUS-96) or a course (GUS-100), read from PeopleService.
     PeopleModule,
     TypeOrmModule.forFeature([
       LessonPlan,
@@ -33,6 +34,7 @@ import { LessonPlansService } from "./services/lesson-plans.service";
     CoursesService,
     CourseLessonPlansService,
     LessonPlanUsageService,
+    CourseDetailService,
     Clock,
   ],
   // The classes module reads the course (category, status) through getCourseSummary.
