@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
-import { DataSource } from "typeorm";
+import { DataSource, EntityManager } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { ArchivableColumns } from "@shared/entities/archivable.columns";
 import {
@@ -835,6 +835,62 @@ describe("CourseLessonPlansService", () => {
       expect(sql).toContain("plan.deleted_at IS NULL");
       expect(sql).toContain("usage.deleted_at IS NULL");
       expect(sql).toContain("c.deleted_at IS NULL");
+    });
+  });
+
+  describe("findPosition()", () => {
+    it("returns the position of the plan in the sequence of the course", async () => {
+      manager.findOne.mockResolvedValueOnce(buildLink(SECOND_ID, 2));
+
+      await expect(service.findPosition(COURSE_ID, SECOND_ID)).resolves.toBe(2);
+
+      expect(manager.findOne).toHaveBeenCalledWith(CourseLessonPlan, {
+        where: { courseId: COURSE_ID, lessonPlanId: SECOND_ID },
+      });
+    });
+
+    it("returns null when the plan is not in the sequence of the course", async () => {
+      manager.findOne.mockResolvedValueOnce(null);
+
+      await expect(service.findPosition(COURSE_ID, THIRD_ID)).resolves.toBeNull();
+    });
+
+    it("returns null for a malformed course or plan id without querying", async () => {
+      for (const malformed of ["not-a-uuid", "", "123", `${COURSE_ID}x`]) {
+        await expect(service.findPosition(malformed, FIRST_ID)).resolves.toBeNull();
+        await expect(service.findPosition(COURSE_ID, malformed)).resolves.toBeNull();
+      }
+
+      // A malformed id never reaches the database.
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("reads through the manager of the caller when it is given", async () => {
+      const inTransaction = { findOne: jest.fn().mockResolvedValue(buildLink(FIRST_ID, 1)) };
+
+      const position = await service.findPosition(
+        COURSE_ID,
+        FIRST_ID,
+        inTransaction as unknown as EntityManager,
+      );
+
+      expect(position).toBe(1);
+      expect(inTransaction.findOne).toHaveBeenCalledWith(CourseLessonPlan, {
+        where: { courseId: COURSE_ID, lessonPlanId: FIRST_ID },
+      });
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("takes no transaction, no lock and emits no event", async () => {
+      manager.findOne.mockResolvedValueOnce(buildLink(FIRST_ID, 1));
+
+      await service.findPosition(COURSE_ID, FIRST_ID);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(manager.findOne.mock.calls[0][1]).not.toHaveProperty("lock");
     });
   });
 });

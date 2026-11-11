@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
-import { DataSource } from "typeorm";
+import { DataSource, EntityManager } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { ArchivableColumns } from "@shared/entities/archivable.columns";
 import {
@@ -84,9 +84,11 @@ describe("LessonPlansService", () => {
   };
   const planRepository = { findOne: jest.fn() };
   const contentRepository = { find: jest.fn() };
+  // `manager` is what a read that opens no transaction goes through (getLessonPlanSummary).
   const dataSource = {
     transaction: jest.fn(),
     getRepository: jest.fn(),
+    manager: { findOne: jest.fn() },
   };
   const eventEmitter = { emit: jest.fn() };
 
@@ -769,6 +771,114 @@ describe("LessonPlansService", () => {
 
       await expect(service.duplicate(PLAN_ID, ACTOR_ID)).rejects.toThrow("connection lost");
 
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getLessonPlanSummary()", () => {
+    const asManager = manager as unknown as EntityManager;
+
+    it("returns null for a malformed id without querying", async () => {
+      for (const malformed of ["not-a-uuid", "", "123", `${PLAN_ID}x`]) {
+        await expect(service.getLessonPlanSummary(malformed, asManager)).resolves.toBeNull();
+        await expect(service.getLessonPlanSummary(malformed)).resolves.toBeNull();
+      }
+
+      // A malformed id never reaches the database.
+      expect(manager.findOne).not.toHaveBeenCalled();
+      expect(dataSource.manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("returns null when the lesson plan does not exist", async () => {
+      state.plan = null;
+
+      await expect(service.getLessonPlanSummary(PLAN_ID, asManager)).resolves.toBeNull();
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns id, title, objective, expected duration and archivedAt, and only those fields", async () => {
+      const summary = await service.getLessonPlanSummary(PLAN_ID, asManager);
+
+      expect(summary).toEqual({
+        id: PLAN_ID,
+        title: "Teclado, mouse e janelas",
+        objective: "Familiarizar o aluno com o teclado.",
+        expectedDurationMinutes: 90,
+        archivedAt: null,
+      });
+      expect(Object.keys(summary ?? {}).sort()).toEqual([
+        "archivedAt",
+        "expectedDurationMinutes",
+        "id",
+        "objective",
+        "title",
+      ]);
+    });
+
+    it("answers null in objective for a plan without one", async () => {
+      state.plan = buildPlan({ objective: null });
+
+      const summary = await service.getLessonPlanSummary(PLAN_ID, asManager);
+
+      expect(summary?.objective).toBeNull();
+    });
+
+    it("returns an archived plan with archivedAt", async () => {
+      state.plan = buildPlan({
+        archive: { archivedAt: NOW, archivedById: ACTOR_ID, archiveReason: "Conteúdo antigo." },
+      });
+
+      const summary = await service.getLessonPlanSummary(PLAN_ID, asManager);
+
+      expect(summary?.archivedAt).toEqual(NOW);
+      expect(summary?.title).toBe("Teclado, mouse e janelas");
+    });
+
+    it("answers null in archivedAt when the entity carries no archive columns", async () => {
+      state.plan = Object.assign(buildPlan(), { archive: undefined }) as unknown as LessonPlan;
+
+      const summary = await service.getLessonPlanSummary(PLAN_ID, asManager);
+
+      expect(summary?.archivedAt).toBeNull();
+    });
+
+    it("locks FOR SHARE only when forShare is set", async () => {
+      await service.getLessonPlanSummary(PLAN_ID, asManager, { forShare: true });
+      expect(manager.findOne).toHaveBeenLastCalledWith(LessonPlan, {
+        where: { id: PLAN_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+
+      manager.findOne.mockClear();
+      await service.getLessonPlanSummary(PLAN_ID, asManager);
+      expect(manager.findOne).toHaveBeenLastCalledWith(LessonPlan, { where: { id: PLAN_ID } });
+
+      await service.getLessonPlanSummary(PLAN_ID, asManager, { forShare: false });
+      expect(manager.findOne).toHaveBeenLastCalledWith(LessonPlan, { where: { id: PLAN_ID } });
+      await service.getLessonPlanSummary(PLAN_ID, asManager, {});
+      expect(manager.findOne).toHaveBeenLastCalledWith(LessonPlan, { where: { id: PLAN_ID } });
+    });
+
+    it("reads through the manager it is given, inside the transaction of the caller", async () => {
+      await service.getLessonPlanSummary(PLAN_ID, asManager);
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(dataSource.manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("reads through the manager of the data source when none is given, with no transaction, no write and no event", async () => {
+      dataSource.manager.findOne.mockResolvedValue(buildPlan());
+
+      const summary = await service.getLessonPlanSummary(PLAN_ID);
+
+      expect(summary?.id).toBe(PLAN_ID);
+      expect(dataSource.manager.findOne).toHaveBeenCalledWith(LessonPlan, {
+        where: { id: PLAN_ID },
+      });
+      expect(manager.findOne).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });

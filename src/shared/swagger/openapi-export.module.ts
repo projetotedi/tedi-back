@@ -135,6 +135,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
         duplicate: async () => ({}),
+        getLessonPlanSummary: async () => null,
       },
     },
     {
@@ -151,7 +152,11 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     },
     {
       provide: CourseLessonPlansService,
-      useValue: { list: async () => ({}), replace: async () => ({}) },
+      useValue: {
+        list: async () => ({}),
+        replace: async () => ({}),
+        findPosition: async () => null,
+      },
     },
     {
       provide: CourseDetailService,
