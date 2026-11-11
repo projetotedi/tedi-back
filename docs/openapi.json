@@ -215,6 +215,44 @@
         ],
         "type": "string"
       },
+      "ClassCourseResponseDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Always the current category of the course: a class has no category of its own (RN-14).",
+            "example": "basic"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseStatus"
+              }
+            ],
+            "description": "Status of the course now. An archived course keeps its classes, and takes no new class (RF-020).",
+            "example": "active"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "status"
+        ],
+        "type": "object"
+      },
       "ClassResponseDto": {
         "properties": {
           "archiveReason": {
@@ -245,8 +283,16 @@
             "example": "INFO-A",
             "type": "string"
           },
+          "course": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassCourseResponseDto"
+              }
+            ],
+            "description": "The course this class offers, read now: its category is the one of the course (RN-14), and changing it there changes it here."
+          },
           "courseId": {
-            "description": "Id of the course this class offers. It never changes (RN-13).",
+            "description": "Id of the course this class offers. Same as course.id.",
             "example": "01999a3e-7c1b-7000-8000-000000000001",
             "format": "uuid",
             "type": "string"
@@ -312,6 +358,7 @@
           "code",
           "name",
           "courseId",
+          "course",
           "edition",
           "startDate",
           "endDate",
@@ -337,14 +384,106 @@
         ],
         "type": "string"
       },
+      "ClassesSummaryByCourseResponseDto": {
+        "properties": {
+          "active": {
+            "description": "Classes of the course that are not archived and are planned or in progress: the ones on offer, apart from the history (completed and cancelled). Never more than total.",
+            "example": 2,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "courseId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "total": {
+            "description": "Classes of the course that are not archived (RN-27). It is the total of GET /courses/{id}/classes without a filter. 0 when the course has none, or when the id is not a course.",
+            "example": 3,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "courseId",
+          "total",
+          "active"
+        ],
+        "type": "object"
+      },
       "CourseCategory": {
-        "description": "Level of the content. A class takes the category of its course when created.",
+        "description": "Level of the content. A class has no category of its own: it shows the one of its course (RN-14).",
         "enum": [
           "basic",
           "intermediate",
           "advanced"
         ],
         "type": "string"
+      },
+      "CourseClassItemResponseDto": {
+        "properties": {
+          "capacity": {
+            "description": "Number of seats.",
+            "example": 15,
+            "type": "integer"
+          },
+          "code": {
+            "description": "Unique inside its edition.",
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "edition": {
+            "$ref": "#/components/schemas/EditionResponseDto"
+          },
+          "endDate": {
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "enrolledCount": {
+            "description": "Active enrollments of the class. Always 0 until the enrollments exist (GUS-108).",
+            "example": 12,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label. Null when not informed.",
+            "example": "Informática Básica, turma A",
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "description": "Status of the class now (RF-034).",
+            "example": "in_progress"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "edition",
+          "startDate",
+          "endDate",
+          "enrolledCount",
+          "capacity",
+          "status"
+        ],
+        "type": "object"
       },
       "CourseDetailDto": {
         "properties": {
@@ -690,7 +829,7 @@
             "type": "string"
           },
           "courseId": {
-            "description": "Id of the course this class offers. It cannot be changed after the class is created (RN-13).",
+            "description": "Id of the course this class offers. Must be an active course: 400 COURSE_NOT_FOUND when it does not exist, 409 COURSE_ARCHIVED when it is archived (RF-020). It changes later only while the class is planned and has no enrollments.",
             "example": "01999a3e-7c1b-7000-8000-000000000001",
             "format": "uuid",
             "type": "string"
@@ -757,7 +896,7 @@
                 "$ref": "#/components/schemas/CourseCategory"
               }
             ],
-            "description": "Level of the content. A class takes the category of its course when created.",
+            "description": "Level of the content. A class has no category of its own: it shows the one of its course (RN-14).",
             "example": "basic"
           },
           "description": {
@@ -1534,7 +1673,7 @@
                 "$ref": "#/components/schemas/CourseCategory"
               }
             ],
-            "description": "Level of the content. A class takes the category of its course when created.",
+            "description": "Level of the content. A class has no category of its own: it shows the one of its course (RN-14).",
             "example": "intermediate"
           },
           "courseId": {
@@ -2956,7 +3095,7 @@
         "type": "object"
       },
       "UpdateClassDto": {
-        "description": "Every field is optional: omit to keep. courseId is not editable (RN-13): the course of a class never changes, and a courseId in the body is ignored.",
+        "description": "Every field is optional: omit to keep. courseId moves the class to another course, only while it is planned and has no active enrollments. There is no category: the class shows the one of its course, and a category in the body is ignored.",
         "properties": {
           "capacity": {
             "description": "Omit to keep. Never null. Number of seats. It cannot go below the number of active enrollments (409 CAPACITY_BELOW_ENROLLED).",
@@ -2969,6 +3108,12 @@
             "description": "Omit to keep. Never null. Unique inside its edition, ignoring case, archived classes included.",
             "example": "INFO-A",
             "maxLength": 30,
+            "type": "string"
+          },
+          "courseId": {
+            "description": "Omit to keep. Never null. Id of another course. It changes only while the class is planned and has no active enrollments (409 COURSE_CHANGE_NOT_ALLOWED), and the new course must be active (400 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED). The course the class already has is not a change.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
             "type": "string"
           },
           "editionName": {
@@ -3024,7 +3169,7 @@
                 "$ref": "#/components/schemas/CourseCategory"
               }
             ],
-            "description": "Omit to keep. Never null. Changing the category does not change the classes already created (RN-18).",
+            "description": "Omit to keep. Never null. A class has no category of its own: changing it changes the category its classes show (RN-14).",
             "example": "intermediate"
           },
           "description": {
@@ -4072,7 +4217,92 @@
                 }
               }
             },
-            "description": "CLASS_CODE_TAKEN"
+            "description": "COURSE_ARCHIVED | CLASS_CODE_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
+    "/classes/summary-by-course": {
+      "get": {
+        "operationId": "getClassesSummaryByCourse",
+        "parameters": [
+          {
+            "description": "Ids of the courses, comma separated: from 1 to 100 ids (maxItems 100), else 400 VALIDATION_FAILED. A repeated id counts once, and spaces around an id are ignored.",
+            "in": "query",
+            "name": "courseIds",
+            "required": true,
+            "schema": {
+              "example": "01999a3e-7c1b-7000-8000-000000000001,01999a3e-7c1b-7000-8000-000000000002",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClassesSummaryByCourseResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
           },
           "500": {
             "content": {
@@ -4134,7 +4364,7 @@
                 }
               }
             },
-            "description": "VALIDATION_FAILED | INVALID_PERIOD"
+            "description": "VALIDATION_FAILED | INVALID_PERIOD | COURSE_NOT_FOUND"
           },
           "401": {
             "content": {
@@ -4174,7 +4404,7 @@
                 }
               }
             },
-            "description": "CLASS_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)"
+            "description": "CLASS_ARCHIVED | COURSE_CHANGE_NOT_ALLOWED | COURSE_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)"
           },
           "500": {
             "content": {
@@ -4646,6 +4876,144 @@
         },
         "tags": [
           "catalog"
+        ]
+      }
+    },
+    "/courses/{id}/classes": {
+      "get": {
+        "operationId": "listCourseClasses",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Only the classes with this status. One value. Omit for every status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ClassStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/CourseClassItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
         ]
       }
     },
