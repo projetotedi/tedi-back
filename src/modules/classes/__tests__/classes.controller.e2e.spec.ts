@@ -24,6 +24,7 @@ import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { ClassesModule } from "../classes.module";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
+import { archiveCourse } from "./fixtures/classes.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
 const dbConnection = dbUrl
@@ -54,10 +55,18 @@ interface FieldError {
   message: string;
 }
 
+interface CourseBody {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+}
+
 interface ClassBody extends Record<string, unknown> {
   id: string;
   code: string;
   courseId: string;
+  course: CourseBody;
   edition: { id: string; name: string };
   status: string;
   createdAt: string;
@@ -153,17 +162,25 @@ describe("ClassesController (e2e)", () => {
   }
 
   /** The course comes from the service that CatalogModule exports, not from the table. */
-  async function createCourse(name: string): Promise<string> {
+  async function createCourse(name: string, category = "basic"): Promise<string> {
     const course = await coursesService.create(
       {
         name,
         description: "Fundamentos do uso do computador.",
-        category: "basic",
+        category,
       } as unknown as CreateCourseInput,
       director.id,
     );
     return course.id;
   }
+
+  /** The `course` an answer of the module shows for the course of the beforeEach. */
+  const BASIC_COURSE = (): CourseBody => ({
+    id: courseId,
+    name: "Informática Básica",
+    category: "basic",
+    status: "active",
+  });
 
   /** INFO-A in 2026.1, from 2026-03-03 to 2026-06-27, with 15 seats: the class of the card. */
   function body(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -282,6 +299,7 @@ describe("ClassesController (e2e)", () => {
         code: "INFO-A",
         name: null,
         courseId,
+        course: { id: courseId, name: "Informática Básica", category: "basic", status: "active" },
         edition: { id: expect.any(String), name: "2026.1" },
         startDate: "2026-03-03",
         endDate: "2026-06-27",
@@ -514,6 +532,133 @@ describe("ClassesController (e2e)", () => {
       expect(res.body.message).toBe("Course not found.");
       expect(await countRows("classes")).toBe(0);
       expect(await countRows("editions")).toBe(0);
+    });
+
+    it("CT2: archiving Smartphones and creating a class with it answers 409 COURSE_ARCHIVED", async () => {
+      const smartphones = await createCourse("Smartphones");
+      await archiveCourse(dataSource, smartphones, coordinator.id);
+
+      const res = await postClass(
+        director,
+        body({ courseId: smartphones, editionName: "2026.9" }),
+      ).expect(409);
+
+      expect(res.body).toEqual({
+        statusCode: 409,
+        error: "COURSE_ARCHIVED",
+        message: "An archived course cannot receive new classes.",
+      });
+      expect(await countRows("classes")).toBe(0);
+      expect(await countRows("editions")).toBe(0);
+    });
+
+    it("returns 409 COURSE_ARCHIVED for an archived course and creates neither the class nor the edition", async () => {
+      const first = await createClass();
+      await archiveCourse(dataSource, courseId, coordinator.id);
+
+      // A class that was there before stays; a new one, in a new edition, is refused.
+      const res = await postClass(director, body({ code: "INFO-B", editionName: "2026.2" })).expect(
+        409,
+      );
+
+      expect(res.body.error).toBe("COURSE_ARCHIVED");
+      expect(await countRows("classes")).toBe(1);
+      expect(await storedEditionNames()).toEqual(["2026.1"]);
+      expect(await storedClass(first.id)).toMatchObject({ code: "INFO-A", course_id: courseId });
+
+      // The id in upper case is the same course.
+      await postClass(director, body({ code: "INFO-C", courseId: courseId.toUpperCase() })).expect(
+        409,
+      );
+
+      // The rule follows the state of the course: the class is accepted again when it comes back.
+      await dataSource.query(
+        `UPDATE courses SET archived_at = NULL, archived_by_id = NULL, archive_reason = NULL WHERE id = $1`,
+        [courseId],
+      );
+      await postClass(director, body({ code: "INFO-B", editionName: "2026.2" })).expect(201);
+      expect(await countRows("classes")).toBe(2);
+    });
+
+    it("answers COURSE_NOT_FOUND, then COURSE_ARCHIVED, before CLASS_CODE_TAKEN", async () => {
+      await createClass();
+
+      // The code INFO-A of 2026.1 is taken in all three. The course is what is answered first.
+      const unknown = await postClass(director, body({ courseId: UNKNOWN_ID })).expect(400);
+      expect(unknown.body.error).toBe("COURSE_NOT_FOUND");
+
+      await archiveCourse(dataSource, courseId, coordinator.id);
+      const archived = await postClass(director, body()).expect(409);
+      expect(archived.body.error).toBe("COURSE_ARCHIVED");
+
+      await dataSource.query(`UPDATE courses SET archived_at = NULL, archived_by_id = NULL`);
+      const taken = await postClass(director, body()).expect(409);
+      expect(taken.body.error).toBe("CLASS_CODE_TAKEN");
+    });
+
+    it("waits for whoever holds the course row and answers 409 COURSE_ARCHIVED when that one archives it", async () => {
+      // Another connection that edits the course: it locks the row FOR UPDATE, as an edit of the
+      // course does, and archives it before it commits.
+      const holder = dataSource.createQueryRunner();
+      await holder.connect();
+      await holder.startTransaction();
+      await holder.query(`SELECT id FROM courses WHERE id = $1 FOR UPDATE`, [courseId]);
+
+      const pending = postClass(director, body({ editionName: "2026.9" })).then((res) => res);
+
+      try {
+        // The read of the course is a locking read: a plain SELECT would not wait for the holder
+        // (MVCC). It is also the first statement of the creation: the edition comes after it.
+        expect(await blockedStatement()).toMatch(/FROM "courses"/);
+        await holder.query(
+          `UPDATE courses SET archived_at = now(), archived_by_id = $2 WHERE id = $1`,
+          [courseId, coordinator.id],
+        );
+      } finally {
+        await holder.commitTransaction();
+        await holder.release();
+      }
+
+      const res = await pending;
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("COURSE_ARCHIVED");
+      expect(await countRows("classes")).toBe(0);
+      expect(await countRows("editions")).toBe(0);
+    });
+
+    it("creates the class when whoever held the course row did not archive it", async () => {
+      const holder = dataSource.createQueryRunner();
+      await holder.connect();
+      await holder.startTransaction();
+      await holder.query(`SELECT id FROM courses WHERE id = $1 FOR UPDATE`, [courseId]);
+
+      const pending = postClass(director, body()).then((res) => res);
+
+      try {
+        expect(await blockedStatement()).toMatch(/FROM "courses"/);
+      } finally {
+        await holder.commitTransaction();
+        await holder.release();
+      }
+
+      const res = await pending;
+      expect(res.status).toBe(201);
+      expect(res.body.course).toEqual(BASIC_COURSE());
+    });
+
+    it("ignores a category sent in the body: the class shows the one of its course", async () => {
+      const res = await postClass(
+        director,
+        body({ category: "advanced", course: { category: "advanced" } }),
+      ).expect(201);
+
+      expect(res.body.course).toEqual(BASIC_COURSE());
+      expect(res.body).not.toHaveProperty("category");
+      const rows: Array<{ category: string }> = await dataSource.query(
+        `SELECT category FROM courses WHERE id = $1`,
+        [courseId],
+      );
+      expect(rows[0].category).toBe("basic");
     });
 
     it("reads a course id in upper case as the id of the course and answers it in lower case", async () => {
@@ -1500,6 +1645,109 @@ describe("ClassesController (e2e)", () => {
       await archiveClass(created.id, director, { reason: "r".repeat(501) }).expect(400);
 
       expect(events).toHaveLength(0);
+    });
+  });
+
+  describe("the course of the class", () => {
+    it("answers every mutation with course { id, name, category, status } of its course", async () => {
+      const created = await postClass(director, body()).expect(201);
+      expect(created.body.course).toEqual(BASIC_COURSE());
+      expect(created.body.course.id).toBe(created.body.courseId);
+
+      const edited = await patchClass(created.body.id, coordinator, { capacity: 20 }).expect(200);
+      expect(edited.body.course).toEqual(BASIC_COURSE());
+
+      const archived = await archiveClass(created.body.id, director).expect(200);
+      expect(archived.body.course).toEqual(BASIC_COURSE());
+
+      const unarchived = await unarchiveClass(created.body.id, director).expect(200);
+      expect(unarchived.body.course).toEqual(BASIC_COURSE());
+
+      // The no-ops answer it too: an edit with nothing to change and a second archive.
+      const noEdit = await patchClass(created.body.id, director, {}).expect(200);
+      expect(noEdit.body.course).toEqual(BASIC_COURSE());
+      await archiveClass(created.body.id, director).expect(200);
+      const noArchive = await archiveClass(created.body.id, director).expect(200);
+      expect(noArchive.body.course).toEqual(BASIC_COURSE());
+    });
+
+    it("shows the new category after PATCH /courses/:id changes it, and the classes table has no category column", async () => {
+      const created = await createClass();
+      expect(created.course.category).toBe("basic");
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}`)
+        .set("Cookie", director.cookie)
+        .send({ category: "advanced" })
+        .expect(200);
+
+      // The class was not touched, and its answer shows what the course has now.
+      const edited = await patchClass(created.id, director, {}).expect(200);
+      expect(edited.body.course).toEqual({ ...BASIC_COURSE(), category: "advanced" });
+      expect(edited.body.courseId).toBe(courseId);
+
+      const archived = await archiveClass(created.id, director).expect(200);
+      expect(archived.body.course.category).toBe("advanced");
+      const unarchived = await unarchiveClass(created.id, director).expect(200);
+      expect(unarchived.body.course.category).toBe("advanced");
+
+      // And back: the category is always the one the course has.
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}`)
+        .set("Cookie", director.cookie)
+        .send({ category: "intermediate" })
+        .expect(200);
+      const again = await patchClass(created.id, director, { capacity: 20 }).expect(200);
+      expect(again.body.course.category).toBe("intermediate");
+
+      // There is nowhere to store a category: the table has no such column.
+      const columns: Array<{ column_name: string }> = await dataSource.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'classes' AND column_name = 'category'`,
+      );
+      expect(columns).toEqual([]);
+    });
+
+    it("shows the name the course has now", async () => {
+      const created = await createClass();
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}`)
+        .set("Cookie", director.cookie)
+        .send({ name: "Informática Básica 2" })
+        .expect(200);
+
+      const edited = await patchClass(created.id, director, {}).expect(200);
+      expect(edited.body.course.name).toBe("Informática Básica 2");
+    });
+
+    it("shows status archived for a class whose course was archived after it, and the class stays editable", async () => {
+      const created = await createClass();
+      await archiveCourse(dataSource, courseId, coordinator.id);
+
+      const edited = await patchClass(created.id, director, { capacity: 20 }).expect(200);
+      expect(edited.body.capacity).toBe(20);
+      expect(edited.body.course).toEqual({ ...BASIC_COURSE(), status: "archived" });
+
+      const archived = await archiveClass(created.id, director).expect(200);
+      expect(archived.body.course.status).toBe("archived");
+      const unarchived = await unarchiveClass(created.id, director).expect(200);
+      expect(unarchived.body.course.status).toBe("archived");
+      expect(unarchived.body.archivedAt).toBeNull();
+    });
+
+    it("answers each class with the course it offers when the classes belong to different courses", async () => {
+      const intermediate = await createCourse("Informática Intermediária", "intermediate");
+      const basic = await createClass();
+      const other = await createClass(body({ courseId: intermediate, code: "INFO-B" }));
+
+      expect(basic.course).toEqual(BASIC_COURSE());
+      expect(other.course).toEqual({
+        id: intermediate,
+        name: "Informática Intermediária",
+        category: "intermediate",
+        status: "active",
+      });
     });
   });
 
