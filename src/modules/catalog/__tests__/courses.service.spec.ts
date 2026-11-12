@@ -10,8 +10,10 @@ import {
   AuditableAction,
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
+import { CourseLessonPlan } from "../entities/course-lesson-plan.entity";
 import { CoursePrerequisite } from "../entities/course-prerequisite.entity";
 import { Course } from "../entities/course.entity";
+import { LessonPlan } from "../entities/lesson-plan.entity";
 import { CourseCategory } from "../enums/course-category.enum";
 import { CourseStatus } from "../enums/course-status.enum";
 import { toCourseResponse } from "../services/course-response.mapper";
@@ -84,6 +86,22 @@ function buildLink(prerequisiteId: string, courseId = COURSE_ID): CoursePrerequi
   });
 }
 
+function buildSequenceLink(
+  lessonPlanId: string,
+  position: number,
+  courseId: string,
+): CourseLessonPlan {
+  return Object.assign(new CourseLessonPlan(), {
+    id: `sequence-${courseId}-${lessonPlanId}`,
+    courseId,
+    lessonPlanId,
+    position,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    deletedAt: null,
+  });
+}
+
 function uniqueViolation(constraint: string): QueryFailedError {
   const driverError = Object.assign(new Error("duplicate key value violates unique constraint"), {
     code: "23505",
@@ -109,6 +127,7 @@ describe("CoursesService", () => {
     course: Course | null;
     courses: Course[];
     links: CoursePrerequisite[];
+    sequence: CourseLessonPlan[];
     edges: PrerequisiteEdge[];
     nameTaken: boolean;
   };
@@ -140,6 +159,7 @@ describe("CoursesService", () => {
       course: edited,
       courses: [buildBasic(), buildAdvanced(), edited],
       links: [],
+      sequence: [],
       edges: [],
       nameTaken: false,
     };
@@ -151,21 +171,39 @@ describe("CoursesService", () => {
       return state.nameTaken;
     });
     manager.createQueryBuilder.mockReturnValue(builder);
-    manager.create.mockImplementation((target: new () => object, data: Record<string, unknown>) =>
-      Object.assign(new target(), {
-        id: target === Course ? COURSE_ID : `link-${String(data.prerequisiteId)}`,
+    manager.create.mockImplementation((target: new () => object, data: Record<string, unknown>) => {
+      // Every course the service creates gets COURSE_ID; each kind of link gets an id of its own.
+      let id = `link-${String(data.prerequisiteId)}`;
+      if (target === Course) id = COURSE_ID;
+      if (target === CourseLessonPlan)
+        id = `sequence-${String(data.courseId)}-${String(data.lessonPlanId)}`;
+
+      return Object.assign(new target(), {
+        id,
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,
         deletedAt: null,
         ...data,
-      }),
-    );
+      });
+    });
     manager.save.mockImplementation(async (entity: unknown) => {
-      order.push(Array.isArray(entity) ? "insert-prerequisites" : "save-course");
+      if (!Array.isArray(entity)) {
+        order.push("save-course");
+      } else {
+        order.push(
+          entity[0] instanceof CourseLessonPlan ? "insert-sequence" : "insert-prerequisites",
+        );
+      }
       return entity;
     });
     manager.find.mockImplementation(
-      async (target: unknown, options: { where: { id?: { value: string[] } } }) => {
+      async (
+        target: unknown,
+        options: {
+          where: { id?: { value: string[] }; courseId?: string };
+          order?: { position?: "ASC" | "DESC" };
+        },
+      ) => {
         if (target === CoursePrerequisite) {
           order.push("load-links");
           return state.links;
@@ -174,6 +212,14 @@ describe("CoursesService", () => {
           order.push("load-prerequisites");
           const ids = options.where.id?.value ?? [];
           return state.courses.filter((course) => ids.includes(course.id));
+        }
+        if (target === CourseLessonPlan) {
+          order.push("load-sequence");
+          // The database sorts by the option `order`: the mock does the same, so a test can store the links shuffled.
+          const links = state.sequence.filter((link) => link.courseId === options.where.courseId);
+          return options.order?.position === "ASC"
+            ? [...links].sort((left, right) => left.position - right.position)
+            : links;
         }
         return [];
       },
@@ -1032,6 +1078,352 @@ describe("CoursesService", () => {
       await expect(
         service.update(COURSE_ID, { prerequisiteIds: [ADVANCED_ID] }, ACTOR_ID),
       ).rejects.toThrow("connection lost");
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("duplicate()", () => {
+    // The mock gives COURSE_ID to every course the service creates: here that is the copy, and the
+    // source has an id of its own.
+    const COPY_ID = COURSE_ID;
+    const SOURCE_ID = "01999a3e-7c1b-7000-8000-000000000010";
+    const SOURCE_AUTHOR_ID = "01999a3e-0000-7000-8000-0000000000bb";
+    const PLAN_IDS = [
+      "01999a3e-7c1b-7000-8000-0000000000a1",
+      "01999a3e-7c1b-7000-8000-0000000000a2",
+      "01999a3e-7c1b-7000-8000-0000000000a3",
+      "01999a3e-7c1b-7000-8000-0000000000a4",
+    ];
+    const dto = { name: "Redes Sociais com Segurança (2026.2)" };
+
+    function buildSource(overrides: CourseOverrides = {}): Course {
+      return buildCourse({
+        id: SOURCE_ID,
+        name: "Redes Sociais com Segurança",
+        description: "Segurança no uso de redes sociais.",
+        objective: "Proteger os dados do aluno.",
+        category: CourseCategory.INTERMEDIATE,
+        createdById: SOURCE_AUTHOR_ID,
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      // "Redes Sociais com Segurança": 4 lesson plans in order, and it requires Informática Básica.
+      state.course = buildSource();
+      state.sequence = PLAN_IDS.map((id, index) => buildSequenceLink(id, index + 1, SOURCE_ID));
+      state.links = [buildLink(BASIC_ID, SOURCE_ID)];
+    });
+
+    it("locks the source FOR SHARE (pessimistic_read) and not FOR UPDATE", async () => {
+      await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(Course, {
+        where: { id: SOURCE_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+    });
+
+    it("copies description, objective and category, with the name of the body and createdById of the actor", async () => {
+      const result = await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(manager.create).toHaveBeenNthCalledWith(1, Course, {
+        name: "Redes Sociais com Segurança (2026.2)",
+        description: "Segurança no uso de redes sociais.",
+        objective: "Proteger os dados do aluno.",
+        category: CourseCategory.INTERMEDIATE,
+        createdById: ACTOR_ID,
+      });
+      expect(result).toMatchObject({
+        id: COPY_ID,
+        name: "Redes Sociais com Segurança (2026.2)",
+        description: "Segurança no uso de redes sociais.",
+        objective: "Proteger os dados do aluno.",
+        category: CourseCategory.INTERMEDIATE,
+        createdById: ACTOR_ID,
+      });
+      // Whoever duplicates is the author of the copy, not the author of the source.
+      expect(result.createdById).not.toBe(SOURCE_AUTHOR_ID);
+    });
+
+    it("copies a source without an objective as null", async () => {
+      state.course = buildSource({ objective: null });
+
+      const result = await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(manager.create).toHaveBeenNthCalledWith(
+        1,
+        Course,
+        expect.objectContaining({ objective: null }),
+      );
+      expect(result.objective).toBeNull();
+      expect(emittedEvents()[0].after.objective).toBeNull();
+    });
+
+    it("copies the sequence in the order of position, renumbered 1..n", async () => {
+      const [first, second, third, fourth] = PLAN_IDS;
+      // Stored shuffled and with gaps in the positions: the database allows it, the service never
+      // writes it. The copy has the same order and no gap.
+      state.sequence = [
+        buildSequenceLink(third, 7, SOURCE_ID),
+        buildSequenceLink(first, 2, SOURCE_ID),
+        buildSequenceLink(fourth, 9, SOURCE_ID),
+        buildSequenceLink(second, 4, SOURCE_ID),
+      ];
+
+      await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(manager.find).toHaveBeenCalledWith(CourseLessonPlan, {
+        where: { courseId: SOURCE_ID },
+        order: { position: "ASC" },
+      });
+      const created = manager.create.mock.calls
+        .filter((call) => call[0] === CourseLessonPlan)
+        .map((call) => call[1]);
+      expect(created).toEqual([
+        { courseId: COPY_ID, lessonPlanId: first, position: 1 },
+        { courseId: COPY_ID, lessonPlanId: second, position: 2 },
+        { courseId: COPY_ID, lessonPlanId: third, position: 3 },
+        { courseId: COPY_ID, lessonPlanId: fourth, position: 4 },
+      ]);
+      // The links go in one save, after the copy exists.
+      expect(manager.save).toHaveBeenCalledTimes(2);
+      const links = manager.save.mock.calls[1][0] as CourseLessonPlan[];
+      expect(links.map((link) => [link.position, link.lessonPlanId])).toEqual([
+        [1, first],
+        [2, second],
+        [3, third],
+        [4, fourth],
+      ]);
+      expect(links.every((link) => link.courseId === COPY_ID)).toBe(true);
+    });
+
+    it("writes only the course and its sequence: no prerequisite row", async () => {
+      const result = await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(order).toEqual([
+        "load-course",
+        "check-name",
+        "load-sequence",
+        "save-course",
+        "insert-sequence",
+        "commit",
+        "emit",
+      ]);
+      // The source requires Informática Básica (state.links) and the copy does not: the prerequisites
+      // are neither read nor written, and the lock of their graph is not taken.
+      expect(manager.find.mock.calls.map((call) => call[0])).toEqual([CourseLessonPlan]);
+      expect(manager.create.mock.calls.map((call) => call[0])).toEqual([
+        Course,
+        CourseLessonPlan,
+        CourseLessonPlan,
+        CourseLessonPlan,
+        CourseLessonPlan,
+      ]);
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(manager.query).not.toHaveBeenCalled();
+      expect(result.prerequisites).toEqual([]);
+    });
+
+    it("creates an active copy of an archived course with createdById of the actor", async () => {
+      const archive = {
+        archivedAt: CREATED_AT,
+        archivedById: SOURCE_AUTHOR_ID,
+        archiveReason: "Conteúdo revisado.",
+      };
+      state.course = buildSource({ archive });
+
+      const result = await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      // No archive column goes into the copy: it is born active.
+      expect(manager.create.mock.calls[0][1]).not.toHaveProperty("archive");
+      expect(result).toMatchObject({
+        status: CourseStatus.ACTIVE,
+        archivedAt: null,
+        archivedById: null,
+        archiveReason: null,
+        createdById: ACTOR_ID,
+      });
+      // The source stays archived: it is only read, never saved.
+      expect(manager.save.mock.calls.flat()).not.toContain(state.course);
+      expect(state.course?.archive).toMatchObject(archive);
+    });
+
+    it("answers prerequisites [] and status active", async () => {
+      const result = await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(result).toEqual({
+        id: COPY_ID,
+        name: "Redes Sociais com Segurança (2026.2)",
+        description: "Segurança no uso de redes sociais.",
+        objective: "Proteger os dados do aluno.",
+        category: CourseCategory.INTERMEDIATE,
+        status: CourseStatus.ACTIVE,
+        prerequisites: [],
+        archivedAt: null,
+        archivedById: null,
+        archiveReason: null,
+        createdById: ACTOR_ID,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      });
+    });
+
+    it("copies an archived lesson plan of the sequence like any other: the plans are never read", async () => {
+      // Whether a plan is archived is a fact of the plan, not of its link. The sequence is made of
+      // links, and the copy gets every one of them.
+      await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      const readTargets = [...manager.find.mock.calls, ...manager.findOne.mock.calls].map(
+        (call) => call[0],
+      );
+      expect(readTargets).not.toContain(LessonPlan);
+      expect(manager.save.mock.calls[1][0]).toHaveLength(PLAN_IDS.length);
+      expect(emittedEvents()[0].after.lessonPlanIds).toEqual(PLAN_IDS);
+    });
+
+    it("copies a course without lesson plans without inserting links", async () => {
+      state.sequence = [];
+
+      const result = await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(order).toEqual([
+        "load-course",
+        "check-name",
+        "load-sequence",
+        "save-course",
+        "commit",
+        "emit",
+      ]);
+      expect(manager.create).toHaveBeenCalledTimes(1);
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(result.id).toBe(COPY_ID);
+      expect(emittedEvents()[0].after.lessonPlanIds).toEqual([]);
+    });
+
+    it("answers 404 COURSE_NOT_FOUND before checking the name", async () => {
+      state.course = null;
+      state.nameTaken = true;
+
+      const failure = await httpFailure(service.duplicate(SOURCE_ID, dto, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "COURSE_NOT_FOUND",
+        message: "Course not found.",
+      });
+      expect(builder.getExists).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("answers 409 COURSE_NAME_TAKEN before writing and emits nothing", async () => {
+      state.nameTaken = true;
+
+      const failure = await httpFailure(
+        service.duplicate(SOURCE_ID, { name: "REDES SOCIAIS COM SEGURANÇA" }, ACTOR_ID),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "COURSE_NAME_TAKEN",
+        message: "A course with this name already exists.",
+      });
+      // The check ignores case, archived courses are not left out and neither is the source: its
+      // own name is taken too, so there is no `exceptId`.
+      expect(builder.where).toHaveBeenCalledWith("LOWER(course.name) = LOWER(:name)", {
+        name: "REDES SOCIAIS COM SEGURANÇA",
+      });
+      expect(builder.andWhere).not.toHaveBeenCalled();
+      expect(order).toEqual(["load-course", "check-name"]);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("maps a race on uq_courses_name (23505) to 409 COURSE_NAME_TAKEN and keeps any other error", async () => {
+      manager.save.mockRejectedValueOnce(uniqueViolation("uq_courses_name"));
+
+      const failure = await httpFailure(service.duplicate(SOURCE_ID, dto, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "COURSE_NAME_TAKEN",
+        message: "A course with this name already exists.",
+      });
+
+      const otherIndex = uniqueViolation("uq_course_lesson_plans_course_id_position");
+      manager.save.mockRejectedValueOnce(otherIndex);
+      await expect(service.duplicate(SOURCE_ID, dto, ACTOR_ID)).rejects.toBe(otherIndex);
+
+      const boom = new Error("connection lost");
+      manager.save.mockRejectedValueOnce(boom);
+      await expect(service.duplicate(SOURCE_ID, dto, ACTOR_ID)).rejects.toBe(boom);
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("uses the id of the database after the lookup", async () => {
+      // The UUID pipe of the route accepts upper case and Postgres finds the row all the same.
+      await service.duplicate(SOURCE_ID.toUpperCase(), dto, ACTOR_ID);
+
+      // The lookup is the one place that uses the id as it came.
+      expect(manager.findOne).toHaveBeenCalledWith(Course, {
+        where: { id: SOURCE_ID.toUpperCase() },
+        lock: { mode: "pessimistic_read" },
+      });
+      expect(manager.find).toHaveBeenCalledWith(CourseLessonPlan, {
+        where: { courseId: SOURCE_ID },
+        order: { position: "ASC" },
+      });
+      expect(manager.create).toHaveBeenCalledWith(CourseLessonPlan, {
+        courseId: COPY_ID,
+        lessonPlanId: PLAN_IDS[0],
+        position: 1,
+      });
+      expect(emittedEvents()[0].after.sourceCourseId).toBe(SOURCE_ID);
+    });
+
+    it("emits COURSE_DUPLICATED after the commit, with the copy as target and sourceCourseId in after", async () => {
+      await service.duplicate(SOURCE_ID, dto, ACTOR_ID);
+
+      expect(order.slice(-2)).toEqual(["commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(AUDITABLE_ACTION_EVENT, expect.anything());
+
+      const [event] = emittedEvents();
+      expect(event.action).toBe(AuditableAction.COURSE_DUPLICATED);
+      expect(event.actorId).toBe(ACTOR_ID);
+      expect(event.targetType).toBe("course");
+      expect(event.targetId).toBe(COPY_ID);
+      expect(event.before).toBeNull();
+      expect(event.after).toEqual({
+        sourceCourseId: SOURCE_ID,
+        name: "Redes Sociais com Segurança (2026.2)",
+        description: "Segurança no uso de redes sociais.",
+        objective: "Proteger os dados do aluno.",
+        category: CourseCategory.INTERMEDIATE,
+        lessonPlanIds: PLAN_IDS,
+      });
+      expect(event.occurredAt).toEqual(NOW);
+    });
+
+    it("does not emit when the transaction fails", async () => {
+      dataSource.transaction.mockRejectedValueOnce(new Error("connection lost"));
+
+      await expect(service.duplicate(SOURCE_ID, dto, ACTOR_ID)).rejects.toThrow("connection lost");
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not emit when the insert of the links fails", async () => {
+      manager.save
+        .mockImplementationOnce(async (entity: unknown) => entity)
+        .mockRejectedValueOnce(new Error("connection lost"));
+
+      await expect(service.duplicate(SOURCE_ID, dto, ACTOR_ID)).rejects.toThrow("connection lost");
 
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });

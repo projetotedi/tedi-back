@@ -37,7 +37,11 @@ import { LessonPlansService } from "./services/lesson-plans.service";
     CourseDetailService,
     Clock,
   ],
-  // The classes module reads the course (category, status) through getCourseSummary.
-  exports: [CoursesService],
+  // What the other modules read from the catalog:
+  // - classes: the course (category, status) through CoursesService.getCourseSummary;
+  // - lessons (GUS-151): the course name (CoursesService.getCourseSummary), the lesson plan a lesson
+  //   is created from (LessonPlansService.getLessonPlanSummary) and the position of that plan in the
+  //   sequence of the course (CourseLessonPlansService.findPosition).
+  exports: [CoursesService, LessonPlansService, CourseLessonPlansService],
 })
 export class CatalogModule {}

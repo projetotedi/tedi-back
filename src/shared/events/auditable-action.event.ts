@@ -50,6 +50,8 @@ export enum AuditableAction {
   COURSE_UPDATED = "COURSE_UPDATED",
   /** The lesson plan sequence of a course was replaced; before and after carry lessonPlanIds in order (GUS-98). */
   COURSE_LESSON_PLANS_REPLACED = "COURSE_LESSON_PLANS_REPLACED",
+  /** A course was duplicated (GUS-117). Target is the copy; after carries sourceCourseId, the copied fields and lessonPlanIds in order. */
+  COURSE_DUPLICATED = "COURSE_DUPLICATED",
   /** A class was created, with its edition when that did not exist yet (GUS-101). */
   CLASS_CREATED = "CLASS_CREATED",
   /** Class data changed, or its edition. Payload carries only the changed fields plus changedFields (GUS-101). */
@@ -58,6 +60,14 @@ export enum AuditableAction {
   CLASS_ARCHIVED = "CLASS_ARCHIVED",
   /** An archived class was reactivated (GUS-101). */
   CLASS_UNARCHIVED = "CLASS_UNARCHIVED",
+  /** A lesson was created, alone or from a lesson plan (GUS-151). */
+  LESSON_CREATED = "LESSON_CREATED",
+  /** Lesson data changed. Payload carries only the changed fields plus changedFields; the free text of postNotes is never in it (RNF-13, GUS-151). */
+  LESSON_UPDATED = "LESSON_UPDATED",
+  /** A lesson was cancelled with a reason; it stays, with status cancelled. The reason is not in the payload (RNF-13, GUS-151). */
+  LESSON_CANCELLED = "LESSON_CANCELLED",
+  /** A lesson moved to another date or time. It is the same lesson: before and after carry the schedule (GUS-151). */
+  LESSON_RESCHEDULED = "LESSON_RESCHEDULED",
 }
 
 /**
@@ -67,7 +77,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change

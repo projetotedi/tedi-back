@@ -1,0 +1,37 @@
+meta {
+  name: cancel-lesson
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/lessons/:id/cancel
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "Feriado municipal."
+  }
+}
+
+docs {
+  Cancela uma aula (F4.5). A aula continua existindo, com status cancelled: não existe DELETE de aula.
+  Requer cookie tedi_session e a permissão lessons.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Corpo: reason, obrigatório, não vazio nem só de espaços, até 500 caracteres (texto livre: não registre informação de saúde). Sem motivo, 400 VALIDATION_FAILED (field reason).
+  Grava status cancelled, cancelReason, cancelledAt (o instante, o mesmo de updatedAt) e cancelledById (quem cancelou). A data, o horário, a turma e o plano da aula ficam como estavam.
+  Cancelar de novo uma aula já cancelada responde 200 sem alterar nada e sem evento: vale o primeiro motivo (e vale mesmo se a turma foi arquivada depois). Depois de cancelada, a aula não pode ser editada nem remarcada: 409 LESSON_CANCELLED.
+  Turma arquivada é somente leitura (RN-27): 409 CLASS_ARCHIVED. A linha da aula fica travada: dois cancelamentos ao mesmo tempo cancelam uma vez só, e a segunda requisição responde o motivo da primeira.
+  Retorna 200 LessonResponseDto. Depois do commit, e só quando a aula foi cancelada agora, registra o evento LESSON_CANCELLED (sem o motivo, que é texto livre) e emite lesson.cancelled, o gancho do estorno das horas já lançadas (RN-07): o módulo de horas (E7) vai ouvir esse evento; por enquanto ninguém ouve.
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 LESSON_NOT_FOUND (id inexistente ou mal formado), 409 CLASS_ARCHIVED.
+}

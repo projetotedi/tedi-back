@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
-import { DataSource, QueryFailedError } from "typeorm";
+import { DataSource, EntityManager, QueryFailedError } from "typeorm";
 import {
   CourseCategory,
   CoursesService,
@@ -134,7 +134,11 @@ describe("ClassesService", () => {
     findOneOrFail: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
-  const dataSource = { transaction: jest.fn() };
+  // `manager` is what a read that opens no transaction goes through (getClassSummary).
+  const dataSource = {
+    transaction: jest.fn(),
+    manager: { findOne: jest.fn(), findOneOrFail: jest.fn() },
+  };
   const eventEmitter = { emit: jest.fn() };
   // Fixed at NOW. A test that needs to tell two reads of the clock apart makes the next ones LATER.
   const clock = { now: jest.fn() };
@@ -1666,6 +1670,128 @@ describe("ClassesService", () => {
 
       await expect(service.unarchive(CLASS_ID, ACTOR_ID)).rejects.toThrow("connection lost");
 
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getClassSummary()", () => {
+    const asManager = manager as unknown as EntityManager;
+
+    it("returns null for a malformed id without querying", async () => {
+      for (const malformed of ["not-a-uuid", "", "123", `${CLASS_ID}x`]) {
+        await expect(service.getClassSummary(malformed, asManager)).resolves.toBeNull();
+        await expect(service.getClassSummary(malformed)).resolves.toBeNull();
+      }
+
+      // A malformed id never reaches the database.
+      expect(manager.findOne).not.toHaveBeenCalled();
+      expect(dataSource.manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("returns null when the class does not exist, without reading an edition", async () => {
+      state.row = null;
+
+      await expect(service.getClassSummary(CLASS_ID, asManager)).resolves.toBeNull();
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(manager.findOneOrFail).not.toHaveBeenCalled();
+    });
+
+    it("returns the class with its edition, period and status, and only those fields", async () => {
+      state.row = buildClass({
+        name: "Informática Básica, turma A",
+        status: ClassStatus.IN_PROGRESS,
+      });
+
+      const summary = await service.getClassSummary(CLASS_ID, asManager);
+
+      expect(summary).toEqual({
+        id: CLASS_ID,
+        code: "INFO-A",
+        name: "Informática Básica, turma A",
+        courseId: COURSE_ID,
+        edition: { id: EDITION_ID, name: "2026.1" },
+        startDate: "2026-03-03",
+        endDate: "2026-06-27",
+        status: ClassStatus.IN_PROGRESS,
+        archivedAt: null,
+      });
+      expect(Object.keys(summary ?? {}).sort()).toEqual([
+        "archivedAt",
+        "code",
+        "courseId",
+        "edition",
+        "endDate",
+        "id",
+        "name",
+        "startDate",
+        "status",
+      ]);
+    });
+
+    it("returns an archived class with archivedAt", async () => {
+      state.row = buildClass({
+        status: ClassStatus.COMPLETED,
+        archive: { archivedAt: NOW, archivedById: ACTOR_ID, archiveReason: "Turma encerrada." },
+      });
+
+      const summary = await service.getClassSummary(CLASS_ID, asManager);
+
+      expect(summary?.archivedAt).toEqual(NOW);
+      // The archive never changes the status (RF-034, RN-27).
+      expect(summary?.status).toBe(ClassStatus.COMPLETED);
+    });
+
+    it("answers null in archivedAt when the entity carries no archive columns", async () => {
+      state.row = Object.assign(buildClass(), { archive: undefined }) as unknown as SchoolClass;
+
+      const summary = await service.getClassSummary(CLASS_ID, asManager);
+
+      expect(summary?.archivedAt).toBeNull();
+    });
+
+    it("locks FOR SHARE only when forShare is set", async () => {
+      await service.getClassSummary(CLASS_ID, asManager, { forShare: true });
+      expect(manager.findOne).toHaveBeenLastCalledWith(SchoolClass, {
+        where: { id: CLASS_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+
+      manager.findOne.mockClear();
+      await service.getClassSummary(CLASS_ID, asManager);
+      expect(manager.findOne).toHaveBeenLastCalledWith(SchoolClass, { where: { id: CLASS_ID } });
+
+      await service.getClassSummary(CLASS_ID, asManager, { forShare: false });
+      expect(manager.findOne).toHaveBeenLastCalledWith(SchoolClass, { where: { id: CLASS_ID } });
+      await service.getClassSummary(CLASS_ID, asManager, {});
+      expect(manager.findOne).toHaveBeenLastCalledWith(SchoolClass, { where: { id: CLASS_ID } });
+    });
+
+    it("reads through the manager it is given, inside the transaction of the caller", async () => {
+      await service.getClassSummary(CLASS_ID, asManager);
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(manager.findOneOrFail).toHaveBeenCalledWith(Edition, {
+        where: { id: EDITION_ID },
+        withDeleted: true,
+      });
+      expect(dataSource.manager.findOne).not.toHaveBeenCalled();
+      expect(dataSource.manager.findOneOrFail).not.toHaveBeenCalled();
+    });
+
+    it("reads through the manager of the data source when none is given, with no transaction, no write and no event", async () => {
+      dataSource.manager.findOne.mockResolvedValue(buildClass());
+      dataSource.manager.findOneOrFail.mockResolvedValue(buildEdition());
+
+      const summary = await service.getClassSummary(CLASS_ID);
+
+      expect(summary?.id).toBe(CLASS_ID);
+      expect(dataSource.manager.findOne).toHaveBeenCalledWith(SchoolClass, {
+        where: { id: CLASS_ID },
+      });
+      expect(manager.findOne).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });

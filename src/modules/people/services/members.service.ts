@@ -1,7 +1,9 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
+import { isUUID } from "class-validator";
 import { DataSource, EntityManager, In, QueryFailedError, SelectQueryBuilder } from "typeorm";
 import { Clock } from "@shared/dates/clock";
+import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Role } from "@shared/enums/role.enum";
 import {
   AUDITABLE_ACTION_EVENT,
@@ -9,9 +11,12 @@ import {
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
+import { Permission } from "@shared/permissions/permission.enum";
+import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { applyTextSearch } from "@shared/search/search.util";
 import { ApproveMemberRegistrationDto } from "../dto/approve-member-registration.dto";
 import { ListMemberRegistrationsQueryDto } from "../dto/list-member-registrations-query.dto";
+import { MemberDetailResponseDto } from "../dto/member-detail.response.dto";
 import { MemberRegistrationFormDto } from "../dto/member-registration-form.dto";
 import { MemberRegistrationListItemDto } from "../dto/member-registration-list-item.dto";
 import { MemberRegistrationResponseDto } from "../dto/member-registration.response.dto";
@@ -24,6 +29,7 @@ import { Person } from "../entities/person.entity";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
 import { DepartmentsService } from "./departments.service";
 import { buildMemberEvent } from "./member-audit";
+import { toMemberDetail } from "./member-detail.mapper";
 import {
   toMemberRegistrationListItem,
   toMemberRegistrationResponse,
@@ -82,6 +88,16 @@ export function memberRegistrationNotFound(): HttpException {
   );
 }
 
+/**
+ * The one place that builds the "member not found" error of the member record (GUS-144): an
+ * unknown id, a malformed id, a deleted person and a person with neither an access role nor a
+ * member profile all answer the same 404 MEMBER_NOT_FOUND. Used by this service and by the id
+ * pipe of the controller.
+ */
+export function memberNotFound(): HttpException {
+  return new HttpException({ error: "MEMBER_NOT_FOUND", message: "Member not found." }, 404);
+}
+
 function raAlreadyInUse(): HttpException {
   return new HttpException({ error: "RA_ALREADY_IN_USE", message: "RA already in use." }, 409);
 }
@@ -101,7 +117,27 @@ function departmentNotFound(): HttpException {
 }
 
 /**
- * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011).
+ * Department scope that a member profile gives to its person: the department of an APPROVED
+ * profile, or nothing. The department suggested at sign-up (pending) and the one kept after a
+ * rejection never give scope (ARCHITECTURE section 9.1).
+ *
+ * The one rule behind both sides of the `department` scope: the scope of the ACTOR (the
+ * AuthGuard reads it through findAccessFacts on every request, decision 19) and the scope of the
+ * TARGET of the member record (getMember).
+ */
+function departmentScopeOf(
+  profile: Pick<MemberProfile, "registrationStatus" | "departmentId"> | null,
+): string[] {
+  return profile !== null &&
+    profile.registrationStatus === MemberRegistrationStatus.APPROVED &&
+    profile.departmentId
+    ? [profile.departmentId]
+    : [];
+}
+
+/**
+ * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011), and
+ * the member record that reads it back (GUS-144).
  *
  * The registration is born from an access invite (submitFromInvite, called by the invites in
  * the transaction of the accept) as PENDING with no access: Person.role stays null and
@@ -119,6 +155,7 @@ export class MembersService {
     private readonly eventEmitter: EventEmitter2,
     private readonly clock: Clock,
     private readonly departments: DepartmentsService,
+    private readonly permissions: PermissionPolicy,
   ) {}
 
   /**
@@ -204,6 +241,58 @@ export class MembersService {
     if (query.enabled !== undefined) {
       builder.andWhere("person.access_enabled = :enabled", { enabled: query.enabled });
     }
+  }
+
+  /**
+   * The member record (GUS-144): the Person joined with her member profile, the department of
+   * that profile and who reviewed the registration. Allocations, attendance and the hours bank
+   * are not here.
+   *
+   * 404 MEMBER_NOT_FOUND for an id that is not a uuid, an unknown or deleted person, and a person
+   * with neither an access role nor a member profile. That is the predicate of `listMembers`, so
+   * every row of the list opens its record: pending and rejected registrations, and the seeded
+   * admin and the coordinators without a profile (member fields null, registrationStatus null).
+   * The 404 comes BEFORE the scope check.
+   *
+   * Scope (`members.view`): coordination reads anyone; a director only a member of the own
+   * department, otherwise 403 FORBIDDEN_SCOPE. The department of the TARGET is the one of the
+   * APPROVED profile (departmentScopeOf, the same rule as findAccessFacts), so a pending or
+   * rejected registration, a person without a profile and a target without department are
+   * outside the scope of every director.
+   *
+   * The CPF only leaves masked (RNF-14). Personal data: this service has no Logger and the errors
+   * carry no value.
+   */
+  async getMember(id: string, actor: AuthUser): Promise<MemberDetailResponseDto> {
+    // The service is exported: an id that is not a uuid must not reach Postgres (22P02 -> 500).
+    if (!isUUID(id)) throw memberNotFound();
+
+    const person = await this.dataSource.getRepository(Person).findOne({ where: { id } });
+    const profile =
+      person === null
+        ? null
+        : await this.dataSource.getRepository(MemberProfile).findOne({ where: { personId: id } });
+    if (person === null || (person.role === null && profile === null)) {
+      throw memberNotFound();
+    }
+
+    this.permissions.assertCan(actor, Permission.MEMBERS_VIEW, {
+      personId: id,
+      departmentIds: departmentScopeOf(profile),
+    });
+
+    // The department shown is the one of the profile, even a pending one's suggestion (as in
+    // GET /members): only the scope above uses "approved". A reviewer that was deleted is null.
+    const [department, reviewer] = await Promise.all([
+      profile?.departmentId
+        ? this.dataSource.getRepository(Department).findOne({ where: { id: profile.departmentId } })
+        : null,
+      profile?.reviewedById
+        ? this.dataSource.getRepository(Person).findOne({ where: { id: profile.reviewedById } })
+        : null,
+    ]);
+
+    return toMemberDetail(person, profile, department, reviewer);
   }
 
   /**
@@ -324,16 +413,9 @@ export class MembersService {
       select: { registrationStatus: true, departmentId: true },
     });
 
-    if (profile === null) {
-      return { registrationStatus: null, departmentIds: [] };
-    }
-
     return {
-      registrationStatus: profile.registrationStatus,
-      departmentIds:
-        profile.registrationStatus === MemberRegistrationStatus.APPROVED && profile.departmentId
-          ? [profile.departmentId]
-          : [],
+      registrationStatus: profile?.registrationStatus ?? null,
+      departmentIds: departmentScopeOf(profile),
     };
   }
 

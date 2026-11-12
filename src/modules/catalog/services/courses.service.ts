@@ -11,7 +11,9 @@ import {
 } from "@shared/events/auditable-action.event";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CreateCourseDto } from "../dto/create-course.dto";
+import { DuplicateCourseDto } from "../dto/duplicate-course.dto";
 import { UpdateCourseDto } from "../dto/update-course.dto";
+import { CourseLessonPlan } from "../entities/course-lesson-plan.entity";
 import { CoursePrerequisite } from "../entities/course-prerequisite.entity";
 import { Course } from "../entities/course.entity";
 import { CourseCategory } from "../enums/course-category.enum";
@@ -107,8 +109,8 @@ export interface GetCourseSummaryOptions {
 }
 
 /**
- * Courses of the catalog (RF-013, RF-021): create, edit and the prerequisites between them.
- * Exported by CatalogModule for `classes` through `getCourseSummary`.
+ * Courses of the catalog (RF-013, RF-019, RF-021): create, edit, duplicate and the prerequisites
+ * between them. Exported by CatalogModule for `classes` through `getCourseSummary`.
  */
 @Injectable()
 export class CoursesService {
@@ -249,6 +251,75 @@ export class CoursesService {
   }
 
   /**
+   * Creates a new course from an existing one, archived or not (RF-019, GUS-117).
+   *
+   * Copies the description, the objective, the category and the sequence of lesson plans, in the
+   * same order (positions 1..n). The lesson plans are NOT copied: the new course points at the same
+   * plans (RN-17), so changing the duration of a plan changes the workload of both courses (RN-24).
+   * Does not copy the prerequisites (nor `requiredBy`), the classes or any history: the copy has
+   * its own timestamps and no archive data, and no event of the source is emitted again. The copy
+   * is always born active, with `createdById` set to whoever duplicates, even when the source is
+   * archived. A lesson plan that was archived after it entered the sequence is copied like the
+   * others: the sequence stays the same, and so does the workload.
+   *
+   * Errors, in the order they are answered: 404 COURSE_NOT_FOUND (the pipe of the route answers a
+   * malformed id the same way), then 409 COURSE_NAME_TAKEN. The name is unique among all courses,
+   * ignoring case and archived ones included, so the name of the source itself is taken too. A race
+   * on the unique index answers 409 as well, because the work runs in `runInTransaction`. Nothing
+   * is written in any of these cases.
+   *
+   * The source is locked FOR SHARE until the commit. That conflicts with the FOR UPDATE that
+   * `update` and `CourseLessonPlansService.replace` take, so a change of the sequence in progress
+   * ends first and the copy comes from the stored one, never from half of it; duplications of the
+   * same source do not wait for each other. Locks are taken in the order course, then lesson plans
+   * (the FOR KEY SHARE that the foreign key takes when the links are inserted), the same order as
+   * `replace`, so there is no deadlock: an edit of a plan, which only locks the plan, just makes the
+   * insert wait.
+   *
+   * `requestedId` is only the key of the lookup. The UUID pipe of the route accepts upper case and
+   * Postgres finds the row all the same, so everything after the lookup (the reads, the writes and
+   * the event) uses `source.id`, the id of the database.
+   *
+   * Emits COURSE_DUPLICATED after the commit, with the copy as target and `sourceCourseId` in
+   * `after`.
+   */
+  async duplicate(
+    requestedId: string,
+    dto: DuplicateCourseDto,
+    actorId: string,
+  ): Promise<CourseResponseDto> {
+    const duplicated = await this.runInTransaction(async (manager) => {
+      const source = await this.loadCourse(manager, requestedId, "pessimistic_read");
+      await this.assertNameAvailable(manager, dto.name);
+      const lessonPlanIds = await this.loadSequenceIds(manager, source.id);
+
+      const copy = await manager.save(
+        manager.create(Course, {
+          name: dto.name,
+          description: source.description,
+          objective: source.objective,
+          category: source.category,
+          createdById: actorId,
+        }),
+      );
+      await this.insertSequence(manager, copy.id, lessonPlanIds);
+
+      return { sourceId: source.id, copy, lessonPlanIds };
+    });
+
+    this.emit(AuditableAction.COURSE_DUPLICATED, actorId, duplicated.copy.id, null, {
+      sourceCourseId: duplicated.sourceId,
+      name: duplicated.copy.name,
+      description: duplicated.copy.description,
+      objective: duplicated.copy.objective,
+      category: duplicated.copy.category,
+      lessonPlanIds: duplicated.lessonPlanIds,
+    });
+
+    return toCourseResponse(duplicated.copy, []);
+  }
+
+  /**
    * Summary of a course for another module. Null when the id is not a course or is not even a
    * UUID: whoever calls decides the error (the classes answer for the `courseId` of their body).
    * An archived course is returned, with status archived. Pass the `manager` of a transaction to
@@ -304,15 +375,32 @@ export class CoursesService {
     ]);
   }
 
-  /** The course, locked FOR UPDATE until the end of the transaction. */
-  private async loadCourse(manager: EntityManager, id: string): Promise<Course> {
+  /**
+   * The course, locked until the end of the transaction: FOR UPDATE by default (whoever writes it),
+   * FOR SHARE for whoever only reads it and needs it not to change meanwhile (`duplicate`).
+   */
+  private async loadCourse(
+    manager: EntityManager,
+    id: string,
+    mode: "pessimistic_write" | "pessimistic_read" = "pessimistic_write",
+  ): Promise<Course> {
     const course = await manager.findOne(Course, {
       where: { id },
-      lock: { mode: "pessimistic_write" },
+      lock: { mode },
     });
     if (course === null) throw courseNotFound();
 
     return course;
+  }
+
+  /** The ids of the lesson plans that `courseId` has today, in order of position. */
+  private async loadSequenceIds(manager: EntityManager, courseId: string): Promise<string[]> {
+    const links = await manager.find(CourseLessonPlan, {
+      where: { courseId },
+      order: { position: "ASC" },
+    });
+
+    return links.map((link) => link.lessonPlanId);
   }
 
   /** The courses that `courseId` requires today. */
@@ -407,6 +495,25 @@ export class CoursesService {
     await manager.save(
       prerequisiteIds.map((prerequisiteId) =>
         manager.create(CoursePrerequisite, { courseId, prerequisiteId }),
+      ),
+    );
+  }
+
+  /**
+   * One link per lesson plan, position 1..n in the order of the list (the same invariant as
+   * CourseLessonPlansService). Nothing to insert for []. Entities and not an INSERT ... SELECT:
+   * the id of a row (UUID v7) is generated in the application, by BaseEntity.
+   */
+  private async insertSequence(
+    manager: EntityManager,
+    courseId: string,
+    lessonPlanIds: readonly string[],
+  ): Promise<void> {
+    if (lessonPlanIds.length === 0) return;
+
+    await manager.save(
+      lessonPlanIds.map((lessonPlanId, index) =>
+        manager.create(CourseLessonPlan, { courseId, lessonPlanId, position: index + 1 }),
       ),
     );
   }

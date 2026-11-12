@@ -30,8 +30,8 @@ import { EnrollmentCountsService } from "./services/enrollment-counts.service";
     EnrollmentCountsService,
     Clock,
   ],
-  // Nobody consumes the classes yet: GUS-108 (enrollments, in this module) and the lessons module
-  // (GUS-151) will say what they need, and the export is added then.
-  exports: [],
+  // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151).
+  // The enrollments (GUS-108) live in this module, so they need no export.
+  exports: [ClassesService],
 })
 export class ClassesModule {}

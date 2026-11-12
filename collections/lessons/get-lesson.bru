@@ -1,0 +1,28 @@
+meta {
+  name: get-lesson
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/lessons/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Detalhe de uma aula (F4.3): a aula com a turma, o curso, a edição e o plano de origem.
+  Requer cookie tedi_session e a permissão lessons.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Traz class { id, code, name, startDate, endDate, archivedAt }, course { id, name }, edition { id, name } e lessonPlan { id, title, archivedAt } (null para aula criada avulsa). title e objective são os da aula, que foram copiados do plano na criação (RN-18): lessonPlan.title é o título que o plano tem agora, que pode ser outro. durationMinutes é a diferença entre startTime e endTime, calculada.
+  Aula de turma arquivada e aula cujo plano foi arquivado depois continuam acessíveis, com archivedAt preenchido nas referências. Aula cancelada também: status cancelled, com cancelReason, cancelledAt e cancelledById. Aula remarcada traz originalDate (a primeira data em que foi marcada), rescheduleReason e rescheduleNote (os da última remarcação).
+  Retorna 200 LessonResponseDto, o mesmo tipo de create-lesson, update-lesson, cancel-lesson e reschedule-lesson. Não há listagem nem calendário ainda (GUS-153).
+  Erros possíveis: 401, 403 FORBIDDEN, 404 LESSON_NOT_FOUND (id inexistente ou mal formado).
+}
