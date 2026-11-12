@@ -1,5 +1,6 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
+import { isUUID } from "class-validator";
 import { DataSource, EntityManager } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { ArchiveDto } from "@shared/dto/archive.dto";
@@ -39,6 +40,20 @@ interface FieldChanges {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
   fields: string[];
+}
+
+/**
+ * What another module needs to know about a lesson plan: the lessons copy the title and the
+ * objective when they are created from it (RN-18) and refuse an archived plan (RN-27). The shape
+ * is the contract of `getLessonPlanSummary`: the entity itself never leaves this module.
+ */
+export interface LessonPlanSummary {
+  id: string;
+  title: string;
+  objective: string | null;
+  expectedDurationMinutes: number;
+  /** Null while the plan is active; the instant of the archive otherwise (RN-27). */
+  archivedAt: Date | null;
 }
 
 @Injectable()
@@ -237,6 +252,46 @@ export class LessonPlansService {
     });
 
     return toLessonPlanResponse(result.copy, result.contents);
+  }
+
+  /**
+   * Summary of a lesson plan for another module (the lessons, GUS-151). Null when the id is not a
+   * lesson plan or is not even a UUID: whoever calls decides the error (the lessons answer for the
+   * `lessonPlanId` of their body). An archived plan is returned too, with `archivedAt` set, so the
+   * caller can refuse it for a new lesson and still show it on a lesson that already exists.
+   *
+   * Pass the `manager` of a transaction to read inside it. `forShare` locks the row of the plan FOR
+   * SHARE until the end of that transaction (it needs the `manager` of one: Postgres only keeps a
+   * row lock inside a transaction). That lock conflicts with the FOR UPDATE that `update` and
+   * `archive` take, so the title that a lesson copies and the "active" that it checked come from
+   * the same version of the plan, never one from before an edit and one from after. Shared locks do
+   * not conflict with each other, so lessons created from the same plan do not wait for one
+   * another. Without `forShare` it is a plain read.
+   *
+   * It emits no event and writes nothing.
+   */
+  async getLessonPlanSummary(
+    id: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<LessonPlanSummary | null> {
+    // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
+    if (!isUUID(id)) return null;
+
+    const plan = await (manager ?? this.dataSource.manager).findOne(LessonPlan, {
+      where: { id },
+      ...(options.forShare ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
+    if (plan === null) return null;
+
+    return {
+      id: plan.id,
+      title: plan.title,
+      objective: plan.objective ?? null,
+      expectedDurationMinutes: plan.expectedDurationMinutes,
+      // The embedded columns are missing on an entity that was just inserted, not loaded.
+      archivedAt: plan.archive?.archivedAt ?? null,
+    };
   }
 
   private async loadPlan(

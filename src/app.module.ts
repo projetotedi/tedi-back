@@ -9,6 +9,7 @@ import { AuthModule } from "@modules/auth/auth.module";
 import { PeopleModule } from "@modules/people/people.module";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { ClassesModule } from "@modules/classes/classes.module";
+import { LessonsModule } from "@modules/lessons/lessons.module";
 
 @Module({
   imports: [
@@ -18,8 +19,8 @@ import { ClassesModule } from "@modules/classes/classes.module";
     PeopleModule,
     CatalogModule,
     ClassesModule,
-    // Módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md):
-    // LessonsModule, ...
+    LessonsModule,
+    // Os próximos módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md).
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }],

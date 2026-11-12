@@ -1,5 +1,6 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
+import { isUUID } from "class-validator";
 import { DataSource, EntityManager, In } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { isArchived } from "@shared/entities/archivable.columns";
@@ -191,6 +192,31 @@ export class CourseLessonPlansService {
     }
 
     return outcome.response;
+  }
+
+  /**
+   * The position (from 1) that `lessonPlanId` has in the sequence of `courseId`, or null when the
+   * plan is not in that sequence. It is the question of the lessons (GUS-151): a lesson created
+   * from a plan "of the course sequence" carries the position as its `sequenceOrder`, and the
+   * position it states must be the one the sequence has.
+   *
+   * Null too for an id that is not a UUID or for a course that does not exist (there is no link).
+   * Pass the `manager` of a transaction to read inside it. A plain read: no transaction, no lock,
+   * no event. The whole sequence, with the workload, is `list` and `readSequence`.
+   */
+  async findPosition(
+    courseId: string,
+    lessonPlanId: string,
+    manager?: EntityManager,
+  ): Promise<number | null> {
+    // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
+    if (!isUUID(courseId) || !isUUID(lessonPlanId)) return null;
+
+    const link = await (manager ?? this.dataSource.manager).findOne(CourseLessonPlan, {
+      where: { courseId, lessonPlanId },
+    });
+
+    return link?.position ?? null;
   }
 
   /** The course, locked FOR UPDATE until the end of the transaction. */

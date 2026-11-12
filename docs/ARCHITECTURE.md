@@ -36,11 +36,12 @@ Login, perfil e flags de acesso são colunas de `Person`, sem entidade de usuár
 ```
 auth       → people   (o guard carrega a Person e a situação do cadastro de membro a cada request)
 people       ← classes, assignments, hours, imports, catalog   (catalog: nome de quem criou o plano de aula, GUS-96, e o curso, GUS-100, via PeopleService.findRefsByIds)
-catalog      ← classes, lessons
-classes      ← lessons, attendance
+catalog      ← classes, lessons   (lessons, GUS-151: LessonPlansService.getLessonPlanSummary, CourseLessonPlansService.findPosition e CoursesService.getCourseSummary)
+classes      ← lessons, attendance   (lessons, GUS-151: ClassesService.getClassSummary)
 lessons      ← assignments, attendance
 assignments  ← attendance
 attendance   ──evento──▶ hours        (MemberAttendanceConfirmed / MemberAttendanceReverted)
+lessons      ──evento──▶ hours        (LessonCancelled, RN-07, a partir do E7: o hours ouve e estorna as horas da aula cancelada)
 hours        ← reports
 audit        ← ninguém importa. Ouve eventos (AuditableActionEvent) de qualquer módulo.
 ```
@@ -73,13 +74,17 @@ src/
 │   ├── swagger/swagger.util.ts
 │   ├── entities/
 │   │   ├── base.entity.ts           # id (UUID v7), createdAt, updatedAt, deletedAt
-│   │   └── archivable.columns.ts    # archivedAt, archivedById, archiveReason reutilizáveis (RN-27), ver seção 10
+│   │   ├── archivable.columns.ts    # archivedAt, archivedById, archiveReason reutilizáveis (RN-27), ver seção 10
+│   │   └── time-of-day.transformer.ts # coluna time do Postgres lida como "HH:mm" (GUS-151), ver seção 14
 │   ├── dto/
 │   │   ├── api-error.dto.ts         # ApiErrorDto, formato único de erro
 │   │   ├── archive.dto.ts           # corpo comum de PATCH .../archive ({ reason? })
 │   │   └── transforms.ts            # trim, trimToNull, trimLowerToNull (class-transformer)
 │   ├── dates/
 │   │   ├── calendar-date.ts         # APP_TIME_ZONE, todayInAppTimeZone, ageOn, isValidCalendarDate
+│   │   ├── is-calendar-date.validator.ts # decorator IsCalendarDate: AAAA-MM-DD que existe no calendário
+│   │   ├── time-of-day.ts           # hora "HH:mm": TIME_OF_DAY_PATTERN, isValidTimeOfDay, minutesOfDay, minutesBetween (GUS-151)
+│   │   ├── is-time-of-day.validator.ts # decorator IsTimeOfDay, o par do IsCalendarDate para a hora
 │   │   └── clock.ts                 # Clock injetável: service testável com um instante fixo
 │   ├── enums/
 │   │   └── role.enum.ts             # enum Role + roleSatisfies()
@@ -97,7 +102,7 @@ src/
 │   │   └── current-user.decorator.ts # @CurrentUser() — extrai AuthUser do request
 │   ├── filters/                     # HttpExceptionFilter global → ApiErrorDto
 │   ├── interceptors/                # (próximo passo) logging
-│   ├── events/                      # eventos compartilhados (auditable-action.event.ts)
+│   ├── events/                      # eventos compartilhados (auditable-action.event.ts, lesson-cancelled.event.ts)
 │   └── health/                      # GET /health (marcado com @Public())
 │
 └── modules/
@@ -188,7 +193,7 @@ Regras:
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Nunca arquivos internos de outro módulo.
 - Fixtures são do módulo. Se dois módulos precisam do mesmo dado, o módulo dono exporta uma função; nada vai para `shared/`.
 - Cada teste e2e limpa as tabelas que tocou.
-- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é um e2e de schema, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram; o primeiro é `people/__tests__/people.repository.e2e.spec.ts`. Cada módulo mantém o próprio e2e de schema no seu `__tests__`, com o mesmo padrão de comparação (o módulo não edita o e2e de outro). Índice de expressão (`uq_departments_name`, `uq_courses_name`, `uq_classes_edition_id_code`, `idx_people_name_search`) o TypeORM não declara na entidade; esse e2e o confere em `pg_indexes`. A função `search_normalize` e as extensões da busca textual têm e2e próprio em `shared/search/__tests__/search-normalize.e2e.spec.ts` (seção 12).
+- **Entidade × migration.** A CI não compara entidade com o SQL das migrations: o job "Entidades × migrations" só faz `migration:run`, `migration:revert` e `migration:run`, porque o `migration:generate` do TypeORM é inutilizável com enums (ver o comentário no `ci.yml`). O guarda de drift é um e2e de schema, que compara colunas, índice único e FKs de cada entidade com o que as migrations criaram; o primeiro é `people/__tests__/people.repository.e2e.spec.ts`. Cada módulo mantém o próprio e2e de schema no seu `__tests__`, com o mesmo padrão de comparação (o módulo não edita o e2e de outro). Índice de expressão (`uq_departments_name`, `uq_courses_name`, `uq_classes_edition_id_code`, `idx_people_name_search`) o TypeORM não declara na entidade; esse e2e o confere em `pg_indexes`. A função `search_normalize` e as extensões da busca textual têm e2e próprio em `shared/search/__tests__/search-normalize.e2e.spec.ts` (seção 12). O de `lessons` (`lessons/__tests__/lessons.repository.e2e.spec.ts`) confere também o enum e os seis `CHECK` da aula, e monta o cenário (curso, turma e plano) pelos services que os outros módulos exportam, não pelas tabelas deles (seção 14).
 
 ## 6. Swagger como contrato
 
@@ -400,3 +405,37 @@ O módulo `classes` guarda a **turma** (a oferta de um curso numa edição, RN-1
 - **`EnrollmentCountsService`** é o ponto de extensão das matrículas: `countActive` devolve 0 até a GUS-108, que troca o corpo por um `count(*)` e passa a travar a linha da turma (`FOR UPDATE`) ao matricular. Sem esse lock, uma matrícula e um arquivamento (ou um corte de vagas) passariam juntos pelas próprias checagens. Ele alimenta o 409 `CLASS_HAS_ACTIVE_ENROLLMENTS` (arquivar) e o 409 `CAPACITY_BELOW_ENROLLED` (reduzir vagas); o e2e substitui o provider para provar as duas regras, e a GUS-108 remove o override.
 - **Arquivar** segue a seção 10: a turma arquivada sai da listagem padrão (a GUS-103 filtra `archived_at IS NULL`), continua por id e vira somente leitura (409 `CLASS_ARCHIVED`). `status` é coluna e independe do arquivamento (RF-034).
 - **Permissões:** `classes.manage` (diretoria, coordenação e superadmin) nas quatro mutações; `classes.view` (todos os perfis) em `GET /editions`. A matriz não mudou.
+
+## 14. Aulas (GUS-151)
+
+O módulo `lessons` guarda a **aula**: um encontro de uma turma, em um dia e um horário, criado a partir de um plano de aula ou avulso. Esta seção registra o que o código sozinho não conta. As decisões L1 a L12 do plano estão na tabela do fim e a memória da feature em `.agents/memory/features/e4-calendar-lessons.md`.
+
+- **Ciclo de vida.** A aula nasce `planned`. `PATCH /lessons/:id` troca entre `planned`, `confirmed` e `done`, sem regra de transição por enquanto (quem marca `done`, e quando, é a chamada, GUS-166). `cancelled` só vem de `PATCH /lessons/:id/cancel`, que grava `cancelReason`, `cancelledAt` (o mesmo instante de `updatedAt`) e `cancelledById`. Não existe `DELETE` nem arquivar aula: o estado final é `cancelled`, a linha fica, e a aula cancelada não é mais editada nem remarcada (409 `LESSON_CANCELLED`). Cancelar de novo é no-op (200, vale o primeiro motivo, sem evento e sem olhar a turma). `ck_lessons_cancellation` garante no banco que `status = 'cancelled'` e `cancelled_at` andam juntos.
+- **Título e objetivo são cópia (RN-18).** Com `lessonPlanId`, o `POST` copia título e objetivo do plano quando o corpo os omite (um valor enviado vale mais, e `objective: null` deixa o objetivo vazio). A partir daí são da aula: editar ou arquivar o plano não muda aula já criada, e a resposta mostra em `lessonPlan.title` o título que o plano tem agora, que pode ser outro. `classId`, `lessonPlanId` e `sequenceOrder` são imutáveis (RN-20): o `PATCH` não os declara e o `whitelist` os descarta.
+- **Plano de origem (L1, L2).** O plano precisa estar ativo (arquivado: 400 `LESSON_PLAN_ARCHIVED`); uma aula que já existe continua mostrando o plano arquivado, com `archivedAt`. Com `sequenceOrder`, o plano precisa estar exatamente nessa posição da sequência do curso da turma (`CourseLessonPlansService.findPosition`), senão 400 `LESSON_PLAN_NOT_IN_COURSE_SEQUENCE`; `sequenceOrder` sem plano é 400 `VALIDATION_FAILED`. Sem `sequenceOrder`, qualquer plano ativo vale (aula extra). A posição é uma fotografia: reordenar a sequência depois não muda a aula.
+- **Dia e horário (L5, L6).** `date` e `originalDate` são colunas `date` ("AAAA-MM-DD", sem fuso, como as datas da turma). `startTime` e `endTime` são colunas `time` lidas como "HH:mm" pelo `timeOfDayTransformer`: o `pg` devolve "HH:mm:ss", e sem o transformer a comparação de uma edição veria mudança onde não há. A entrada é "HH:mm" estrito (`IsTimeOfDay`: "9:00", "14:00:00" e "24:00" são recusados). A aula não atravessa a meia-noite: `endTime > startTime`, senão 400 `INVALID_TIME_RANGE` (o nome do código não vem do card), com `ck_lessons_time_range` como rede de segurança. A duração (`durationMinutes`) é calculada na resposta, não é coluna. A data precisa cair no período da turma, extremos incluídos (RN-21): 400 `LESSON_OUTSIDE_CLASS_PERIOD`.
+- **Remarcar é a mesma aula (L5, L8).** `date`, `startTime` e `endTime` só mudam por `PATCH /lessons/:id/reschedule`, que guarda a data anterior em `originalDate`: o `PATCH` comum não os aceita, para o histórico não ser contornado. `originalDate` guarda a **primeira** data (`??=`): remarcar de novo não a troca, e uma remarcação que só muda o horário também a preenche (é o que marca "esta aula foi remarcada"). `rescheduleReason` e `rescheduleNote` descrevem a última remarcação (omitidos viram null). O corpo traz a agenda nova inteira; `location` só muda quando vem (null limpa). A mesma agenda é no-op (200, sem evento). O `status` não muda, e remarcar aula `done` é permitido por enquanto.
+- **Turma arquivada: 409 nas quatro escritas (L9).** Inclusive no `POST`, onde a seção 10.3 daria 400 (o id da turma está no corpo): o card fixa 409 e o front já mapeia assim. É a exceção à regra. O status da turma (`completed`, `cancelled`) é independente do arquivamento e não bloqueia aula (RF-034). Os outros ids do corpo seguem a seção 10.3: `CLASS_NOT_FOUND`, `LESSON_PLAN_NOT_FOUND`, `LESSON_PLAN_ARCHIVED` e `LESSON_PLAN_NOT_IN_COURSE_SEQUENCE` respondem 400 em `POST /lessons`, com `details` apontando o campo.
+- **Ordem dos erros.** `POST`: `VALIDATION_FAILED`, `INVALID_TIME_RANGE`, `CLASS_NOT_FOUND`, `CLASS_ARCHIVED`, `LESSON_OUTSIDE_CLASS_PERIOD`, `LESSON_PLAN_NOT_FOUND`, `LESSON_PLAN_ARCHIVED`, `LESSON_PLAN_NOT_IN_COURSE_SEQUENCE`. `PATCH`: 404, `LESSON_CANCELLED`, `CLASS_ARCHIVED`. `cancel`: 404 e, se a aula já está cancelada, no-op; senão `CLASS_ARCHIVED`. `reschedule`: `VALIDATION_FAILED`, `INVALID_TIME_RANGE`, 404, `LESSON_CANCELLED`, `CLASS_ARCHIVED`, `LESSON_OUTSIDE_CLASS_PERIOD`.
+- **Travas entre módulos.** `lessons` lê a turma por `ClassesService.getClassSummary(id, manager, { forShare: true })` e o plano por `LessonPlansService.getLessonPlanSummary(id, manager, { forShare: true })`, dentro da transação da aula. O `FOR SHARE` conflita com o `FOR UPDATE` do `update` e do `archive` da turma (e do plano): criar uma aula e arquivar a turma (ou mudar o período dela, ou editar o plano) ao mesmo tempo são feitos um depois do outro. Assim a aula nunca é gravada contra uma turma que acabou de ser arquivada, nem com o título de uma versão do plano e o "ativo" de outra. `FOR SHARE` não conflita com `FOR SHARE`: aulas da mesma turma não esperam umas pelas outras. A ordem é sempre a mesma, para não haver espera em círculo: ao criar, a turma, depois o plano, depois o insert; nas outras escritas, a aula `FOR UPDATE` e depois a turma `FOR SHARE`. `classes` e `catalog` nunca travam aula, e o `FOR UPDATE` que a matrícula (GUS-108) vai tomar na turma convive com isso pelo mesmo motivo. O lock só existe dentro de uma transação: o `manager` de quem chama é obrigatório quando se pede `forShare`.
+- **`LessonCreationService` é o ponto de reuso da GUS-154.** `createMany(manager, schoolClass, drafts, actorId)` transforma rascunhos (`LessonDraft`, com título e objetivo já resolvidos) em aulas `planned`, valida o lote inteiro antes de gravar (turma arquivada, `INVALID_TIME_RANGE`, `LESSON_OUTSIDE_CLASS_PERIOD`) e não abre transação nem emite evento: quem chama passa o `manager` da sua transação, lê a turma com `forShare` e emite o `LESSON_CREATED` de cada aula depois do commit. É interno ao módulo (`LessonsModule` não o exporta), porque a geração em série também mora em `lessons`.
+- **Auditoria e dados pessoais (L10).** Os eventos saem depois do commit e só quando algo mudou. `postNotes`, `cancelReason`, `rescheduleReason` e `rescheduleNote` são texto livre e podem conter dado de saúde do aluno (RNF-13): `postNotes` aparece no evento do `PATCH` só em `changedFields`, sem o valor, e os outros três não vão para evento nenhum. Título, data, horário, local e status entram com valor.
+- **`lesson.cancelled` (RN-07).** Ao cancelar (só quando a aula foi cancelada agora), `lessons` emite `LessonCancelledEvent` (`shared/events/lesson-cancelled.event.ts`) além do evento de auditoria. É o gancho do estorno das horas já lançadas: o `hours` (E7) vai ouvi-lo e estornar, sem que `lessons` o conheça. Hoje ninguém ouve.
+- **Permissões.** `lessons.view` (todos os perfis) em `GET /lessons/:id`; `lessons.manage` (diretoria, coordenação e superadmin) nas quatro escritas. O escopo é só `all` ou `none`: o guard decide e o service não usa `PermissionPolicy`. A matriz não mudou. Os escopos `allocated` e `lessonTeacher` entram com a alocação (GUS-158) e a chamada (GUS-166).
+- **Fora do card.** Listagem, filtros e calendário (GUS-153), geração em série (GUS-154), alocação (GUS-158), chamada (GUS-166), listener de estorno de horas (E7), descancelar, regras de transição de status e de remarcar aula `done`, conflito de horário ou de local entre aulas e seed de dados de desenvolvimento.
+- **Riscos e pendências.** (1) `PATCH /classes/:id` pode encurtar o período da turma sem olhar as aulas, e depois disso uma turma pode ter aula fora do período (P9 da GUS-101): a F2.6 ou a GUS-153 decide se bloqueia com 409 ou avisa; remarcar uma aula assim exige uma data dentro do período novo. (2) A L5 está a confirmar no Figma (modal Editar aula, node 662-33222): se o modal tiver data e hora, o PO decide entre mandar o front para `rescheduleLesson` ou aceitar a mudança no `PATCH` sem histórico. (3) Não há conflito de horário: duas aulas da mesma turma no mesmo dia e hora são aceitas.
+
+| #   | Pergunta                                       | Decisão                                                                                                                                                   |
+| --- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L1  | Plano arquivado pode originar aula nova?       | Não: 400 `LESSON_PLAN_ARCHIVED` (RN-27). A aula que já existe continua mostrando o plano arquivado.                                                       |
+| L2  | `sequenceOrder` precisa bater com a sequência? | Sim, por `findPosition`; sem plano é `VALIDATION_FAILED`; sem `sequenceOrder`, qualquer plano ativo vale (aula extra).                                    |
+| L3  | `expectedStudents` e `expectedMonitors`        | Opcionais, inteiros de 0 a 1000 e de 0 a 100, com `CHECK` no banco; null é "não informado"; não copiam da turma.                                          |
+| L4  | O que o `PATCH` aceita                         | `title`, `objective`, `location`, `expectedStudents`, `expectedMonitors`, `subject`, `postNotes` e `status` em {planned, confirmed, done}, sem transição. |
+| L5  | O `PATCH` muda data e horário?                 | Não: só por `reschedule`, para o `originalDate` não ser contornado. A confirmar no Figma.                                                                 |
+| L6  | Formatos                                       | `date` AAAA-MM-DD; horário "HH:mm" estrito em colunas `time` com transformer; `endTime > startTime` (`INVALID_TIME_RANGE`).                               |
+| L7  | O `POST` aceita `status`?                      | Não: nasce `planned`. `subject` entra no `POST`; `postNotes`, só no `PATCH`.                                                                              |
+| L8  | Remarcar aula já remarcada                     | `originalDate` guarda a primeira data; motivo e nota são os da última; `status` não muda; mesma agenda é no-op; remarcar `done` é permitido por ora.      |
+| L9  | `CLASS_ARCHIVED`: quais rotas e qual status?   | 409 nas quatro escritas, inclusive no `POST`; o status da turma (`completed`, `cancelled`) não bloqueia.                                                  |
+| L10 | Dados no evento de auditoria                   | `postNotes` só em `changedFields`; `cancelReason`, `rescheduleReason` e `rescheduleNote` fora dos eventos.                                                |
+| L11 | Nome do enum no banco                          | `lessons_status_enum`, a convenção do repositório, e não o `lesson_status_enum` do card.                                                                  |
+| L12 | O que é "seed de exemplo"                      | As requests do Bruno com corpos de exemplo e o `example` do Swagger; a infraestrutura de seed de desenvolvimento fica fora do card.                       |

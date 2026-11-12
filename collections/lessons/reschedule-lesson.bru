@@ -1,0 +1,44 @@
+meta {
+  name: reschedule-lesson
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/lessons/:id/reschedule
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "date": "2026-03-17",
+    "startTime": "14:00",
+    "endTime": "15:30",
+    "location": "Laboratório 2, bloco A",
+    "reason": "Laboratório em manutenção.",
+    "note": "Avisar a turma pelo grupo."
+  }
+}
+
+docs {
+  Remarca uma aula para outro dia e horário (F4.3). É a MESMA aula: o id, a turma, o plano, o título e o status ficam; a data que ela tinha vai para originalDate.
+  Requer cookie tedi_session e a permissão lessons.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Obrigatórios: date (AAAA-MM-DD), startTime e endTime (HH:mm): o corpo sempre diz a agenda nova inteira, mesmo que um dos valores não mude. Opcionais: location (omitir mantém o local; null ou "" limpa), reason (até 500 caracteres) e note (até 2000), ambos texto livre, sem informação de saúde.
+  originalDate guarda a PRIMEIRA data em que a aula foi marcada: remarcar de novo não a troca. Uma remarcação que só muda o horário também preenche originalDate, que é o que diz "esta aula foi remarcada". reason e note descrevem a última remarcação: omitidos (ou null), ficam vazios, mesmo que a anterior tivesse.
+  A nova data precisa cair no período da turma, extremos incluídos (RN-21): 400 LESSON_OUTSIDE_CLASS_PERIOD, com details[].field = "date". O fim precisa ser depois do início: 400 INVALID_TIME_RANGE, com details[].field = "endTime".
+  A mesma agenda que a aula já tem (mesmo dia, horários e local) responde 200 sem alterar nada e sem evento, mesmo que reason ou note sejam novos.
+  Aula cancelada é definitiva: 409 LESSON_CANCELLED. Turma arquivada é somente leitura (RN-27): 409 CLASS_ARCHIVED, mesmo para a agenda que a aula já tem. A linha da aula fica travada: duas remarcações ao mesmo tempo são feitas uma depois da outra, e a segunda não toma como original o dia em que a primeira deixou a aula.
+  Retorna 200 LessonResponseDto e registra o evento LESSON_RESCHEDULED, com a agenda antes e depois (date, startTime, endTime, location e originalDate). reason e note não vão para o evento. Remarcar não é cancelar: nada vai para o gancho das horas.
+  Ordem dos erros: 400 VALIDATION_FAILED, 400 INVALID_TIME_RANGE, 404, 409 LESSON_CANCELLED, 409 CLASS_ARCHIVED, 400 LESSON_OUTSIDE_CLASS_PERIOD.
+  Erros possíveis: 400 (os códigos acima), 401, 403 FORBIDDEN, 404 LESSON_NOT_FOUND (id inexistente ou mal formado), 409 LESSON_CANCELLED, 409 CLASS_ARCHIVED.
+}

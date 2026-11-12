@@ -215,6 +215,21 @@
         ],
         "type": "string"
       },
+      "CancelLessonDto": {
+        "properties": {
+          "reason": {
+            "description": "Why the lesson is cancelled. Required, and not blank. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Feriado municipal.",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "ClassResponseDto": {
         "properties": {
           "archiveReason": {
@@ -863,6 +878,100 @@
         ],
         "type": "object"
       },
+      "CreateLessonDto": {
+        "properties": {
+          "classId": {
+            "description": "Id of the class this lesson belongs to. It cannot be changed after the lesson is created (RN-20).",
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD. It must fall inside the period of the class, ends included (else 400 LESSON_OUTSIDE_CLASS_PERIOD).",
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "description": "End of the lesson, HH:mm in 24 hours. It must be after startTime (else 400 INVALID_TIME_RANGE): a lesson does not cross midnight.",
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "expectedMonitors": {
+            "description": "Monitors expected. Null means not informed. On edit, omit to keep and send null to clear.",
+            "example": 2,
+            "maximum": 100,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "expectedStudents": {
+            "description": "Students expected. Null means not informed: it is not copied from the class. On edit, omit to keep and send null to clear.",
+            "example": 15,
+            "maximum": 1000,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "lessonPlanId": {
+            "description": "Id of the lesson plan this lesson comes from. Omit (or send null) for a lesson on its own. The plan must be active (archived: 400 LESSON_PLAN_ARCHIVED). It cannot be changed after the lesson is created (RN-20).",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "location": {
+            "description": "Null or blank means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Laboratório 3, bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "objective": {
+            "description": "With a lessonPlanId, omit it to copy the objective of the plan (RN-18); send null to leave it empty instead. Without a plan, omit or send null for none. Blank means null. On edit, omit to keep and send null to clear.",
+            "example": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "Position of the lesson plan in the sequence of the course of the class, when the lesson comes from that sequence. Needs a lessonPlanId, and the plan must be in the sequence at exactly this position (else 400 LESSON_PLAN_NOT_IN_COURSE_SEQUENCE). Omit for an extra lesson. It cannot be changed after the lesson is created (RN-20).",
+            "example": 1,
+            "maximum": 1000,
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "startTime": {
+            "description": "Start of the lesson, HH:mm in 24 hours.",
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Free text about what the lesson covers, apart from the title. Null or blank means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Primeiro contato com o computador",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "Required when there is no lessonPlanId. With a lessonPlanId, omit it to copy the title of the plan (RN-18): the copy is the lesson's own and editing the plan later does not change it. A title sent wins over the copy. Never null.",
+            "example": "Teclado, mouse e janelas",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "classId",
+          "date",
+          "startTime",
+          "endTime"
+        ],
+        "type": "object"
+      },
       "CreateLessonPlanDto": {
         "properties": {
           "contents": {
@@ -1242,6 +1351,91 @@
         ],
         "type": "string"
       },
+      "LessonClassRefDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Null while the class is active. An archived class is read-only: its lessons cannot be created, edited, cancelled or rescheduled (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "code": {
+            "description": "Unique inside its edition.",
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "Last day of the class: the latest day a lesson of it can have.",
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label. Null when not informed.",
+            "example": "Informática Básica, turma A",
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "description": "First day of the class: the earliest day a lesson of it can have.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "startDate",
+          "endDate",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
+      "LessonCourseRefDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "LessonEditionRefDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000e1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "Year and term, \"<year>.<term>\".",
+            "example": "2026.1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "LessonPlanDetailDto": {
         "properties": {
           "archiveReason": {
@@ -1358,6 +1552,33 @@
           "status",
           "createdBy",
           "usedIn"
+        ],
+        "type": "object"
+      },
+      "LessonPlanRefDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Null while the plan is active. An archived plan still shows on the lessons that already came from it (RN-27), but cannot originate a new lesson.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000011",
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": {
+            "description": "The title the plan has now, which may differ from the one the lesson copied.",
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "archivedAt"
         ],
         "type": "object"
       },
@@ -1591,6 +1812,216 @@
           "courseStatus"
         ],
         "type": "object"
+      },
+      "LessonResponseDto": {
+        "properties": {
+          "cancelReason": {
+            "description": "Why the lesson was cancelled. Set exactly when the status is cancelled.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelledAt": {
+            "description": "When the lesson was cancelled. Set exactly when the status is cancelled.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelledById": {
+            "description": "Id of the person who cancelled the lesson.",
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "class": {
+            "$ref": "#/components/schemas/LessonClassRefDto"
+          },
+          "course": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCourseRefDto"
+              }
+            ],
+            "description": "The course the class offers."
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Id of the person who created the lesson.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD, inside the period of the class.",
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "durationMinutes": {
+            "description": "From startTime to endTime, in minutes. Calculated when read, not stored (RF-039).",
+            "example": 90,
+            "type": "integer"
+          },
+          "edition": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonEditionRefDto"
+              }
+            ],
+            "description": "The edition of the class."
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "expectedMonitors": {
+            "description": "Monitors expected. Null when not informed.",
+            "example": 2,
+            "nullable": true,
+            "type": "integer"
+          },
+          "expectedStudents": {
+            "description": "Students expected. Null when not informed.",
+            "example": 15,
+            "nullable": true,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonPlan": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonPlanRefDto"
+              }
+            ],
+            "description": "The lesson plan this lesson was created from. Null for a lesson created on its own. It never changes (RN-20).",
+            "nullable": true,
+            "type": "object"
+          },
+          "location": {
+            "description": "Null when not informed.",
+            "example": "Laboratório 3, bloco B",
+            "nullable": true,
+            "type": "string"
+          },
+          "objective": {
+            "description": "The lesson's own objective: copied from the plan when it was created, editable afterwards (RN-18).",
+            "example": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+            "nullable": true,
+            "type": "string"
+          },
+          "originalDate": {
+            "description": "The first day the lesson was scheduled for, set by its first reschedule and kept by the next ones. Null for a lesson that was never rescheduled.",
+            "example": null,
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "postNotes": {
+            "description": "Notes written after the lesson. Null when there are none.",
+            "example": "A turma terminou o exercício antes do previsto.",
+            "nullable": true,
+            "type": "string"
+          },
+          "rescheduleNote": {
+            "description": "Note about its last reschedule. Null when none was given.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "rescheduleReason": {
+            "description": "Why the lesson moved, in its last reschedule. Null when none was given.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "Position the plan had in the sequence of the course when the lesson was created. Null for a lesson outside the sequence. A snapshot: a later reordering of the sequence does not change it.",
+            "example": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5). A lesson that was rescheduled keeps its status. cancelled is final: the lesson stays, with its reason, and cannot be edited or rescheduled.",
+            "example": "planned"
+          },
+          "subject": {
+            "description": "Free text about what the lesson covers. Null when not informed.",
+            "example": "Primeiro contato com o computador",
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "The lesson's own title: copied from the plan when it was created, editable afterwards (RN-18).",
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          },
+          "updatedAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "class",
+          "course",
+          "edition",
+          "lessonPlan",
+          "sequenceOrder",
+          "title",
+          "objective",
+          "date",
+          "startTime",
+          "endTime",
+          "durationMinutes",
+          "location",
+          "expectedStudents",
+          "expectedMonitors",
+          "subject",
+          "postNotes",
+          "status",
+          "cancelReason",
+          "cancelledAt",
+          "cancelledById",
+          "originalDate",
+          "rescheduleReason",
+          "rescheduleNote",
+          "createdById",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "LessonStatus": {
+        "description": "Status of the lesson (F4.5). A lesson that was rescheduled keeps its status. cancelled is final: the lesson stays, with its reason, and cannot be edited or rescheduled.",
+        "enum": [
+          "planned",
+          "confirmed",
+          "done",
+          "cancelled"
+        ],
+        "type": "string"
       },
       "LoginDto": {
         "properties": {
@@ -2821,6 +3252,55 @@
         ],
         "type": "object"
       },
+      "RescheduleLessonDto": {
+        "properties": {
+          "date": {
+            "description": "New day of the lesson, YYYY-MM-DD. It must fall inside the period of the class, ends included (else 400 LESSON_OUTSIDE_CLASS_PERIOD). The day it had goes to originalDate, unless the lesson was already rescheduled: the first original date is kept.",
+            "example": "2026-03-17",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "description": "New end of the lesson, HH:mm in 24 hours. It must be after startTime (else 400 INVALID_TIME_RANGE).",
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "location": {
+            "description": "New place of the lesson. Omit to keep the place it has. Null or blank clears it, since a rescheduled lesson can lose its room.",
+            "example": "Laboratório 2, bloco A",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "note": {
+            "description": "A note about this reschedule. Optional; omitted or null, it leaves the note of the previous one empty. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Avisar a turma pelo grupo.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the lesson moved. Optional. It describes this reschedule: omitted or null, it leaves the reason of the previous one empty. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Laboratório em manutenção.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "startTime": {
+            "description": "New start of the lesson, HH:mm in 24 hours.",
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "startTime",
+          "endTime"
+        ],
+        "type": "object"
+      },
       "Role": {
         "enum": [
           "member",
@@ -3253,6 +3733,72 @@
             "maxItems": 20,
             "type": "array",
             "uniqueItems": true
+          }
+        },
+        "type": "object"
+      },
+      "UpdateLessonDto": {
+        "description": "Every field is optional: omit to keep. classId, lessonPlanId and sequenceOrder are not editable (RN-20), and date, startTime and endTime only change through rescheduleLesson, which keeps originalDate: they are ignored when sent.",
+        "properties": {
+          "expectedMonitors": {
+            "description": "Monitors expected. Null means not informed. On edit, omit to keep and send null to clear.",
+            "example": 2,
+            "maximum": 100,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "expectedStudents": {
+            "description": "Students expected. Null means not informed: it is not copied from the class. On edit, omit to keep and send null to clear.",
+            "example": 15,
+            "maximum": 1000,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "location": {
+            "description": "Null or blank means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Laboratório 3, bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "objective": {
+            "description": "With a lessonPlanId, omit it to copy the objective of the plan (RN-18); send null to leave it empty instead. Without a plan, omit or send null for none. Blank means null. On edit, omit to keep and send null to clear.",
+            "example": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "postNotes": {
+            "description": "Notes written after the lesson. Free text: do not record health information or diagnosis (RNF-13). Null or blank clears. Omit to keep.",
+            "example": "A turma terminou o exercício antes do previsto.",
+            "maxLength": 5000,
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5). cancelled is rejected with 400 VALIDATION_FAILED: use cancelLesson, which records the reason. Omit to keep. Never null. No rule limits the moves between the other statuses yet.",
+            "example": "confirmed"
+          },
+          "subject": {
+            "description": "Free text about what the lesson covers, apart from the title. Null or blank means not informed. On edit, omit to keep and send null to clear.",
+            "example": "Primeiro contato com o computador",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "title": {
+            "description": "Omit to keep. Never null. The title of the lesson is its own: it does not follow the lesson plan (RN-18).",
+            "example": "Teclado, mouse e janelas",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
           }
         },
         "type": "object"
@@ -6292,6 +6838,483 @@
         },
         "tags": [
           "catalog"
+        ]
+      }
+    },
+    "/lessons": {
+      "post": {
+        "operationId": "createLesson",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLessonDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE | CLASS_NOT_FOUND | LESSON_OUTSIDE_CLASS_PERIOD | LESSON_PLAN_NOT_FOUND | LESSON_PLAN_ARCHIVED | LESSON_PLAN_NOT_IN_COURSE_SEQUENCE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/lessons/{id}": {
+      "get": {
+        "operationId": "getLesson",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      },
+      "patch": {
+        "operationId": "updateLesson",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLessonDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/lessons/{id}/cancel": {
+      "patch": {
+        "operationId": "cancelLesson",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelLessonDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonResponseDto"
+                }
+              }
+            },
+            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/lessons/{id}/reschedule": {
+      "patch": {
+        "operationId": "rescheduleLesson",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RescheduleLessonDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonResponseDto"
+                }
+              }
+            },
+            "description": "The same lesson (same id) on its new day and time, with originalDate set to the first day it was scheduled for."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE | LESSON_OUTSIDE_CLASS_PERIOD"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
         ]
       }
     },
