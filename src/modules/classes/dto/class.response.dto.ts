@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { ClassStatus } from "../enums/class-status.enum";
+import { ClassCourseResponseDto } from "./class-course.response.dto";
 import { EditionResponseDto } from "./edition.response.dto";
 
 export class ClassResponseDto {
@@ -21,9 +22,16 @@ export class ClassResponseDto {
     type: String,
     format: "uuid",
     example: "01999a3e-7c1b-7000-8000-000000000001",
-    description: "Id of the course this class offers. It never changes (RN-13).",
+    description: "Id of the course this class offers. Same as course.id.",
   })
   courseId!: string;
+
+  @ApiProperty({
+    type: ClassCourseResponseDto,
+    description:
+      "The course this class offers, read now: its category is the one of the course (RN-14), and changing it there changes it here.",
+  })
+  course!: ClassCourseResponseDto;
 
   @ApiProperty({ type: EditionResponseDto })
   edition!: EditionResponseDto;

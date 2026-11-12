@@ -2,6 +2,11 @@ import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { isUUID } from "class-validator";
 import { DataSource, EntityManager, QueryFailedError } from "typeorm";
+import {
+  CoursesService,
+  CourseStatus,
+  CourseSummary,
+} from "@modules/catalog/services/courses.service";
 import { Clock } from "@shared/dates/clock";
 import { ArchiveDto } from "@shared/dto/archive.dto";
 import { isArchived, markArchived, markUnarchived } from "@shared/entities/archivable.columns";
@@ -16,6 +21,11 @@ import { UpdateClassDto } from "../dto/update-class.dto";
 import { SchoolClass } from "../entities/class.entity";
 import { Edition } from "../entities/edition.entity";
 import { ClassStatus } from "../enums/class-status.enum";
+import {
+  courseArchived,
+  courseChangeNotAllowed,
+  courseNotFoundInBody,
+} from "./class-course.errors";
 import { invalidPeriod, isValidPeriod } from "./class-period";
 import { toClassResponse } from "./class-response.mapper";
 import { EditionsService } from "./editions.service";
@@ -59,14 +69,6 @@ function classCodeTaken(): HttpException {
     },
     409,
   );
-}
-
-/**
- * The `courseId` of the body is not a course. It is the answer to the foreign key violation until
- * GUS-102 adds the lookup in the catalog (and the archived course) in front of it.
- */
-function courseNotFound(): HttpException {
-  return new HttpException({ error: "COURSE_NOT_FOUND", message: "Course not found." }, 400);
 }
 
 function classHasActiveEnrollments(): HttpException {
@@ -117,10 +119,14 @@ interface FieldChanges {
 
 /**
  * Classes (turmas) of the courses: create, edit, archive and unarchive (RF-024, RF-034, RN-10,
- * RN-13, RN-21, RN-22, RN-27). The edition of a class is created on demand, by its name.
+ * RN-13, RN-14, RN-21, RN-22, RN-27, RF-020). The edition of a class is created on demand, by its
+ * name.
  *
  * Every write runs in a transaction and the audit event goes out after the commit, only when
- * something changed. Listing and detail are other cards (GUS-103 and GUS-104).
+ * something changed. Every answer carries the course of the class, read in the same transaction
+ * from the catalog (`CoursesService.getCourseSummary`): the class stores no category and shows the
+ * current one of its course. Listing and detail are other cards (GUS-103 and GUS-104); the classes
+ * of a course are `CourseClassesService`.
  */
 @Injectable()
 export class ClassesService {
@@ -128,6 +134,7 @@ export class ClassesService {
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly clock: Clock,
+    private readonly courses: CoursesService,
     private readonly editions: EditionsService,
     private readonly enrollmentCounts: EnrollmentCountsService,
   ) {}
@@ -136,10 +143,16 @@ export class ClassesService {
    * Creates a class, and its edition when `editionName` does not exist yet, in one transaction.
    * A repeated name reuses the edition. The class starts `planned` unless the body says otherwise.
    *
-   * Errors: 400 INVALID_PERIOD (end before start, answered before the transaction opens), 409
-   * CLASS_CODE_TAKEN (the code exists in that edition, ignoring case and archived classes
-   * included; a race on the unique index answers the same) and 400 COURSE_NOT_FOUND (the foreign
-   * key violation). A failure rolls the new edition back with the class.
+   * The course comes first in the transaction: it is read `FOR SHARE` (see `loadActiveCourse`),
+   * before the edition is found or created and before the code is checked.
+   *
+   * Errors, in the order they are answered: 400 VALIDATION_FAILED (the body, before the service),
+   * 400 INVALID_PERIOD (end before start, answered before the transaction opens), 400
+   * COURSE_NOT_FOUND (the `courseId` is not a course), 409 COURSE_ARCHIVED (it is an archived
+   * course, RF-020) and 409 CLASS_CODE_TAKEN (the code exists in that edition, ignoring case and
+   * archived classes included; a race on the unique index answers the same). The foreign key
+   * violation of the course stays as the net under the first of the course errors. A failure rolls
+   * the new edition back with the class.
    *
    * Emits CLASS_CREATED after the commit.
    */
@@ -147,6 +160,7 @@ export class ClassesService {
     if (!isValidPeriod(dto.startDate, dto.endDate)) throw invalidPeriod();
 
     const created = await this.runInTransaction(async (manager) => {
+      const course = await this.loadActiveCourse(manager, dto.courseId);
       const { edition, created: editionCreated } = await this.editions.findOrCreate(
         manager,
         dto.editionName,
@@ -157,7 +171,7 @@ export class ClassesService {
         manager.create(SchoolClass, {
           code: dto.code,
           name: dto.name ?? null,
-          courseId: dto.courseId,
+          courseId: course.id,
           editionId: edition.id,
           startDate: dto.startDate,
           endDate: dto.endDate,
@@ -168,10 +182,10 @@ export class ClassesService {
         }),
       );
 
-      return { schoolClass, edition, editionCreated };
+      return { schoolClass, edition, editionCreated, course };
     });
 
-    const { schoolClass, edition, editionCreated } = created;
+    const { schoolClass, edition, editionCreated, course } = created;
     this.emit(AuditableAction.CLASS_CREATED, actorId, schoolClass.id, null, {
       code: schoolClass.code,
       name: schoolClass.name,
@@ -186,27 +200,39 @@ export class ClassesService {
       status: schoolClass.status,
     });
 
-    return toClassResponse(schoolClass, edition);
+    return toClassResponse(schoolClass, edition, course);
   }
 
   /**
    * Edits a class. Every field is optional: omitted keeps, `name` and `location` sent as null
-   * clear. `editionName` moves the class to that edition, created on demand. The course never
-   * changes (RN-13), and the status takes any value: the rules of the moves between statuses are
-   * the F2.6 card.
+   * clear. `editionName` moves the class to that edition, created on demand. `courseId` moves the
+   * class to another course (RN-13, GUS-102), but only while the class is planned and has no
+   * active enrollments. The status that counts is the one stored, not the one in the body: the
+   * rule protects a class that has already started, and a body that sends `planned` together with
+   * a new course does not get around it. The same course the class has is not a change, so a form
+   * that sends every field back works for a class in progress too. The status takes any value: the
+   * rules of the moves between statuses are the F2.6 card.
    *
    * Errors, in the order they are answered: 404 CLASS_NOT_FOUND, 409 CLASS_ARCHIVED (archived
    * classes are read-only, RN-27), 400 INVALID_PERIOD (the period that results, with the dates
-   * sent and the ones already stored, must end on or after it starts), 409 CLASS_CODE_TAKEN (only
-   * when the code or the edition changes; the class itself is left out of the check, so changing
-   * only the case of its own code passes) and 409 CAPACITY_BELOW_ENROLLED (only when the seats
-   * change, and below the number of active enrollments).
+   * sent and the ones already stored, must end on or after it starts), 409
+   * COURSE_CHANGE_NOT_ALLOWED (only when the course changes: the class is not planned, or has
+   * active enrollments), 400 COURSE_NOT_FOUND and 409 COURSE_ARCHIVED (only for the new course,
+   * read `FOR SHARE`, see `loadActiveCourse`), 409 CLASS_CODE_TAKEN (only when the code or the
+   * edition changes; the class itself is left out of the check, so changing only the case of its
+   * own code passes) and 409 CAPACITY_BELOW_ENROLLED (only when the seats change, and below the
+   * number of active enrollments).
+   *
+   * A class of an archived course is still edited, as long as the course stays: archived courses
+   * refuse new classes (RF-020), not the ones they already have (RN-27).
    *
    * The row of the class is locked FOR UPDATE until the end of the transaction, so two edits of
-   * the same class are serialized, and so is an edit and an archive.
+   * the same class are serialized, and so is an edit and an archive. Counting the enrollments
+   * under that lock is what GUS-108 must keep: an enrollment has to take the same lock, or it and
+   * a change of course could both pass their checks.
    *
    * Without a change (or with an empty body) nothing is written and no event is emitted. Emits
-   * CLASS_UPDATED after the commit, with only the fields that changed.
+   * CLASS_UPDATED after the commit, with only the fields that changed (`courseId` included).
    *
    * `requestedId` is only the key of the lookup. The UUID pipe of the route accepts upper case and
    * Postgres finds the row all the same, but the ids of the database are lower case. So everything
@@ -228,6 +254,25 @@ export class ClassesService {
         const startDate = dto.startDate ?? schoolClass.startDate;
         const endDate = dto.endDate ?? schoolClass.endDate;
         if (!isValidPeriod(startDate, endDate)) throw invalidPeriod();
+      }
+
+      const nextCourseId = dto.courseId;
+      const courseChanged = nextCourseId !== undefined && nextCourseId !== schoolClass.courseId;
+      let course: CourseSummary;
+      if (courseChanged) {
+        if (schoolClass.status !== ClassStatus.PLANNED) throw courseChangeNotAllowed();
+        const active = await this.enrollmentCounts.countActive(manager, schoolClass.id);
+        if (active > 0) throw courseChangeNotAllowed();
+
+        course = await this.loadActiveCourse(manager, nextCourseId);
+
+        changes.before.courseId = schoolClass.courseId;
+        changes.after.courseId = course.id;
+        changes.fields.push("courseId");
+
+        schoolClass.courseId = course.id;
+      } else {
+        course = await this.loadCourseSummary(manager, schoolClass.courseId);
       }
 
       let edition = await this.loadEdition(manager, schoolClass.editionId);
@@ -263,12 +308,12 @@ export class ClassesService {
 
       const classChanged = this.applyChanges(schoolClass, dto as Record<string, unknown>, changes);
 
-      if (classChanged || editionChanged) {
+      if (classChanged || editionChanged || courseChanged) {
         schoolClass.updatedAt = this.clock.now();
         await manager.save(schoolClass);
       }
 
-      return { schoolClass, edition };
+      return { schoolClass, edition, course };
     });
 
     if (changes.fields.length > 0) {
@@ -278,7 +323,7 @@ export class ClassesService {
       });
     }
 
-    return toClassResponse(updated.schoolClass, updated.edition);
+    return toClassResponse(updated.schoolClass, updated.edition, updated.course);
   }
 
   /**
@@ -315,7 +360,8 @@ export class ClassesService {
       }
 
       const edition = await this.loadEdition(manager, schoolClass.editionId);
-      return { schoolClass, edition, changed };
+      const course = await this.loadCourseSummary(manager, schoolClass.courseId);
+      return { schoolClass, edition, course, changed };
     });
 
     if (result.changed) {
@@ -331,7 +377,7 @@ export class ClassesService {
       );
     }
 
-    return toClassResponse(result.schoolClass, result.edition);
+    return toClassResponse(result.schoolClass, result.edition, result.course);
   }
 
   /**
@@ -358,7 +404,8 @@ export class ClassesService {
       }
 
       const edition = await this.loadEdition(manager, schoolClass.editionId);
-      return { schoolClass, edition, before, changed };
+      const course = await this.loadCourseSummary(manager, schoolClass.courseId);
+      return { schoolClass, edition, course, before, changed };
     });
 
     if (result.changed) {
@@ -367,7 +414,7 @@ export class ClassesService {
       });
     }
 
-    return toClassResponse(result.schoolClass, result.edition);
+    return toClassResponse(result.schoolClass, result.edition, result.course);
   }
 
   /**
@@ -419,8 +466,9 @@ export class ClassesService {
 
   /**
    * Runs the work in a transaction and turns the constraint violations that mean a business error
-   * into it: a repeated code (409), a course that does not exist (400) and a period upside down
-   * (400, which the check before the write normally answers first).
+   * into it: a repeated code (409), a course that does not exist (400, which the lookup of the
+   * course normally answers first) and a period upside down (400, which the check before the write
+   * normally answers first).
    */
   private async runInTransaction<T>(work: (manager: EntityManager) => Promise<T>): Promise<T> {
     try {
@@ -444,6 +492,40 @@ export class ClassesService {
   /** The edition a class points to: the foreign key guarantees it exists, even a soft-deleted one. */
   private loadEdition(manager: EntityManager, id: string): Promise<Edition> {
     return manager.findOneOrFail(Edition, { where: { id }, withDeleted: true });
+  }
+
+  /**
+   * The course a class is about to be created in (or moved to), read `FOR SHARE` inside the
+   * transaction of the class: 400 COURSE_NOT_FOUND when it is not a course and 409 COURSE_ARCHIVED
+   * when it is archived (RF-020).
+   *
+   * The lock is what makes the second check hold. `FOR SHARE` conflicts with the `FOR UPDATE` of
+   * whoever edits or archives the course, so the two cannot interleave: if the archive commits
+   * first, this read waits and then sees the course archived (409); if this read locks first, the
+   * archive waits for the class to commit, and a class created before the archive is kept. Without
+   * the lock a class could be created in a course that is archived at that very instant.
+   */
+  private async loadActiveCourse(manager: EntityManager, courseId: string): Promise<CourseSummary> {
+    const course = await this.courses.getCourseSummary(courseId, manager, { forShare: true });
+    if (course === null) throw courseNotFoundInBody();
+    if (course.status === CourseStatus.ARCHIVED) throw courseArchived();
+
+    return course;
+  }
+
+  /**
+   * The course of a class that already exists, for its answer. No lock, and an archived course is
+   * fine: a class of an archived course is still read, edited and archived (RN-27). The foreign key
+   * guarantees the course is there, so a null is a broken invariant and not a business error.
+   */
+  private async loadCourseSummary(
+    manager: EntityManager,
+    courseId: string,
+  ): Promise<CourseSummary> {
+    const course = await this.courses.getCourseSummary(courseId, manager);
+    if (course === null) throw new Error(`The course ${courseId} of a class could not be read.`);
+
+    return course;
   }
 
   /** Copies the fields that were sent and differ into the class, and records before and after. */
@@ -497,7 +579,7 @@ export class ClassesService {
         return classCodeTaken();
       }
       if (driverError?.code === "23503" && driverError.constraint === CLASS_COURSE_FOREIGN_KEY) {
-        return courseNotFound();
+        return courseNotFoundInBody();
       }
       if (driverError?.code === "23514" && driverError.constraint === CLASS_PERIOD_CHECK) {
         return invalidPeriod();
