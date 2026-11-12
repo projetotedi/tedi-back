@@ -1132,6 +1132,20 @@
         ],
         "type": "object"
       },
+      "DuplicateCourseDto": {
+        "properties": {
+          "name": {
+            "description": "Unique among all courses, archived ones included, ignoring case.",
+            "example": "Informática Básica",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "EditionResponseDto": {
         "properties": {
           "id": {
@@ -2071,6 +2085,187 @@
           "email",
           "role",
           "permissions"
+        ],
+        "type": "object"
+      },
+      "MemberDetailResponseDto": {
+        "properties": {
+          "accessEnabled": {
+            "example": true,
+            "type": "boolean"
+          },
+          "address": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "Rua das Acácias, 120, apto 42",
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "example": "1999-07-22",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "city": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "São Paulo",
+            "nullable": true,
+            "type": "string"
+          },
+          "className": {
+            "description": "Class (turma) at the university. Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "SI-2024-N",
+            "nullable": true,
+            "type": "string"
+          },
+          "course": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "Sistemas de Informação",
+            "nullable": true,
+            "type": "string"
+          },
+          "cpfMasked": {
+            "description": "CPF with only the last five digits visible; the full CPF is only on GET /member-registrations/:id (RNF-14). Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "***.***.247-25",
+            "nullable": true,
+            "type": "string"
+          },
+          "department": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DepartmentResponseDto"
+              }
+            ],
+            "description": "Department of the member profile (the one suggested at sign-up while the registration is pending). Null without a member profile or without a department.",
+            "nullable": true,
+            "type": "object"
+          },
+          "email": {
+            "description": "Personal e-mail.",
+            "example": "ana.torres@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "Id of the Person.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "institutionalEmail": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "ana.torres@example.edu",
+            "nullable": true,
+            "type": "string"
+          },
+          "joinedAt": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "2026-10-01",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "mainFunction": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "Monitora de informática",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Torres",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only.",
+            "example": "11981813030",
+            "nullable": true,
+            "type": "string"
+          },
+          "ra": {
+            "example": "a2210001",
+            "nullable": true,
+            "type": "string"
+          },
+          "registrationStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberRegistrationStatus"
+              }
+            ],
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "approved",
+            "nullable": true
+          },
+          "reviewedAt": {
+            "description": "When the registration was approved or rejected (UTC). Null while pending and for profiles approved by the backfill, before the validation existed.",
+            "example": "2026-10-20T13:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who approved or rejected the registration. Null while pending, for profiles approved by the backfill, or when that person was deleted.",
+            "nullable": true,
+            "type": "object"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Role"
+              }
+            ],
+            "description": "Access profile. Null while the registration is pending or rejected: the role is only granted on approval.",
+            "example": "member",
+            "nullable": true
+          },
+          "semester": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": 7,
+            "nullable": true,
+            "type": "integer"
+          },
+          "state": {
+            "description": "UF. Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "SP",
+            "nullable": true,
+            "type": "string"
+          },
+          "volunteerTermUrl": {
+            "description": "Null for a person without a member profile (e.g. the seeded admin).",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ra",
+          "email",
+          "phone",
+          "birthDate",
+          "role",
+          "accessEnabled",
+          "cpfMasked",
+          "address",
+          "city",
+          "state",
+          "institutionalEmail",
+          "course",
+          "semester",
+          "className",
+          "department",
+          "mainFunction",
+          "joinedAt",
+          "volunteerTermUrl",
+          "registrationStatus",
+          "reviewedAt",
+          "reviewedBy"
         ],
         "type": "object"
       },
@@ -5195,6 +5390,108 @@
         ]
       }
     },
+    "/courses/{id}/duplicate": {
+      "post": {
+        "operationId": "duplicateCourse",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DuplicateCourseDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NAME_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
     "/courses/{id}/lesson-plans": {
       "get": {
         "operationId": "listCourseLessonPlans",
@@ -7664,6 +7961,88 @@
               }
             },
             "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
+    "/members/{id}": {
+      "get": {
+        "operationId": "getMember",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDetailResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
           },
           "500": {
             "content": {

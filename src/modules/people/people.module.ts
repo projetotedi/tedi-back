@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Clock } from "@shared/dates/clock";
+import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { DepartmentsController } from "./controllers/departments.controller";
 import { MembersController } from "./controllers/members.controller";
 import { MemberRegistrationsController } from "./controllers/member-registrations.controller";
@@ -17,7 +18,11 @@ import { PeopleService } from "./services/people.service";
 import { StudentsService } from "./services/students.service";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Person, StudentProfile, MemberProfile, Department])],
+  imports: [
+    TypeOrmModule.forFeature([Person, StudentProfile, MemberProfile, Department]),
+    // PermissionPolicy: MembersService.getMember checks the department scope of the member record.
+    PermissionsModule,
+  ],
   controllers: [
     // MyProfileController (GET /members/me) goes FIRST: it has to be registered before any
     // controller with a `members/:id` route (GUS-144), or that route would catch "me" as an id.

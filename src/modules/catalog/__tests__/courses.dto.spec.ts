@@ -3,6 +3,7 @@ import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { flattenValidationErrors } from "@shared/filters/http-exception.filter";
 import { CreateCourseDto } from "../dto/create-course.dto";
+import { DuplicateCourseDto } from "../dto/duplicate-course.dto";
 import { UpdateCourseDto } from "../dto/update-course.dto";
 import { CourseCategory } from "../enums/course-category.enum";
 
@@ -40,6 +41,12 @@ async function checkCreate(body: Record<string, unknown>) {
 
 async function checkUpdate(body: Record<string, unknown>) {
   const dto = plainToInstance(UpdateCourseDto, body);
+  const errors = await validate(dto, { whitelist: true });
+  return { dto, errors, fields: fieldsOf(errors) };
+}
+
+async function checkDuplicate(body: Record<string, unknown>) {
+  const dto = plainToInstance(DuplicateCourseDto, body);
   const errors = await validate(dto, { whitelist: true });
   return { dto, errors, fields: fieldsOf(errors) };
 }
@@ -341,5 +348,60 @@ describe("UpdateCourseDto", () => {
         "prerequisiteIds must be an array",
       ].sort(),
     );
+  });
+});
+
+describe("DuplicateCourseDto", () => {
+  it("accepts the name 'Redes Sociais com Segurança (2026.2)'", async () => {
+    const { dto, errors } = await checkDuplicate({ name: "Redes Sociais com Segurança (2026.2)" });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.name).toBe("Redes Sociais com Segurança (2026.2)");
+  });
+
+  it("trims the name", async () => {
+    const { dto, errors } = await checkDuplicate({ name: "  Informática Básica (2026.2)  " });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.name).toBe("Informática Básica (2026.2)");
+  });
+
+  it("rejects a missing, blank, non-string or longer than 200 name with field name", async () => {
+    expect((await checkDuplicate({})).fields).toEqual(["name"]);
+    expect((await checkDuplicate({ name: "" })).fields).toEqual(["name"]);
+    expect((await checkDuplicate({ name: "   " })).fields).toEqual(["name"]);
+    expect((await checkDuplicate({ name: null })).fields).toEqual(["name"]);
+    expect((await checkDuplicate({ name: 12 })).fields).toEqual(["name"]);
+    expect((await checkDuplicate({ name: ["Informática Básica"] })).fields).toEqual(["name"]);
+    expect((await checkDuplicate({ name: "a".repeat(201) })).fields).toEqual(["name"]);
+  });
+
+  it("accepts exactly 200 characters", async () => {
+    const { dto, errors } = await checkDuplicate({ name: "a".repeat(200) });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.name).toHaveLength(200);
+  });
+
+  it("measures the 200 characters after trimming", async () => {
+    const { dto, errors } = await checkDuplicate({ name: ` ${"a".repeat(200)} ` });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.name).toBe("a".repeat(200));
+  });
+
+  it("keeps only the name: everything else of the body is dropped", async () => {
+    const { dto, errors } = await checkDuplicate({
+      name: "Informática Básica (2026.2)",
+      description: "Outra descrição.",
+      objective: "Outro objetivo.",
+      category: "advanced",
+      prerequisiteIds: [BASIC_ID],
+      createdById: INTERMEDIATE_ID,
+      archivedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(Object.keys(dto)).toEqual(["name"]);
   });
 });

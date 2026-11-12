@@ -3,12 +3,15 @@ import { HttpException, Logger } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { DataSource, EntityManager, QueryFailedError } from "typeorm";
 import { Clock } from "@shared/dates/clock";
+import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Role } from "@shared/enums/role.enum";
 import {
   AUDITABLE_ACTION_EVENT,
   AuditableAction,
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
+import { Permission } from "@shared/permissions/permission.enum";
+import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
@@ -17,6 +20,7 @@ import { DepartmentsService } from "../services/departments.service";
 import {
   MembersService,
   SubmitMemberRegistrationInput,
+  memberNotFound,
   memberRegistrationNotFound,
 } from "../services/members.service";
 
@@ -31,7 +35,40 @@ const NEW_PERSON_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
 const NEW_PROFILE_ID = "01999a3e-7c1b-7000-8000-0000000000c2";
 const OTHER_PERSON_ID = "01999a3e-7c1b-7000-8000-0000000000d1";
 const DEPARTMENT_ID = "01999a3e-1111-7000-8000-000000000001";
+const OTHER_DEPARTMENT_ID = "01999a3e-1111-7000-8000-000000000002";
 const INVITE_ID = "01999a3e-2222-7000-8000-000000000001";
+
+// Who reads the member record (GUS-144): the department scope comes from AuthUser.departmentIds,
+// filled by the AuthGuard from the approved profile of the actor.
+const COORDINATOR: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000c0",
+  role: Role.COORDINATOR,
+  accessEnabled: true,
+  departmentIds: [],
+};
+const SUPERADMIN: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000c1",
+  role: Role.SUPERADMIN,
+  accessEnabled: true,
+  departmentIds: [],
+};
+const DIRECTOR: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000d0",
+  role: Role.DIRECTOR,
+  accessEnabled: true,
+  departmentIds: [DEPARTMENT_ID],
+};
+const DIRECTOR_OF_OTHER_DEPARTMENT: AuthUser = {
+  ...DIRECTOR,
+  departmentIds: [OTHER_DEPARTMENT_ID],
+};
+const DIRECTOR_WITHOUT_DEPARTMENT: AuthUser = { ...DIRECTOR, departmentIds: [] };
+const MEMBER: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000e0",
+  role: Role.MEMBER,
+  accessEnabled: true,
+  departmentIds: [DEPARTMENT_ID],
+};
 
 // Personal data that must never reach a log or an audit event.
 const SENSITIVE_VALUES = [
@@ -147,12 +184,14 @@ async function httpFailure(promise: Promise<unknown>): Promise<HttpException> {
 
 describe("MembersService", () => {
   let service: MembersService;
+  let policy: PermissionPolicy;
   let state: {
     personByRa: Person | null;
     personByEmail: Person | null;
     personById: Person | null;
     profile: MemberProfile | null;
     department: Department | null;
+    reviewer: Person | null;
   };
 
   const manager = { create: jest.fn(), save: jest.fn(), findOne: jest.fn() };
@@ -181,6 +220,20 @@ describe("MembersService", () => {
       .filter((value): value is T => value instanceof entity);
   }
 
+  /**
+   * getMember reads through the repositories of the DataSource, not through the transaction
+   * manager: answer them from `state` (the target, her profile, the department, the reviewer).
+   */
+  function answerMemberRecordFromState(): void {
+    personRepository.findOne.mockImplementation(async (options: { where: { id: string } }) => {
+      if (options.where.id === PERSON_ID) return state.personById;
+      if (options.where.id === ACTOR_ID) return state.reviewer;
+      return null;
+    });
+    profileRepository.findOne.mockImplementation(async () => state.profile);
+    departmentRepository.findOne.mockImplementation(async () => state.department);
+  }
+
   beforeEach(() => {
     jest.resetAllMocks();
     state = {
@@ -189,6 +242,7 @@ describe("MembersService", () => {
       personById: null,
       profile: null,
       department: buildDepartment(),
+      reviewer: null,
     };
 
     manager.findOne.mockImplementation(
@@ -228,11 +282,15 @@ describe("MembersService", () => {
     clock.now.mockReturnValue(NOW);
     departments.exists.mockResolvedValue(true);
 
+    // The real policy (pure): the scope rules are part of what getMember has to get right. A new
+    // instance per test, so a spy on it never leaks into the next one.
+    policy = new PermissionPolicy();
     service = new MembersService(
       dataSource as unknown as DataSource,
       eventEmitter as unknown as EventEmitter2,
       clock as unknown as Clock,
       departments as unknown as DepartmentsService,
+      policy,
     );
   });
 
@@ -541,6 +599,285 @@ describe("MembersService", () => {
           departmentIds: [],
         });
       }
+    });
+  });
+
+  describe("getMember()", () => {
+    const FORBIDDEN_SCOPE_BODY = {
+      error: "FORBIDDEN_SCOPE",
+      message: "You do not have access to this resource.",
+    };
+    const NOT_FOUND_BODY = { error: "MEMBER_NOT_FOUND", message: "Member not found." };
+
+    beforeEach(() => {
+      // An approved member of DEPARTMENT_ID, approved by Carla (ACTOR_ID).
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+      state.profile = buildProfile({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        mainFunction: "Monitora de informática",
+        joinedAt: "2026-10-01",
+        reviewedAt: NOW,
+        reviewedById: ACTOR_ID,
+      });
+      state.reviewer = buildPerson({
+        id: ACTOR_ID,
+        name: "Carla Menezes",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+      });
+      answerMemberRecordFromState();
+    });
+
+    it("returns the detail to a coordinator for a member of any department", async () => {
+      // The coordinator has no department of her own: coordination reads every department.
+      const detail = await service.getMember(PERSON_ID, COORDINATOR);
+
+      expect(detail).toMatchObject({
+        id: PERSON_ID,
+        name: "Ana Torres",
+        ra: "a2210001",
+        role: Role.MEMBER,
+        accessEnabled: true,
+        cpfMasked: "***.***.247-25",
+        department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+        mainFunction: "Monitora de informática",
+        joinedAt: "2026-10-01",
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        reviewedAt: NOW,
+        reviewedBy: { id: ACTOR_ID, name: "Carla Menezes" },
+      });
+      // The full CPF has no key and no digit in the answer.
+      expect(detail).not.toHaveProperty("cpf");
+      expect(JSON.stringify(detail)).not.toContain("52998224725");
+      // The target, her profile, the department of the profile and the reviewer.
+      expect(personRepository.findOne).toHaveBeenCalledWith({ where: { id: PERSON_ID } });
+      expect(profileRepository.findOne).toHaveBeenCalledWith({ where: { personId: PERSON_ID } });
+      expect(departmentRepository.findOne).toHaveBeenCalledWith({ where: { id: DEPARTMENT_ID } });
+      expect(personRepository.findOne).toHaveBeenCalledWith({ where: { id: ACTOR_ID } });
+    });
+
+    it("returns the detail to a superadmin", async () => {
+      await expect(service.getMember(PERSON_ID, SUPERADMIN)).resolves.toMatchObject({
+        id: PERSON_ID,
+        name: "Ana Torres",
+      });
+    });
+
+    it("returns the detail to a director of the same department", async () => {
+      const assertCan = jest.spyOn(policy, "assertCan");
+
+      const detail = await service.getMember(PERSON_ID, DIRECTOR);
+
+      expect(detail).toMatchObject({
+        id: PERSON_ID,
+        department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+      });
+      // The scope of the target is the department of her APPROVED profile.
+      expect(assertCan).toHaveBeenCalledWith(DIRECTOR, Permission.MEMBERS_VIEW, {
+        personId: PERSON_ID,
+        departmentIds: [DEPARTMENT_ID],
+      });
+    });
+
+    it("throws FORBIDDEN_SCOPE to a director of another department", async () => {
+      const failure = await httpFailure(service.getMember(PERSON_ID, DIRECTOR_OF_OTHER_DEPARTMENT));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+      // Nothing else is read for somebody who may not see the record.
+      expect(departmentRepository.findOne).not.toHaveBeenCalled();
+      expect(personRepository.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws FORBIDDEN_SCOPE to a director for a pending registration suggesting the director's department", async () => {
+      const assertCan = jest.spyOn(policy, "assertCan");
+      state.personById = buildPerson({ role: null, accessEnabled: false });
+      state.profile = buildProfile({
+        registrationStatus: MemberRegistrationStatus.PENDING,
+        departmentId: DEPARTMENT_ID,
+      });
+
+      const failure = await httpFailure(service.getMember(PERSON_ID, DIRECTOR));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+      // The suggested department never gives scope: the target has none.
+      expect(assertCan).toHaveBeenCalledWith(DIRECTOR, Permission.MEMBERS_VIEW, {
+        personId: PERSON_ID,
+        departmentIds: [],
+      });
+    });
+
+    it("throws FORBIDDEN_SCOPE to a director for a rejected registration of the director's department", async () => {
+      state.personById = buildPerson({ role: null, accessEnabled: false });
+      state.profile = buildProfile({
+        registrationStatus: MemberRegistrationStatus.REJECTED,
+        departmentId: DEPARTMENT_ID,
+      });
+
+      const failure = await httpFailure(service.getMember(PERSON_ID, DIRECTOR));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+    });
+
+    it("throws FORBIDDEN_SCOPE to a director for a coordinator without member profile", async () => {
+      state.personById = buildPerson({ role: Role.COORDINATOR, accessEnabled: true });
+      state.profile = null;
+
+      const failure = await httpFailure(service.getMember(PERSON_ID, DIRECTOR));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+    });
+
+    it("throws FORBIDDEN_SCOPE to a director without department, even for the own record", async () => {
+      const other = await httpFailure(service.getMember(PERSON_ID, DIRECTOR_WITHOUT_DEPARTMENT));
+      expect(other.getStatus()).toBe(403);
+      expect(other.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+
+      // The own data of a director lives in GET /members/me, not here.
+      const own = await httpFailure(
+        service.getMember(PERSON_ID, { ...DIRECTOR_WITHOUT_DEPARTMENT, id: PERSON_ID }),
+      );
+      expect(own.getStatus()).toBe(403);
+      expect(own.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+    });
+
+    it("throws FORBIDDEN_SCOPE to a member (the guard answers first; this is the second line)", async () => {
+      const failure = await httpFailure(service.getMember(PERSON_ID, MEMBER));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+    });
+
+    it("returns member fields null for a person with role and no profile", async () => {
+      // The seeded admin: an access role, no member profile (so no department nor reviewer).
+      state.personById = buildPerson({
+        role: Role.SUPERADMIN,
+        accessEnabled: true,
+        birthDate: null,
+        phone: null,
+      });
+      state.profile = null;
+
+      const detail = await service.getMember(PERSON_ID, COORDINATOR);
+
+      expect(detail).toMatchObject({
+        id: PERSON_ID,
+        role: Role.SUPERADMIN,
+        accessEnabled: true,
+        birthDate: null,
+        phone: null,
+        registrationStatus: null,
+        cpfMasked: null,
+        address: null,
+        city: null,
+        state: null,
+        institutionalEmail: null,
+        course: null,
+        semester: null,
+        className: null,
+        department: null,
+        mainFunction: null,
+        joinedAt: null,
+        volunteerTermUrl: null,
+        reviewedAt: null,
+        reviewedBy: null,
+      });
+      expect(departmentRepository.findOne).not.toHaveBeenCalled();
+      // Only the target: there is no reviewer to look for.
+      expect(personRepository.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it("loads the department of a pending registration for coordination, only the scope ignores it", async () => {
+      state.personById = buildPerson({ role: null, accessEnabled: false });
+      state.profile = buildProfile({
+        registrationStatus: MemberRegistrationStatus.PENDING,
+        reviewedAt: null,
+        reviewedById: null,
+      });
+
+      const detail = await service.getMember(PERSON_ID, COORDINATOR);
+
+      expect(detail).toMatchObject({
+        role: null,
+        accessEnabled: false,
+        registrationStatus: MemberRegistrationStatus.PENDING,
+        department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+        reviewedAt: null,
+        reviewedBy: null,
+      });
+      expect(departmentRepository.findOne).toHaveBeenCalledWith({ where: { id: DEPARTMENT_ID } });
+    });
+
+    it("does not look for a department nor a reviewer that the profile does not have", async () => {
+      state.profile = buildProfile({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        departmentId: null,
+        reviewedAt: null,
+        reviewedById: null,
+      });
+
+      const detail = await service.getMember(PERSON_ID, COORDINATOR);
+
+      // Approved before the validation existed (backfill): no reviewer, and no department here.
+      expect(detail).toMatchObject({ department: null, reviewedAt: null, reviewedBy: null });
+      expect(departmentRepository.findOne).not.toHaveBeenCalled();
+      expect(personRepository.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for an unknown id", async () => {
+      state.personById = null;
+
+      const failure = await httpFailure(service.getMember(PERSON_ID, COORDINATOR));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual(NOT_FOUND_BODY);
+      expect(profileRepository.findOne).not.toHaveBeenCalled();
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for a person without role nor profile", async () => {
+      state.personById = buildPerson({ role: null, accessEnabled: false });
+      state.profile = null;
+
+      const failure = await httpFailure(service.getMember(PERSON_ID, COORDINATOR));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual(NOT_FOUND_BODY);
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for a malformed id without querying", async () => {
+      for (const id of ["not-a-uuid", "", "me", "123", `${PERSON_ID}-x`]) {
+        const failure = await httpFailure(service.getMember(id, COORDINATOR));
+
+        expect(failure.getStatus()).toBe(404);
+        expect(failure.getResponse()).toEqual(NOT_FOUND_BODY);
+      }
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it("checks 404 before scope: a director asking for an unknown id gets 404, not 403", async () => {
+      const assertCan = jest.spyOn(policy, "assertCan");
+      state.personById = null;
+
+      const failure = await httpFailure(service.getMember(PERSON_ID, DIRECTOR_OF_OTHER_DEPARTMENT));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual(NOT_FOUND_BODY);
+      expect(assertCan).not.toHaveBeenCalled();
+    });
+
+    it("returns reviewedBy null when the reviewer no longer exists", async () => {
+      // A deleted person is not returned by the repository.
+      state.reviewer = null;
+
+      const detail = await service.getMember(PERSON_ID, COORDINATOR);
+
+      expect(detail.reviewedBy).toBeNull();
+      // The rest of the review is still there.
+      expect(detail.reviewedAt).toEqual(NOW);
+      expect(detail.registrationStatus).toBe(MemberRegistrationStatus.APPROVED);
     });
   });
 
@@ -877,6 +1214,28 @@ describe("MembersService", () => {
           .submitFromInvite(manager as unknown as EntityManager, INPUT)
           .catch((error: unknown) => expectNoSensitiveValue(JSON.stringify(error)));
 
+        // The member record (GUS-144): the answer carries personal data on purpose, the logs and
+        // the errors (403 and 404) must not.
+        state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+        state.profile = buildProfile({
+          registrationStatus: MemberRegistrationStatus.APPROVED,
+          reviewedById: ACTOR_ID,
+        });
+        state.reviewer = buildPerson({
+          id: ACTOR_ID,
+          name: "Carla Menezes",
+          role: Role.COORDINATOR,
+        });
+        answerMemberRecordFromState();
+        await service.getMember(PERSON_ID, COORDINATOR);
+        // httpFailure fails the test if the call stops rejecting, so the check below always runs.
+        const forbidden = await httpFailure(
+          service.getMember(PERSON_ID, DIRECTOR_OF_OTHER_DEPARTMENT),
+        );
+        expectNoSensitiveValue(JSON.stringify(forbidden));
+        const notFound = await httpFailure(service.getMember("not-a-uuid", COORDINATOR));
+        expectNoSensitiveValue(JSON.stringify(notFound));
+
         for (const spy of spies) {
           expectNoSensitiveValue(JSON.stringify(spy.mock.calls));
         }
@@ -894,6 +1253,18 @@ describe("MembersService", () => {
       expect(error.getResponse()).toEqual({
         error: "MEMBER_REGISTRATION_NOT_FOUND",
         message: "Member registration not found.",
+      });
+    });
+  });
+
+  describe("memberNotFound()", () => {
+    it("builds the 404 shared by the service and the id pipe of the controller", () => {
+      const error = memberNotFound();
+
+      expect(error.getStatus()).toBe(404);
+      expect(error.getResponse()).toEqual({
+        error: "MEMBER_NOT_FOUND",
+        message: "Member not found.",
       });
     });
   });
