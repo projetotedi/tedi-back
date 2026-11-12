@@ -516,7 +516,7 @@ describe("ClassesService", () => {
         // The manager of the transaction and the lock: the course cannot be archived until this
         // class commits (RF-020).
         expect(courses.getCourseSummary).toHaveBeenCalledWith(COURSE_ID, manager, {
-          lockForShare: true,
+          forShare: true,
         });
         expect(order.slice(0, 3)).toEqual(["load-course", "find-or-create-edition", "check-code"]);
       });
@@ -1042,7 +1042,7 @@ describe("ClassesService", () => {
         // The new course is read FOR SHARE inside the transaction, once; the old one is not read.
         expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
         expect(courses.getCourseSummary).toHaveBeenCalledWith(OTHER_COURSE_ID, manager, {
-          lockForShare: true,
+          forShare: true,
         });
         expect(manager.save).toHaveBeenCalledTimes(1);
         expect(manager.save).toHaveBeenCalledWith(
@@ -1256,7 +1256,7 @@ describe("ClassesService", () => {
         expect(result.course.status).toBe(CourseStatus.ACTIVE);
         expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
         expect(courses.getCourseSummary).toHaveBeenCalledWith(OTHER_COURSE_ID, manager, {
-          lockForShare: true,
+          forShare: true,
         });
       });
 

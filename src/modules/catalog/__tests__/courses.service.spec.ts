@@ -1560,7 +1560,7 @@ describe("CoursesService", () => {
       const summary = await service.getCourseSummary(
         BASIC_ID,
         manager as unknown as Parameters<CoursesService["getCourseSummary"]>[1],
-        { lockForShare: true },
+        { forShare: true },
       );
 
       expect(summary?.id).toBe(BASIC_ID);
@@ -1575,7 +1575,7 @@ describe("CoursesService", () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
-    it("does not lock when the options leave lockForShare out or false, manager or not", async () => {
+    it("does not lock when the options leave forShare out or false, manager or not", async () => {
       const inTransaction = { findOne: jest.fn().mockResolvedValue(buildBasic()) };
       manager.getRepository.mockReturnValue(inTransaction);
       const transactionManager = manager as unknown as Parameters<
@@ -1583,7 +1583,7 @@ describe("CoursesService", () => {
       >[1];
 
       await service.getCourseSummary(BASIC_ID, transactionManager, {});
-      await service.getCourseSummary(BASIC_ID, transactionManager, { lockForShare: false });
+      await service.getCourseSummary(BASIC_ID, transactionManager, { forShare: false });
 
       for (const [options] of inTransaction.findOne.mock.calls) {
         expect(options).toEqual({ where: { id: BASIC_ID } });
@@ -1600,26 +1600,26 @@ describe("CoursesService", () => {
       >[1];
 
       await expect(
-        service.getCourseSummary(UNKNOWN_ID, transactionManager, { lockForShare: true }),
+        service.getCourseSummary(UNKNOWN_ID, transactionManager, { forShare: true }),
       ).resolves.toBeNull();
 
       // A malformed id still never reaches the database, locked or not.
       inTransaction.findOne.mockClear();
       await expect(
-        service.getCourseSummary("not-a-uuid", transactionManager, { lockForShare: true }),
+        service.getCourseSummary("not-a-uuid", transactionManager, { forShare: true }),
       ).resolves.toBeNull();
       expect(inTransaction.findOne).not.toHaveBeenCalled();
     });
 
-    it("throws when lockForShare is asked without a manager", async () => {
+    it("throws when forShare is asked without a manager", async () => {
       await expect(
-        service.getCourseSummary(BASIC_ID, undefined, { lockForShare: true }),
-      ).rejects.toThrow("lockForShare needs the manager of a transaction");
+        service.getCourseSummary(BASIC_ID, undefined, { forShare: true }),
+      ).rejects.toThrow("forShare needs the manager of a transaction");
 
       // It is a bug of the caller, so it fails whatever the id is, and nothing is read.
       await expect(
-        service.getCourseSummary("not-a-uuid", undefined, { lockForShare: true }),
-      ).rejects.toThrow("lockForShare needs the manager of a transaction");
+        service.getCourseSummary("not-a-uuid", undefined, { forShare: true }),
+      ).rejects.toThrow("forShare needs the manager of a transaction");
       expect(courseRepository.findOne).not.toHaveBeenCalled();
       expect(dataSource.getRepository).not.toHaveBeenCalled();
     });

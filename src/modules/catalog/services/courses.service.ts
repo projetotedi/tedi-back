@@ -105,7 +105,7 @@ export interface CourseSummary {
 /** Options of `CoursesService.getCourseSummary`. */
 export interface GetCourseSummaryOptions {
   /** Reads the row `FOR SHARE` until the end of the transaction. Needs the `manager` of one. */
-  lockForShare?: boolean;
+  forShare?: boolean;
 }
 
 /**
@@ -325,7 +325,7 @@ export class CoursesService {
    * An archived course is returned, with status archived. Pass the `manager` of a transaction to
    * read inside it. No transaction and no event of its own, and no lock unless asked.
    *
-   * `lockForShare` reads the row `FOR SHARE` until the end of the transaction of the `manager`
+   * `forShare` reads the row `FOR SHARE` until the end of the transaction of the `manager`
    * (so it needs one: without it this throws, as a bug of the caller). It is for whoever is about
    * to write something that depends on the course staying active, as a class being created in it
    * (RF-020). `FOR SHARE` conflicts with the `FOR UPDATE` that an edit of the course takes
@@ -339,15 +339,15 @@ export class CoursesService {
     manager?: EntityManager,
     options: GetCourseSummaryOptions = {},
   ): Promise<CourseSummary | null> {
-    if (options.lockForShare === true && manager === undefined) {
-      throw new Error("lockForShare needs the manager of a transaction");
+    if (options.forShare === true && manager === undefined) {
+      throw new Error("forShare needs the manager of a transaction");
     }
     // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
     if (!isUUID(id)) return null;
 
     const course = await (manager ?? this.dataSource).getRepository(Course).findOne({
       where: { id },
-      ...(options.lockForShare === true ? { lock: { mode: "pessimistic_read" as const } } : {}),
+      ...(options.forShare === true ? { lock: { mode: "pessimistic_read" as const } } : {}),
     });
     if (course === null) return null;
 

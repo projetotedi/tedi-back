@@ -506,7 +506,7 @@ export class ClassesService {
    * the lock a class could be created in a course that is archived at that very instant.
    */
   private async loadActiveCourse(manager: EntityManager, courseId: string): Promise<CourseSummary> {
-    const course = await this.courses.getCourseSummary(courseId, manager, { lockForShare: true });
+    const course = await this.courses.getCourseSummary(courseId, manager, { forShare: true });
     if (course === null) throw courseNotFoundInBody();
     if (course.status === CourseStatus.ARCHIVED) throw courseArchived();
 
