@@ -24,6 +24,7 @@ import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { ClassesModule } from "../classes.module";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
+import { insertClass } from "./fixtures/classes.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
 const dbConnection = dbUrl
@@ -1536,6 +1537,42 @@ describe("ClassesController (e2e)", () => {
         director.id,
         coordinator.id,
       ]);
+    });
+  });
+
+  describe("POST /courses/:id/duplicate (GUS-117)", () => {
+    async function countClassesOf(course: string): Promise<number> {
+      const rows: Array<{ total: string }> = await dataSource.query(
+        `SELECT count(*) AS total FROM classes WHERE course_id = $1`,
+        [course],
+      );
+      return Number(rows[0].total);
+    }
+
+    it("does not copy the classes of the source course", async () => {
+      // The source has 2 classes, one active (through the API) and one archived (inserted).
+      const active = await createClass();
+      await insertClass(dataSource, {
+        courseId,
+        editionId: active.edition.id,
+        createdById: director.id,
+        code: "INFO-B",
+        archivedById: director.id,
+      });
+      expect(await countClassesOf(courseId)).toBe(2);
+
+      const res = await request(app.getHttpServer())
+        .post(`/courses/${courseId}/duplicate`)
+        .set("Cookie", director.cookie)
+        .send({ name: "Informática Básica (2026.2)" })
+        .expect(201);
+
+      // The copy is born without classes, and the source keeps its 2.
+      expect(res.body.id).not.toBe(courseId);
+      expect(await countClassesOf(res.body.id)).toBe(0);
+      expect(await countClassesOf(courseId)).toBe(2);
+      expect(await countRows("classes")).toBe(2);
+      expect(await countRows("editions")).toBe(1);
     });
   });
 });

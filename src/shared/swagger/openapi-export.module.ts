@@ -147,6 +147,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       useValue: {
         create: async () => ({}),
         update: async () => ({}),
+        duplicate: async () => ({}),
         getCourseSummary: async () => null,
       },
     },
