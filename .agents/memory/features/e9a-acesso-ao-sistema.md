@@ -122,7 +122,8 @@ Hierarquia no guard: `@Roles(Perfil.DIRETOR)` admite diretor e coordenadora. `su
 - **RNF-23 relaxado** (decisão 20): sessão de 7 dias. Registrar no plano de produto como desvio aceito no MVP.
 - **Cookie cross-site**: mitigado pelo proxy (decisão 25). Se alguém acessar a API direto pelo domínio do Render num navegador, o cookie não funciona; Swagger continua funcionando com o botão Authorize? Não: com cookie httpOnly o Swagger precisa de `withCredentials` no mesmo domínio. Aceito: Swagger é para leitura do contrato.
 - **Render free hiberna**: tela de login mostra "conectando ao servidor" após 3 s de espera.
-- Q1.1 (aluno com login), Q1.4, Q1.5 e Q9.4 seguem abertas de propósito; não bloqueiam esta feature.
+- Q1.1 (aluno com login), Q1.4 e Q1.5 seguem abertas de propósito; não bloqueiam esta feature.
+- Q9.4 respondida em 11/11/2026 (GUS-144): a diretoria pode ver telefone e endereço do membro na ficha (`GET /members/:id`), dentro do escopo do próprio departamento. O CPF continua mascarado fora de `GET /member-registrations/:id`.
 
 ## Issues no Linear
 

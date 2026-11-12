@@ -1,0 +1,32 @@
+meta {
+  name: get-member
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/members/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01999a3e-7c1b-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Ficha do membro (GUS-144): dados pessoais, perfil de membro, departamento e quem aprovou o cadastro. O :id é o id da Person.
+  Requer cookie tedi_session e a permissão members.view (@RequirePermission): coordenação e superadmin leem qualquer membro; diretoria só o do próprio departamento (escopo department). Membro recebe 403 FORBIDDEN; diretor fora do departamento recebe 403 FORBIDDEN_SCOPE.
+  O escopo do diretor usa o departamento do perfil APROVADO do alvo: o departamento sugerido de um cadastro pending ou rejected nunca dá escopo, e diretor sem departamento recebe 403 até na própria ficha (o próprio cadastro está em get-my-profile).
+  Traz os dados da pessoa (id, name, ra, email, phone, birthDate, role, accessEnabled), os do perfil de membro (cpfMasked, address, city, state, institutionalEmail, course, semester, className, mainFunction, joinedAt, volunteerTermUrl, registrationStatus), department { id, name } e o registro da validação (reviewedAt, reviewedBy { id, name }). Toda chave vem sempre na resposta, com null no lugar de ausente.
+  Responde para toda linha de list-members: cadastros pending e rejected (role null) e quem não tem perfil de membro, como a coordenadora do seed, voltam com os campos de membro e registrationStatus em null. Pending e rejected mostram o departamento sugerido no cadastro.
+  reviewedBy é quem aprovou ou recusou o cadastro; null enquanto pending, em cadastro aprovado antes da validação existir (backfill) ou se essa pessoa foi apagada.
+  CPF: só cpfMasked (***.***.247-25), nunca o CPF completo (RNF-14). O CPF completo é da coordenação, em get-member-registration. A ficha não traz alocações, presença nem banco de horas.
+  Dado pessoal (RNF-13): não cole a resposta em issue, chat ou log.
+  Retorna 200 MemberDetailResponseDto.
+  Erros possíveis: 401 UNAUTHORIZED, 403 FORBIDDEN (membro) ou FORBIDDEN_SCOPE (diretor fora do departamento), 404 MEMBER_NOT_FOUND (id desconhecido, mal formado, de pessoa apagada ou sem role e sem perfil de membro). O 404 vem antes do 403.
+}
