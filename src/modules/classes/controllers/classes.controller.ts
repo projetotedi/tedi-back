@@ -50,15 +50,6 @@ export class ClassesController {
     private readonly classDetailService: ClassDetailService,
   ) {}
 
-  @Get(":id")
-  @RequirePermission(Permission.CLASSES_VIEW)
-  @ApiParam(CLASS_ID_PARAM)
-  @ApiOkResponse({ type: ClassDetailDto })
-  @ApiNotFoundResponse(CLASS_NOT_FOUND_RESPONSE)
-  getClass(@Param("id", CLASS_ID) id: string): Promise<ClassDetailDto> {
-    return this.classDetailService.findDetail(id);
-  }
-
   @Post()
   @RequirePermission(Permission.CLASSES_MANAGE)
   @ApiCreatedResponse({ type: ClassResponseDto })
@@ -125,5 +116,17 @@ export class ClassesController {
     @CurrentUser() actor: AuthUser,
   ): Promise<ClassResponseDto> {
     return this.classesService.unarchive(id, actor.id);
+  }
+
+  // Declared after the mutations on purpose. The shared ClassStatus schema of the contract takes its
+  // description from the first property that uses it, and `CreateClassDto.status` has to stay that
+  // one (see there): a handler declared above `createClass` would hand the name to ClassDetailDto.
+  @Get(":id")
+  @RequirePermission(Permission.CLASSES_VIEW)
+  @ApiParam(CLASS_ID_PARAM)
+  @ApiOkResponse({ type: ClassDetailDto })
+  @ApiNotFoundResponse(CLASS_NOT_FOUND_RESPONSE)
+  getClass(@Param("id", CLASS_ID) id: string): Promise<ClassDetailDto> {
+    return this.classDetailService.findDetail(id);
   }
 }
