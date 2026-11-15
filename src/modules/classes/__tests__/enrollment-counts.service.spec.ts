@@ -35,9 +35,19 @@ describe("EnrollmentCountsService", () => {
     expect(counts.size).toBe(0);
   });
 
+  it("listActivePreview answers [] until GUS-108, whatever the limit", async () => {
+    await expect(
+      service.listActivePreview(manager as unknown as EntityManager, CLASS_ID, 5),
+    ).resolves.toEqual([]);
+    await expect(
+      service.listActivePreview(manager as unknown as EntityManager, OTHER_CLASS_ID, 1),
+    ).resolves.toEqual([]);
+  });
+
   it("does not touch the database while there is no enrollment table", async () => {
     await service.countActive(manager as unknown as EntityManager, CLASS_ID);
     await service.countActiveByClass(manager as unknown as EntityManager, [CLASS_ID]);
+    await service.listActivePreview(manager as unknown as EntityManager, CLASS_ID, 5);
 
     expect(manager.query).not.toHaveBeenCalled();
     expect(manager.getRepository).not.toHaveBeenCalled();
