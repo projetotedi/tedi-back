@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
 import {
   ApiBadRequestResponse,
   ApiBody,
@@ -16,9 +16,11 @@ import { ArchiveDto } from "@shared/dto/archive.dto";
 import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
+import { ClassDetailDto } from "../dto/class-detail.response.dto";
 import { ClassResponseDto } from "../dto/class.response.dto";
 import { CreateClassDto } from "../dto/create-class.dto";
 import { UpdateClassDto } from "../dto/update-class.dto";
+import { ClassDetailService } from "../services/class-detail.service";
 import { ClassesService, classNotFound } from "../services/classes.service";
 
 const CLASS_ID = new ParseUUIDPipe({ exceptionFactory: () => classNotFound() });
@@ -28,17 +30,34 @@ const CLASS_ID_PARAM = { name: "id", format: "uuid", description: "Id of the cla
 const CLASS_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "CLASS_NOT_FOUND" };
 
 /**
- * Classes (turmas): create, edit, archive and unarchive. Every route needs classes.manage
- * (director, coordinator and superadmin); a member answers 403. There is no DELETE (RN-27), and the
- * listing and the detail are other cards (GUS-103 and GUS-104). Every answer carries the course of
- * the class, with the category it has now (RN-14). The edit takes a `courseId` too, which moves the
- * class to another course only while it is planned and has no enrollments (RN-13).
+ * Classes (turmas): the sheet of a class, and create, edit, archive and unarchive. The four
+ * mutations need classes.manage (director, coordinator and superadmin); a member answers 403. The
+ * sheet, `GET /classes/:id`, needs classes.view, which every role has. There is no DELETE (RN-27),
+ * and the listing is another card (GUS-103). Every answer carries the course of the class, with the
+ * category it has now (RN-14). The edit takes a `courseId` too, which moves the class to another
+ * course only while it is planned and has no enrollments (RN-13).
+ *
+ * `ClassesModule` registers this controller after `CourseClassesController`, so the `:id` of the
+ * sheet never captures `GET /classes/summary-by-course`: any new literal route under `/classes/`
+ * goes there, or before `:id`.
  */
 @ApiTags("classes")
 @Controller("classes")
 @ApiStandardErrors()
 export class ClassesController {
-  constructor(private readonly classesService: ClassesService) {}
+  constructor(
+    private readonly classesService: ClassesService,
+    private readonly classDetailService: ClassDetailService,
+  ) {}
+
+  @Get(":id")
+  @RequirePermission(Permission.CLASSES_VIEW)
+  @ApiParam(CLASS_ID_PARAM)
+  @ApiOkResponse({ type: ClassDetailDto })
+  @ApiNotFoundResponse(CLASS_NOT_FOUND_RESPONSE)
+  getClass(@Param("id", CLASS_ID) id: string): Promise<ClassDetailDto> {
+    return this.classDetailService.findDetail(id);
+  }
 
   @Post()
   @RequirePermission(Permission.CLASSES_MANAGE)
