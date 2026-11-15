@@ -68,6 +68,15 @@ describe("ClassesController", () => {
       expect(service.update).toHaveBeenCalledWith(CLASS_ID, dto, ACTOR.id);
     });
 
+    it("hands the courseId of the edit to ClassesService.update untouched", async () => {
+      const dto = { courseId: COURSE_ID, capacity: 20 };
+
+      await controller.updateClass(CLASS_ID, dto, ACTOR);
+
+      expect(service.update).toHaveBeenCalledWith(CLASS_ID, dto, ACTOR.id);
+      expect(service.update.mock.calls[0][1]).toBe(dto);
+    });
+
     it("delegates archiveClass to ClassesService.archive with the id, the body and the actor id", async () => {
       const dto = { reason: "Turma encerrada." };
 

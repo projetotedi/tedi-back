@@ -24,8 +24,11 @@ import {
   EDITION_NAME_PATTERN,
 } from "./class-limits";
 
-/** The id of a course is compared and stored in lower case, so the answer repeats it that way. */
-const lowerCase = ({ value }: { value: unknown }): unknown =>
+/**
+ * The id of a course is compared and stored in lower case, so the answer repeats it that way.
+ * Shared with the edit (UpdateClassDto), which takes the same id.
+ */
+export const lowerCase = ({ value }: { value: unknown }): unknown =>
   typeof value === "string" ? value.toLowerCase() : value;
 
 export class CreateClassDto {
@@ -34,7 +37,7 @@ export class CreateClassDto {
     format: "uuid",
     example: "01999a3e-7c1b-7000-8000-000000000001",
     description:
-      "Id of the course this class offers. It cannot be changed after the class is created (RN-13).",
+      "Id of the course this class offers. Must be an active course: 400 COURSE_NOT_FOUND when it does not exist, 409 COURSE_ARCHIVED when it is archived (RF-020). It changes later only while the class is planned and has no enrollments.",
   })
   @Transform(lowerCase)
   @IsUUID("all")

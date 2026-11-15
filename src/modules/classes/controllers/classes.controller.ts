@@ -30,7 +30,9 @@ const CLASS_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "CLASS_NOT_FO
 /**
  * Classes (turmas): create, edit, archive and unarchive. Every route needs classes.manage
  * (director, coordinator and superadmin); a member answers 403. There is no DELETE (RN-27), and the
- * listing and the detail are other cards (GUS-103 and GUS-104).
+ * listing and the detail are other cards (GUS-103 and GUS-104). Every answer carries the course of
+ * the class, with the category it has now (RN-14). The edit takes a `courseId` too, which moves the
+ * class to another course only while it is planned and has no enrollments (RN-13).
  */
 @ApiTags("classes")
 @Controller("classes")
@@ -45,7 +47,7 @@ export class ClassesController {
     type: ApiErrorDto,
     description: "VALIDATION_FAILED | INVALID_PERIOD | COURSE_NOT_FOUND",
   })
-  @ApiConflictResponse({ type: ApiErrorDto, description: "CLASS_CODE_TAKEN" })
+  @ApiConflictResponse({ type: ApiErrorDto, description: "COURSE_ARCHIVED | CLASS_CODE_TAKEN" })
   createClass(
     @Body() dto: CreateClassDto,
     @CurrentUser() actor: AuthUser,
@@ -57,12 +59,15 @@ export class ClassesController {
   @RequirePermission(Permission.CLASSES_MANAGE)
   @ApiParam(CLASS_ID_PARAM)
   @ApiOkResponse({ type: ClassResponseDto })
-  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED | INVALID_PERIOD" })
+  @ApiBadRequestResponse({
+    type: ApiErrorDto,
+    description: "VALIDATION_FAILED | INVALID_PERIOD | COURSE_NOT_FOUND",
+  })
   @ApiNotFoundResponse(CLASS_NOT_FOUND_RESPONSE)
   @ApiConflictResponse({
     type: ApiErrorDto,
     description:
-      "CLASS_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)",
+      "CLASS_ARCHIVED | COURSE_CHANGE_NOT_ALLOWED | COURSE_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)",
   })
   updateClass(
     @Param("id", CLASS_ID) id: string,

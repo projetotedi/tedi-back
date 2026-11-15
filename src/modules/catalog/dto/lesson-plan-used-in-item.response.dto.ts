@@ -21,7 +21,8 @@ export class LessonPlanUsedInItemResponseDto {
     enum: CourseCategory,
     enumName: "CourseCategory",
     example: CourseCategory.INTERMEDIATE,
-    description: "Level of the content. A class takes the category of its course when created.",
+    description:
+      "Level of the content. A class has no category of its own: it shows the one of its course (RN-14).",
   })
   category!: CourseCategory;
 

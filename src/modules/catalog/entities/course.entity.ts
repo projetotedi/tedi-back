@@ -34,7 +34,7 @@ export class Course extends BaseEntity {
   @Column({ name: "objective", type: "text", nullable: true, default: null })
   objective: string | null;
 
-  /** Level of the content. A class takes it from here when created (RN-14). */
+  /** Level of the content. A class has no category of its own: it shows this one (RN-14). */
   @Column({
     name: "category",
     type: "enum",

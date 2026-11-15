@@ -393,6 +393,18 @@ describe("CreateClassDto", () => {
       expect(dto).not.toHaveProperty(field);
     }
   });
+
+  it("drops a category: the class shows the one of its course (RN-14)", async () => {
+    const { dto, errors } = await checkCreate({
+      ...VALID_BODY,
+      category: "advanced",
+      course: { category: "advanced" },
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto).not.toHaveProperty("category");
+    expect(dto).not.toHaveProperty("course");
+  });
 });
 
 describe("UpdateClassDto", () => {
@@ -473,15 +485,65 @@ describe("UpdateClassDto", () => {
     }
   });
 
-  it("drops courseId: the course of a class never changes", async () => {
-    const { dto, errors } = await checkUpdate({ courseId: COURSE_ID, capacity: 20 });
+  describe("courseId", () => {
+    it("keeps courseId on edit and lower-cases it", async () => {
+      const { dto, errors } = await checkUpdate({ courseId: COURSE_ID, capacity: 20 });
 
-    expect(errors).toHaveLength(0);
-    expect(dto).not.toHaveProperty("courseId");
-    expect(dto.capacity).toBe(20);
+      expect(errors).toHaveLength(0);
+      expect(dto.courseId).toBe(COURSE_ID);
+      expect(dto.capacity).toBe(20);
 
-    // Not even an invalid one is reported: the field does not exist for this body.
-    expect((await checkUpdate({ courseId: "not-a-uuid" })).errors).toHaveLength(0);
+      // The id of a course is compared and stored in lower case, so the answer repeats it that way.
+      const upper = await checkUpdate({ courseId: COURSE_ID.toUpperCase() });
+      expect(upper.errors).toHaveLength(0);
+      expect(upper.dto.courseId).toBe(COURSE_ID);
+
+      // It can be the only field of the edit.
+      expect((await checkUpdate({ courseId: COURSE_ID })).errors).toHaveLength(0);
+    });
+
+    it("rejects courseId null, empty or malformed with field courseId", async () => {
+      for (const courseId of [
+        null,
+        "",
+        " ",
+        "not-a-uuid",
+        `${COURSE_ID}x`,
+        12,
+        true,
+        [COURSE_ID],
+        { id: COURSE_ID },
+      ]) {
+        expect((await checkUpdate({ courseId })).fields).toEqual(["courseId"]);
+      }
+
+      // Alone or with the rest of the form: only the field that is wrong is reported.
+      expect((await checkUpdate({ courseId: null, capacity: 0 })).fields).toEqual([
+        "capacity",
+        "courseId",
+      ]);
+    });
+
+    it("omitting courseId keeps it absent", async () => {
+      const { dto, errors } = await checkUpdate({ capacity: 20 });
+
+      expect(errors).toHaveLength(0);
+      // The service reads undefined as "keep the course".
+      expect(dto.courseId).toBeUndefined();
+
+      // An explicit undefined (a client that serializes the key) is the same as omitting it.
+      const explicit = await checkUpdate({ courseId: undefined, capacity: 20 });
+      expect(explicit.errors).toHaveLength(0);
+      expect(explicit.dto.courseId).toBeUndefined();
+    });
+
+    it("drops a category sent next to it: the class has none of its own", async () => {
+      const { dto, errors } = await checkUpdate({ courseId: COURSE_ID, category: "advanced" });
+
+      expect(errors).toHaveLength(0);
+      expect(dto).not.toHaveProperty("category");
+      expect(dto.courseId).toBe(COURSE_ID);
+    });
   });
 
   it("drops the fields the client has no say in", async () => {
