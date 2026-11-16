@@ -632,3 +632,7 @@ export class LessonsService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+// The enum of the contract of `getLessonSummary`, re-exported so that `assignments` imports it from
+// the service LessonsModule exports and never from `lessons/enums/*` (module is a closed box).
+export { LessonStatus } from "../enums/lesson-status.enum";
