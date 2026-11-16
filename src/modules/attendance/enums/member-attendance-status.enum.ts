@@ -9,3 +9,10 @@ export enum MemberAttendanceStatus {
   PRESENT = "present",
   ABSENT = "absent",
 }
+
+/**
+ * The description of MemberAttendanceStatus, the same on every property that names it: swagger keeps
+ * the description of the first property that names an enum as the description of the enum itself.
+ */
+export const MEMBER_ATTENDANCE_STATUS_DESCRIPTION =
+  "present or absent. A presence generates the lesson hours of the member (an hour entry of origin attendance); an absence generates nothing.";

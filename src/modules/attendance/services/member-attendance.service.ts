@@ -62,6 +62,22 @@ type Change =
 
 type Correction = Extract<Change, { kind: "correction" }>;
 
+/**
+ * A change once its lesson hours are recorded: `hourEntryId` is the entry it generated, null when
+ * it records none (an absence, or nothing to change). It travels with the change, so the row of the
+ * attendance always gets the entry of its own person.
+ */
+type RecordedChange = Change & { hourEntryId: string | null };
+
+type RecordedCorrection = Extract<RecordedChange, { kind: "correction" }>;
+
+/** A batch that passed every check: the lesson, what each entry does, and the corrections. */
+interface CheckedBatch {
+  lesson: LessonSummary;
+  changes: Change[];
+  corrections: Correction[];
+}
+
 /** The key of the advisory lock that serializes every writer of the attendance of one lesson. */
 function attendanceLockKey(lessonId: string): string {
   return `attendance.members:${lessonId}`;
@@ -82,9 +98,25 @@ function repeatedPositions(ids: readonly string[]): string[] {
   });
 }
 
-/** The positions of the entries of the body that `matches` picks. */
-function positionsWhere<T>(items: readonly T[], matches: (item: T) => boolean): string[] {
-  return items.flatMap((item, index) => (matches(item) ? [fieldOf(index)] : []));
+/**
+ * The entries of the body resolved to the confirmed assignments of the lesson, in ONE pass: each
+ * one is either resolved or its position goes to `notConfirmed` (the 400 ASSIGNMENT_NOT_CONFIRMED).
+ */
+function resolveEntries(
+  requested: readonly RequestedEntry[],
+  staffById: ReadonlyMap<string, ConfirmedAssignment>,
+): { entries: ResolvedEntry[]; notConfirmed: string[] } {
+  const entries: ResolvedEntry[] = [];
+  const notConfirmed: string[] = [];
+  requested.forEach((entry, index) => {
+    const assignment = staffById.get(entry.assignmentId);
+    if (assignment === undefined) {
+      notConfirmed.push(fieldOf(index));
+    } else {
+      entries.push({ status: entry.status, assignment });
+    }
+  });
+  return { entries, notConfirmed };
 }
 
 function changeOf(entry: ResolvedEntry, row: MemberAttendance | undefined): Change {
@@ -113,6 +145,15 @@ function recordsHours(change: Change): boolean {
   }
 }
 
+/** The entries the corrections to absent reverse: the ones their presence generated. */
+function reversedEntryIdsOf(corrections: readonly Correction[]): string[] {
+  return corrections.flatMap((correction) =>
+    correction.entry.status === MemberAttendanceStatus.ABSENT && correction.row.hourEntryId !== null
+      ? [correction.row.hourEntryId]
+      : [],
+  );
+}
+
 function auditEventOf(
   action: AuditableAction,
   actorId: string,
@@ -130,6 +171,58 @@ function auditEventOf(
   event.after = after;
   event.occurredAt = occurredAt;
   return event;
+}
+
+/** MEMBER_ATTENDANCE_CONFIRMED of a first signature, as it was inserted. */
+function confirmedAuditOf(
+  row: MemberAttendance,
+  lessonId: string,
+  actorId: string,
+  now: Date,
+): AuditableActionEvent {
+  return auditEventOf(
+    AuditableAction.MEMBER_ATTENDANCE_CONFIRMED,
+    actorId,
+    row.id,
+    null,
+    {
+      lessonId,
+      personId: row.personId,
+      assignmentId: row.assignmentId,
+      status: row.status,
+      hourEntryId: row.hourEntryId,
+      confirmedAt: now,
+    },
+    now,
+  );
+}
+
+/** MEMBER_ATTENDANCE_CORRECTED of a correction: the signature as it was, and as it is now. */
+function correctedAuditOf(
+  change: RecordedCorrection,
+  actorId: string,
+  now: Date,
+): AuditableActionEvent {
+  const { row, entry } = change;
+  return auditEventOf(
+    AuditableAction.MEMBER_ATTENDANCE_CORRECTED,
+    actorId,
+    row.id,
+    {
+      status: row.status,
+      confirmedById: row.confirmedById,
+      confirmedAt: row.confirmedAt,
+      hourEntryId: row.hourEntryId,
+    },
+    {
+      status: entry.status,
+      confirmedById: actorId,
+      confirmedAt: now,
+      hourEntryId: change.hourEntryId,
+      assignmentId: entry.assignment.id,
+    },
+    now,
+  );
 }
 
 /**
@@ -214,66 +307,34 @@ export class MemberAttendanceService {
     const now = this.clock.now();
 
     const outcome = await this.dataSource.transaction(async (manager) => {
-      const lesson = await this.lessons.getLessonSummary(requestedLessonId, manager, {
-        forShare: true,
-      });
-      if (lesson === null) throw lessonNotFound();
-      if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
-      if (lesson.date > todayInAppTimeZone(now)) throw lessonInFuture();
-
-      await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-        attendanceLockKey(lesson.id),
-      ]);
-      const staff = await this.confirmedStaff.findConfirmedAssignments(lesson.id, manager, {
-        forShare: true,
-      });
-      const staffById = new Map(staff.map((assignment) => [assignment.id, assignment]));
-
-      const notConfirmed = positionsWhere(requested, (entry) => !staffById.has(entry.assignmentId));
-      if (notConfirmed.length > 0) throw assignmentNotConfirmed(notConfirmed);
-      const entries = requested.flatMap((entry): ResolvedEntry[] => {
-        const assignment = staffById.get(entry.assignmentId);
-        return assignment === undefined ? [] : [{ status: entry.status, assignment }];
-      });
-
-      const lessonTeacherIds = staff
-        .filter((assignment) => assignment.role === AssignmentRole.TEACHER)
-        .map((assignment) => assignment.personId);
-      for (const entry of entries) {
-        this.policy.assertCan(actor, Permission.ATTENDANCE_CONFIRM_MEMBER, {
-          personId: entry.assignment.personId,
-          lessonTeacherIds,
-        });
-      }
-
-      const signed = await manager.find(MemberAttendance, {
-        where: {
-          lessonId: lesson.id,
-          personId: In(entries.map((entry) => entry.assignment.personId)),
-        },
-      });
-      const signedByPerson = new Map(signed.map((row) => [row.personId, row]));
-      const changes = entries.map((entry) =>
-        changeOf(entry, signedByPerson.get(entry.assignment.personId)),
+      const { lesson, changes, corrections } = await this.checkBatch(
+        manager,
+        requestedLessonId,
+        requested,
+        actor,
+        now,
       );
 
-      const corrections = changes.filter(isCorrection);
-      if (corrections.length > 0) {
-        if (this.policy.scopeOf(actor, Permission.ATTENDANCE_CORRECT) === "none") {
-          throw attendanceCorrectionForbidden();
-        }
-        for (const correction of corrections) {
-          this.policy.assertCan(actor, Permission.ATTENDANCE_CORRECT, {
-            personId: correction.entry.assignment.personId,
-            lessonTeacherIds,
-          });
-        }
-      }
+      // No write before this line: the batch is all or none. The order of the writes is the order
+      // of the locks (P11): the reversals first, then the new hours, then the attendance.
+      const reversals = await this.lessonHours.reverseEntries(
+        manager,
+        reversedEntryIdsOf(corrections),
+        actor.id,
+        now,
+      );
+      const recorded = await this.recordHours(manager, lesson, changes, actor.id, now);
+      const attendanceAudits = await this.writeAttendance(
+        manager,
+        lesson,
+        recorded.changes,
+        actor.id,
+        now,
+      );
 
-      // No write before this line: the batch is all or none.
       return {
         lessonId: lesson.id,
-        auditEvents: await this.write(manager, lesson, changes, corrections, actor.id, now),
+        auditEvents: [...reversals, ...recorded.auditEvents, ...attendanceAudits],
       };
     });
 
@@ -284,47 +345,157 @@ export class MemberAttendanceService {
   }
 
   /**
-   * The writes of a checked batch, inside its transaction: the reversals of the corrections to
-   * absent (one call, locked in the order of the ids), then the new lesson hours in the order of the
-   * body, then the rows of the attendance (one insert of the first signatures, one update per
-   * correction). Returns the audit events: the hours first, then the attendance.
+   * Every check of a batch, inside its transaction and before any write, in the order the errors
+   * are answered: the lesson (locked FOR SHARE), the advisory lock of its attendance, its confirmed
+   * assignments (FOR SHARE), attendance.confirmMember on each entry, the signed attendance of the
+   * people of the batch, and attendance.correct on each correction.
    */
-  private async write(
+  private async checkBatch(
+    manager: EntityManager,
+    requestedLessonId: string,
+    requested: readonly RequestedEntry[],
+    actor: AuthUser,
+    now: Date,
+  ): Promise<CheckedBatch> {
+    const lesson = await this.lessons.getLessonSummary(requestedLessonId, manager, {
+      forShare: true,
+    });
+    if (lesson === null) throw lessonNotFound();
+    if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
+    if (lesson.date > todayInAppTimeZone(now)) throw lessonInFuture();
+
+    await manager.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      attendanceLockKey(lesson.id),
+    ]);
+    const staff = await this.confirmedStaff.findConfirmedAssignments(lesson.id, manager, {
+      forShare: true,
+    });
+    const { entries, notConfirmed } = resolveEntries(
+      requested,
+      new Map(staff.map((assignment) => [assignment.id, assignment])),
+    );
+    if (notConfirmed.length > 0) throw assignmentNotConfirmed(notConfirmed);
+
+    const lessonTeacherIds = staff
+      .filter((assignment) => assignment.role === AssignmentRole.TEACHER)
+      .map((assignment) => assignment.personId);
+    for (const entry of entries) {
+      this.policy.assertCan(actor, Permission.ATTENDANCE_CONFIRM_MEMBER, {
+        personId: entry.assignment.personId,
+        lessonTeacherIds,
+      });
+    }
+
+    const signed = await manager.find(MemberAttendance, {
+      where: {
+        lessonId: lesson.id,
+        personId: In(entries.map((entry) => entry.assignment.personId)),
+      },
+    });
+    const signedByPerson = new Map(signed.map((row) => [row.personId, row]));
+    const changes = entries.map((entry) =>
+      changeOf(entry, signedByPerson.get(entry.assignment.personId)),
+    );
+
+    const corrections = changes.filter(isCorrection);
+    if (corrections.length > 0) {
+      if (this.policy.scopeOf(actor, Permission.ATTENDANCE_CORRECT) === "none") {
+        throw attendanceCorrectionForbidden();
+      }
+      for (const correction of corrections) {
+        this.policy.assertCan(actor, Permission.ATTENDANCE_CORRECT, {
+          personId: correction.entry.assignment.personId,
+          lessonTeacherIds,
+        });
+      }
+    }
+
+    return { lesson, changes, corrections };
+  }
+
+  /**
+   * The new lesson hours of the batch, in the order of the body (sequential: one connection), for
+   * every change that leaves its person present. Each change comes back with the entry it generated.
+   */
+  private async recordHours(
     manager: EntityManager,
     lesson: LessonSummary,
     changes: readonly Change[],
-    corrections: readonly Correction[],
     actorId: string,
     now: Date,
-  ): Promise<AuditableActionEvent[]> {
-    const reversals = await this.lessonHours.reverseEntries(
-      manager,
-      corrections.flatMap((correction) =>
-        correction.entry.status === MemberAttendanceStatus.ABSENT &&
-        correction.row.hourEntryId !== null
-          ? [correction.row.hourEntryId]
-          : [],
-      ),
-      actorId,
-      now,
-    );
-    const hourAudits: AuditableActionEvent[] = [...reversals];
-
-    const hourEntryIds = new Map<Change, string>();
+  ): Promise<{ changes: RecordedChange[]; auditEvents: AuditableActionEvent[] }> {
+    const recordedChanges: RecordedChange[] = [];
+    const auditEvents: AuditableActionEvent[] = [];
     for (const change of changes) {
-      if (!recordsHours(change)) continue;
+      if (!recordsHours(change)) {
+        recordedChanges.push({ ...change, hourEntryId: null });
+        continue;
+      }
       const recorded = await this.lessonHours.recordPresence(
         manager,
         { personId: change.entry.assignment.personId, confirmedById: actorId, lesson },
         now,
       );
-      hourEntryIds.set(change, recorded.hourEntryId);
-      hourAudits.push(...recorded.auditEvents);
+      recordedChanges.push({ ...change, hourEntryId: recorded.hourEntryId });
+      auditEvents.push(...recorded.auditEvents);
     }
-    /** The entry a change recorded; null for an absence, which records none. */
-    const hourEntryIdOf = (change: Change): string | null => hourEntryIds.get(change) ?? null;
+    return { changes: recordedChanges, auditEvents };
+  }
 
-    const firstRows = changes.flatMap((change) =>
+  /**
+   * The rows of the attendance: one insert of the first signatures, then one update per
+   * correction. Returns their audit events in the order of the body.
+   */
+  private async writeAttendance(
+    manager: EntityManager,
+    lesson: LessonSummary,
+    changes: readonly RecordedChange[],
+    actorId: string,
+    now: Date,
+  ): Promise<AuditableActionEvent[]> {
+    const insertedByPerson = await this.insertFirstSignatures(
+      manager,
+      lesson,
+      changes,
+      actorId,
+      now,
+    );
+
+    const auditEvents: AuditableActionEvent[] = [];
+    for (const change of changes) {
+      switch (change.kind) {
+        case "first": {
+          const row = insertedByPerson.get(change.entry.assignment.personId);
+          if (row === undefined) {
+            throw new Error(`The attendance of ${change.entry.assignment.id} was not inserted.`);
+          }
+          auditEvents.push(confirmedAuditOf(row, lesson.id, actorId, now));
+          break;
+        }
+        case "correction":
+          await this.applyCorrection(manager, change, actorId, now);
+          auditEvents.push(correctedAuditOf(change, actorId, now));
+          break;
+        case "unchanged":
+          break;
+        default: {
+          const unknownChange: never = change;
+          throw new Error(`Unknown attendance change: ${JSON.stringify(unknownChange)}.`);
+        }
+      }
+    }
+    return auditEvents;
+  }
+
+  /** The first signatures of the batch in ONE insert, by person (one per person in a lesson). */
+  private async insertFirstSignatures(
+    manager: EntityManager,
+    lesson: LessonSummary,
+    changes: readonly RecordedChange[],
+    actorId: string,
+    now: Date,
+  ): Promise<Map<string, MemberAttendance>> {
+    const rows = changes.flatMap((change) =>
       change.kind === "first"
         ? [
             manager.create(MemberAttendance, {
@@ -334,91 +505,39 @@ export class MemberAttendanceService {
               status: change.entry.status,
               confirmedById: actorId,
               confirmedAt: now,
-              hourEntryId: hourEntryIdOf(change),
+              hourEntryId: change.hourEntryId,
               createdAt: now,
               updatedAt: now,
             }),
           ]
         : [],
     );
-    const inserted = firstRows.length === 0 ? [] : await manager.save(MemberAttendance, firstRows);
-    const insertedByPerson = new Map(inserted.map((row) => [row.personId, row]));
+    const inserted = rows.length === 0 ? [] : await manager.save(MemberAttendance, rows);
+    return new Map(inserted.map((row) => [row.personId, row]));
+  }
 
-    const attendanceAudits: AuditableActionEvent[] = [];
-    for (const change of changes) {
-      switch (change.kind) {
-        case "first": {
-          const row = insertedByPerson.get(change.entry.assignment.personId);
-          if (row === undefined) {
-            throw new Error(`The attendance of ${change.entry.assignment.id} was not inserted.`);
-          }
-          attendanceAudits.push(
-            auditEventOf(
-              AuditableAction.MEMBER_ATTENDANCE_CONFIRMED,
-              actorId,
-              row.id,
-              null,
-              {
-                lessonId: lesson.id,
-                personId: row.personId,
-                assignmentId: row.assignmentId,
-                status: row.status,
-                hourEntryId: row.hourEntryId,
-                confirmedAt: now,
-              },
-              now,
-            ),
-          );
-          break;
-        }
-        case "correction": {
-          const { row, entry } = change;
-          const hourEntryId = hourEntryIdOf(change);
-          await manager.update(
-            MemberAttendance,
-            { id: row.id },
-            {
-              status: entry.status,
-              hourEntryId,
-              confirmedById: actorId,
-              confirmedAt: now,
-              assignmentId: entry.assignment.id,
-              updatedAt: now,
-            },
-          );
-          attendanceAudits.push(
-            auditEventOf(
-              AuditableAction.MEMBER_ATTENDANCE_CORRECTED,
-              actorId,
-              row.id,
-              {
-                status: row.status,
-                confirmedById: row.confirmedById,
-                confirmedAt: row.confirmedAt,
-                hourEntryId: row.hourEntryId,
-              },
-              {
-                status: entry.status,
-                confirmedById: actorId,
-                confirmedAt: now,
-                hourEntryId,
-                assignmentId: entry.assignment.id,
-              },
-              now,
-            ),
-          );
-          break;
-        }
-        case "unchanged":
-          break;
-        default: {
-          const unknownChange: never = change;
-          throw new Error(`Unknown attendance change: ${JSON.stringify(unknownChange)}.`);
-        }
-      }
-    }
-
-    return [...hourAudits, ...attendanceAudits];
+  /**
+   * A correction: the new status and its entry (null for an absence), who corrected it, when, and
+   * through which confirmed assignment.
+   */
+  private async applyCorrection(
+    manager: EntityManager,
+    change: RecordedCorrection,
+    actorId: string,
+    now: Date,
+  ): Promise<void> {
+    await manager.update(
+      MemberAttendance,
+      { id: change.row.id },
+      {
+        status: change.entry.status,
+        hourEntryId: change.hourEntryId,
+        confirmedById: actorId,
+        confirmedAt: now,
+        assignmentId: change.entry.assignment.id,
+        updatedAt: now,
+      },
+    );
   }
 
   /**

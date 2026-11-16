@@ -8,9 +8,11 @@ import {
   IsUUID,
   ValidateNested,
 } from "class-validator";
-import { MemberAttendanceStatus } from "../enums/member-attendance-status.enum";
+import {
+  MEMBER_ATTENDANCE_STATUS_DESCRIPTION,
+  MemberAttendanceStatus,
+} from "../enums/member-attendance-status.enum";
 import { MEMBER_ATTENDANCE_MAX_ENTRIES } from "./attendance-limits";
-import { MEMBER_ATTENDANCE_STATUS_DESCRIPTION } from "./member-attendance.response.dto";
 
 /** One entry of the batch: a confirmed assignment of the lesson and whether its member was there. */
 export class MemberAttendanceEntryDto {

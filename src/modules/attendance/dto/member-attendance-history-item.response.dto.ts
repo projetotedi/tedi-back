@@ -1,7 +1,9 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { MemberAttendanceStatus } from "../enums/member-attendance-status.enum";
+import {
+  MEMBER_ATTENDANCE_STATUS_DESCRIPTION,
+  MemberAttendanceStatus,
+} from "../enums/member-attendance-status.enum";
 import { AttendanceLessonRefResponseDto } from "./attendance-lesson-ref.response.dto";
-import { MEMBER_ATTENDANCE_STATUS_DESCRIPTION } from "./member-attendance.response.dto";
 
 /** One signed attendance of a member: the lesson, present or absent, and when it was signed. */
 export class MemberAttendanceHistoryItemResponseDto {
