@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { ClassConstructor, plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { AdjustHourEntryDto } from "../dto/adjust-hour-entry.dto";
+import { HoursExportQueryDto } from "../dto/hours-export-query.dto";
 import { HoursOverviewQueryDto } from "../dto/hours-overview-query.dto";
 import { ListHourEntriesQueryDto } from "../dto/list-hour-entries-query.dto";
 import { RejectHourEntryDto } from "../dto/reject-hour-entry.dto";
@@ -96,6 +97,17 @@ describe("RejectHourEntryDto", () => {
 });
 
 describe("query DTOs", () => {
+  it("accepts format csv, rejects xlsx, and keeps the period floor of 2000-01-01 (HoursExportQueryDto)", async () => {
+    expect((await check(HoursExportQueryDto, {})).fields).toEqual([]);
+    expect(
+      (await check(HoursExportQueryDto, { format: "csv", from: "2000-01-01", to: "2026-03-31" }))
+        .fields,
+    ).toEqual([]);
+    expect((await check(HoursExportQueryDto, { format: "xlsx" })).fields).toEqual(["format"]);
+    expect((await check(HoursExportQueryDto, { from: "1999-12-31" })).fields).toEqual(["from"]);
+    expect((await check(HoursExportQueryDto, { to: "31/03/2026" })).fields).toEqual(["to"]);
+  });
+
   it("converts page and limit, and rejects a search over 100 characters (HoursOverviewQueryDto)", async () => {
     const { instance, fields } = await check(HoursOverviewQueryDto, {
       page: "3",

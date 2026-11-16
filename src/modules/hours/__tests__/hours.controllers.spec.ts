@@ -1,5 +1,12 @@
 import "reflect-metadata";
-import { HttpException, PipeTransform, RequestMethod } from "@nestjs/common";
+import {
+  HttpException,
+  Logger,
+  PipeTransform,
+  RequestMethod,
+  StreamableFile,
+} from "@nestjs/common";
+import { Readable } from "node:stream";
 import { HTTP_CODE_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
@@ -8,7 +15,7 @@ import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { HourEntriesController } from "../controllers/hour-entries.controller";
-import { HoursController } from "../controllers/hours.controller";
+import { abortExportResponse, HoursController } from "../controllers/hours.controller";
 import { MemberHoursViewController } from "../controllers/member-hours-view.controller";
 import { MemberHoursController } from "../controllers/member-hours.controller";
 import { MyHoursController } from "../controllers/my-hours.controller";
@@ -17,6 +24,7 @@ import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
 import { HoursSummaryResponseDto } from "../dto/hours-summary.response.dto";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
+import { HoursExportService } from "../services/hours-export.service";
 import { HoursReviewService } from "../services/hours-review.service";
 import { HoursViewService } from "../services/hours-view.service";
 import { HoursService } from "../services/hours.service";
@@ -257,15 +265,15 @@ describe("hours controllers", () => {
   });
 
   describe("HoursController", () => {
-    it.each([["getHoursOverview", Permission.HOURS_VIEW_OTHERS]] as const)(
-      "protects HoursController.%s with %s and no @Roles",
-      (name, permission) => {
-        const handler = HoursController.prototype[name];
+    it.each([
+      ["getHoursOverview", Permission.HOURS_VIEW_OTHERS],
+      ["exportHours", Permission.HOURS_EXPORT],
+    ] as const)("protects HoursController.%s with %s and no @Roles", (name, permission) => {
+      const handler = HoursController.prototype[name];
 
-        expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(permission);
-        expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
-      },
-    );
+      expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(permission);
+      expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+    });
 
     it.each([
       {
@@ -273,6 +281,12 @@ describe("hours controllers", () => {
         route: "GET /hours/overview",
         method: RequestMethod.GET,
         path: "overview",
+      },
+      {
+        name: "exportHours",
+        route: "GET /hours/export",
+        method: RequestMethod.GET,
+        path: "export",
       },
     ] as const)("routes $name on $route", ({ name, method, path }) => {
       const handler = HoursController.prototype[name];
@@ -284,7 +298,10 @@ describe("hours controllers", () => {
 
     it("passes the actor and the query to the view service on getHoursOverview", async () => {
       const viewService = { getOverview: jest.fn() };
-      const controller = new HoursController(viewService as unknown as HoursViewService);
+      const controller = new HoursController(
+        viewService as unknown as HoursViewService,
+        {} as HoursExportService,
+      );
       const overview = { members: { data: [], total: 0, page: 1, limit: 20 } };
       viewService.getOverview.mockResolvedValue(overview);
       const query = { from: "2026-03-01", to: "2026-03-31", search: "Ana" };
@@ -292,6 +309,97 @@ describe("hours controllers", () => {
       await expect(controller.getHoursOverview(query, ACTOR)).resolves.toBe(overview);
 
       expect(viewService.getOverview).toHaveBeenCalledWith(ACTOR, query);
+    });
+  });
+
+  describe("HoursController.exportHours", () => {
+    const exportService = { exportCsv: jest.fn() };
+    const controller = new HoursController(
+      {} as HoursViewService,
+      exportService as unknown as HoursExportService,
+    );
+
+    beforeEach(() => {
+      jest.restoreAllMocks();
+      jest.clearAllMocks();
+    });
+
+    it("answers the export as a StreamableFile of text/csv with the file name in Content-Disposition", async () => {
+      const stream = Readable.from(["a"]);
+      exportService.exportCsv.mockResolvedValue({ fileName: "hours_2026-03-01_end.csv", stream });
+      const query = { from: "2026-03-01" };
+
+      const file = await controller.exportHours(query, ACTOR);
+
+      expect(exportService.exportCsv).toHaveBeenCalledWith(ACTOR, query);
+      expect(file).toBeInstanceOf(StreamableFile);
+      expect(file.getStream()).toBe(stream);
+      expect(file.getHeaders()).toEqual({
+        type: "text/csv; charset=utf-8",
+        disposition: 'attachment; filename="hours_2026-03-01_end.csv"',
+        length: undefined,
+      });
+      expect(file.errorHandler).toBe(abortExportResponse);
+    });
+
+    it("passes the failure of the export service on as it is, before any stream", async () => {
+      const failure = new HttpException({ error: "INVALID_PERIOD" }, 400);
+      exportService.exportCsv.mockRejectedValueOnce(failure);
+
+      await expect(controller.exportHours({}, ACTOR)).rejects.toBe(failure);
+    });
+
+    it("answers a generic 500 before the first byte and destroys the response after it, never with the message of the error", () => {
+      const logged = jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+      const error = new Error('relation "hour_entries" does not exist');
+
+      const unsent = {
+        destroyed: false,
+        headersSent: false,
+        statusCode: 200,
+        send: jest.fn(),
+        end: jest.fn(),
+      };
+      abortExportResponse(error, unsent);
+      expect(unsent.statusCode).toBe(500);
+      expect(unsent.send).toHaveBeenCalledTimes(1);
+      const body: unknown = JSON.parse(String(unsent.send.mock.calls[0][0]));
+      expect(body).toEqual({
+        statusCode: 500,
+        message: "Internal server error.",
+        error: "INTERNAL_SERVER_ERROR",
+      });
+      expect(String(unsent.send.mock.calls[0][0])).not.toContain("hour_entries");
+      expect(unsent.end).not.toHaveBeenCalled();
+
+      const halfSent = {
+        destroyed: false,
+        headersSent: true,
+        statusCode: 200,
+        send: jest.fn(),
+        end: jest.fn(),
+        destroy: jest.fn(),
+      };
+      abortExportResponse(error, halfSent);
+      expect(halfSent.destroy).toHaveBeenCalledTimes(1);
+      expect(halfSent.end).not.toHaveBeenCalled();
+      expect(halfSent.send).not.toHaveBeenCalled();
+      expect(halfSent.statusCode).toBe(200);
+
+      const gone = {
+        destroyed: true,
+        headersSent: true,
+        statusCode: 200,
+        send: jest.fn(),
+        end: jest.fn(),
+        destroy: jest.fn(),
+      };
+      abortExportResponse(error, gone);
+      expect(gone.destroy).not.toHaveBeenCalled();
+      expect(gone.end).not.toHaveBeenCalled();
+
+      expect(logged).toHaveBeenCalledTimes(3);
+      expect(logged).toHaveBeenCalledWith(error.message, error.stack);
     });
   });
 

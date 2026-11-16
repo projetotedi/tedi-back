@@ -10,6 +10,7 @@ import { MemberHoursController } from "./controllers/member-hours.controller";
 import { MyHoursController } from "./controllers/my-hours.controller";
 import { HourEntryEvent } from "./entities/hour-entry-event.entity";
 import { HourEntry } from "./entities/hour-entry.entity";
+import { HoursExportService } from "./services/hours-export.service";
 import { HoursReviewService } from "./services/hours-review.service";
 import { HoursScopeService } from "./services/hours-scope.service";
 import { HoursViewService } from "./services/hours-view.service";
@@ -37,7 +38,14 @@ import { HoursService } from "./services/hours.service";
     HoursController,
     HourEntriesController,
   ],
-  providers: [HoursService, HoursViewService, HoursReviewService, HoursScopeService, Clock],
+  providers: [
+    HoursService,
+    HoursViewService,
+    HoursReviewService,
+    HoursExportService,
+    HoursScopeService,
+    Clock,
+  ],
   exports: [],
 })
 export class HoursModule {}

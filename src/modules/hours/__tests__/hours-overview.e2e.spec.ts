@@ -21,7 +21,7 @@ import { AUDITABLE_ACTION_EVENT } from "@shared/events/auditable-action.event";
 import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { HoursModule } from "../hours.module";
-import { hourEntryBody } from "./fixtures/hour-entries.fixture";
+import { hourEntryBody, insertPendingEntries } from "./fixtures/hour-entries.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
 const dbConnection = dbUrl
@@ -105,6 +105,16 @@ interface MemberHours {
   member: MemberRef;
   summary: Summary;
   entries: { data: HourEntryBody[]; total: number; page: number; limit: number };
+}
+
+const CSV_HEADER =
+  '"entry_id";"date";"person_id";"member_name";"department";"category";"activity";"origin";"status";"declared_minutes";"validated_minutes";"review_note";"reviewed_at"';
+
+/** The lines of an exported file without the BOM and the last line end, each as its cells. */
+function csvRows(text: string): string[][] {
+  const lines = text.slice(1).split("\r\n");
+  expect(lines.pop()).toBe("");
+  return lines.map((line) => line.slice(1, -1).split('";"'));
 }
 
 function statusOf(summary: Summary, status: string): StatusTotal {
@@ -510,6 +520,139 @@ describe("hours views (e2e)", () => {
         error: "INVALID_PERIOD",
         details: [{ field: "to", message: "to must be on or after from" }],
       });
+    });
+  });
+
+  describe("GET /hours/export", () => {
+    function exportOf(actor: Actor, query: Record<string, string> = {}) {
+      return request(app.getHttpServer())
+        .get("/hours/export")
+        .query(query)
+        .set("Cookie", actor.cookie);
+    }
+
+    it("exports the entries of the period as CSV: BOM, header, one line per entry, text/csv and the file name", async () => {
+      const meeting = await logOwn(memberTech, {
+        category: "meeting",
+        declaredMinutes: 240,
+        date: "2026-03-12",
+        notes: "Nota pessoal.",
+      });
+      const planning = await logOwn(memberComms, { declaredMinutes: 90, date: "2026-03-10" });
+      await logOwn(memberTech, { date: "2026-04-01" });
+      await adjust(meeting.id, 120);
+
+      const res = await exportOf(coordinator, { ...MARCH, format: "csv" }).expect(200);
+
+      expect(res.headers["content-type"]).toMatch(/^text\/csv/);
+      expect(res.headers["content-disposition"]).toBe(
+        'attachment; filename="hours_2026-03-01_2026-03-31.csv"',
+      );
+      expect(res.text.startsWith("\uFEFF" + CSV_HEADER + "\r\n")).toBe(true);
+      const rows = csvRows(res.text);
+      expect(rows).toHaveLength(3);
+      expect(rows[1]).toEqual([
+        planning.id,
+        "2026-03-10",
+        memberComms.id,
+        "Clara Nunes",
+        "Comunicação",
+        "planning",
+        "Planejamento da aula de teclado e mouse",
+        "manual",
+        "pending",
+        "90",
+        "",
+        "",
+        "",
+      ]);
+      expect(rows[2].slice(0, 12)).toEqual([
+        meeting.id,
+        "2026-03-12",
+        memberTech.id,
+        "Ana Souza",
+        "Tecnologia",
+        "meeting",
+        "Planejamento da aula de teclado e mouse",
+        "manual",
+        "adjusted",
+        "240",
+        "120",
+        JUSTIFICATION,
+      ]);
+      expect(rows[2][12]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(res.text).not.toContain("Nota pessoal.");
+    });
+
+    it("exports to a director only the entries of her own department", async () => {
+      const ana = await logOwn(memberTech);
+      const own = await logOwn(directorTech);
+      await logOwn(memberComms);
+      await logOwn(coordinator);
+
+      const res = await exportOf(directorTech).expect(200);
+
+      const ids = csvRows(res.text)
+        .slice(1)
+        .map((row) => row[0]);
+      expect(ids.sort()).toEqual([ana.id, own.id].sort());
+      expect(res.headers["content-disposition"]).toBe('attachment; filename="hours_start_end.csv"');
+
+      const empty = await exportOf(directorWithoutDepartment).expect(200);
+      expect(empty.text).toBe("\uFEFF" + CSV_HEADER + "\r\n");
+    });
+
+    it("escapes quotes, semicolons and line breaks, and neutralizes a formula in the activity", async () => {
+      await logOwn(memberTech, { activity: '=HYPERLINK("http://example.com")' });
+      await logOwn(memberTech, { activity: 'Aula; "extra"\nsegunda linha', date: "2026-03-11" });
+
+      const res = await exportOf(coordinator).expect(200);
+
+      expect(res.text).toContain('"\'=HYPERLINK(""http://example.com"")"');
+      expect(res.text).toContain('"Aula; ""extra""\nsegunda linha"');
+      expect(res.text.split("\r\n")).toHaveLength(4);
+    });
+
+    it("exports more entries than one batch, each once, in order of date and id", async () => {
+      await insertPendingEntries(dataSource, {
+        personId: memberTech.id,
+        date: "2026-03-10",
+        declaredMinutes: 30,
+        count: 501,
+      });
+      const later = await logOwn(memberTech2, { date: "2026-03-11" });
+      const earlier = await logOwn(memberComms, { date: "2026-03-09" });
+
+      const res = await exportOf(coordinator).expect(200);
+
+      const rows = csvRows(res.text).slice(1);
+      expect(rows).toHaveLength(503);
+      const ids = rows.map((row) => row[0]);
+      expect(new Set(ids).size).toBe(503);
+      expect(ids[0]).toBe(earlier.id);
+      expect(ids[502]).toBe(later.id);
+      const sameDay = ids.slice(1, 502);
+      expect(sameDay).toEqual([...sameDay].sort());
+      expect(rows.slice(1, 502).every((row) => row[3] === "Ana Souza")).toBe(true);
+    });
+
+    it("answers 400 VALIDATION_FAILED for format=xlsx and 400 INVALID_PERIOD as JSON, before any byte of CSV", async () => {
+      const xlsx = await exportOf(coordinator, { format: "xlsx" }).expect(400);
+      expect(xlsx.headers["content-type"]).toMatch(/^application\/json/);
+      expect(xlsx.body.error).toBe("VALIDATION_FAILED");
+      expect(xlsx.body.details).toEqual([expect.objectContaining({ field: "format" })]);
+
+      const invalid = await exportOf(coordinator, { from: "2026-03-31", to: "2026-03-01" }).expect(
+        400,
+      );
+      expect(invalid.headers["content-type"]).toMatch(/^application\/json/);
+      expect(invalid.body.error).toBe("INVALID_PERIOD");
+    });
+
+    it("answers 403 FORBIDDEN to a member", async () => {
+      const res = await exportOf(memberTech).expect(403);
+
+      expect(res.body.error).toBe("FORBIDDEN");
     });
   });
 

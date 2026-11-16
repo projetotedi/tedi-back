@@ -53,6 +53,7 @@ import { EditionsService } from "@modules/classes/services/editions.service";
 import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { HoursService } from "@modules/hours/services/hours.service";
+import { HoursExportService } from "@modules/hours/services/hours-export.service";
 import { HoursReviewService } from "@modules/hours/services/hours-review.service";
 import { HoursViewService } from "@modules/hours/services/hours-view.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
@@ -254,6 +255,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         adjustEntry: async () => ({}),
         rejectEntry: async () => ({}),
       },
+    },
+    {
+      provide: HoursExportService,
+      useValue: { exportCsv: async () => ({}) },
     },
     {
       provide: ConfigService,
