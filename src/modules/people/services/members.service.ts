@@ -48,6 +48,22 @@ export interface MemberAccessFacts {
 }
 
 /**
+ * What another module needs to know about a member to give her work (the assignments of the
+ * lessons, GUS-158): who she is, whether she can receive it today and her department. The shape is
+ * the contract of `getMemberSummary`: the Person and the member profile never leave this module.
+ *  - active: she has an access role, her access is enabled and, if she has a member profile, it is
+ *    approved (`isActiveMember`). A pending or rejected registration is a member, but not active.
+ *  - departmentIds: the department of the APPROVED profile, or [] (the same rule as
+ *    `findAccessFacts`): what the `department` scope of the member record is checked against.
+ */
+export interface MemberSummary {
+  id: string;
+  name: string;
+  active: boolean;
+  departmentIds: string[];
+}
+
+/**
  * Input of submitFromInvite: the form, the hash of the chosen password and what the invite
  * carries. The caller hashes the password (it owns the PasswordService).
  */
@@ -133,6 +149,25 @@ function departmentScopeOf(
     profile.departmentId
     ? [profile.departmentId]
     : [];
+}
+
+/**
+ * Whether a member can be given work today: she has an access role, her access is enabled and, if
+ * she has a member profile, it is approved. A person without a profile (the seeded admin, the
+ * coordinators, the accounts that predate GUS-91) is not subject to the validation.
+ *
+ * It is the ONE place that says "active member". Inactivating a member (GUS-147, with the exit
+ * date) changes this predicate and nothing else: whoever asks `getMemberSummary` follows it.
+ */
+function isActiveMember(
+  person: Pick<Person, "role" | "accessEnabled">,
+  profile: Pick<MemberProfile, "registrationStatus"> | null,
+): boolean {
+  return (
+    person.role !== null &&
+    person.accessEnabled &&
+    (profile === null || profile.registrationStatus === MemberRegistrationStatus.APPROVED)
+  );
 }
 
 /**
@@ -400,6 +435,52 @@ export class MembersService {
     } catch (error) {
       throw this.mapUniqueViolation(error);
     }
+  }
+
+  /**
+   * Summary of a member for another module (the assignments of the lessons, GUS-158). Null when the
+   * id is not a uuid, when there is no such person and when she is neither a member with an access
+   * role nor has a member profile: the predicate of `getMember`, so a student is not a member. A
+   * pending or rejected registration IS returned, with `active` false, so the caller can say
+   * "inactive" apart from "not a member". Whoever calls decides the error.
+   *
+   * Pass the `manager` of a transaction to read inside it. `forShare` locks the row of the person
+   * FOR SHARE until the end of that transaction (it needs the `manager` of one: Postgres only keeps
+   * a row lock inside a transaction). That lock conflicts with the FOR UPDATE that the approval of
+   * the registration and the change of access take on the person, so assigning a member and
+   * disabling her at the same time are serialized: either the assignment sees her inactive, or the
+   * change waits for it. Shared locks do not conflict with each other, so two assignments of the
+   * same member do not wait for one another. Without `forShare` it is a plain read.
+   *
+   * It writes nothing and emits no event. Personal data: only the id, the name, the flag and the
+   * department leave.
+   */
+  async getMemberSummary(
+    id: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<MemberSummary | null> {
+    // The service is exported: an id that is not a uuid must not reach Postgres (22P02 -> 500).
+    if (!isUUID(id)) return null;
+
+    const source = manager ?? this.dataSource.manager;
+    const person = await source.findOne(Person, {
+      where: { id },
+      ...(options.forShare ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
+    if (person === null) return null;
+
+    // After the lock of the person: the approval and the rejection take the person first, so the
+    // profile read here is never one that is changing under it.
+    const profile = await source.findOne(MemberProfile, { where: { personId: person.id } });
+    if (person.role === null && profile === null) return null;
+
+    return {
+      id: person.id,
+      name: person.name,
+      active: isActiveMember(person, profile),
+      departmentIds: departmentScopeOf(profile),
+    };
   }
 
   /**

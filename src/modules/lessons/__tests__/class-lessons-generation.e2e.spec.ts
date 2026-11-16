@@ -607,6 +607,12 @@ describe("Generation of the lessons of a class (e2e)", () => {
           originalDate: null,
           rescheduleReason: null,
           rescheduleNote: null,
+          // Nobody is allocated to a lesson that was just generated (GUS-158, A2).
+          coverage: {
+            teacher: { confirmed: 0, expected: 1 },
+            monitors: { confirmed: 0, expected: null },
+          },
+          belowExpectedMonitors: false,
           createdById: coordinator.id,
           createdAt: expect.any(String),
           updatedAt: expect.any(String),

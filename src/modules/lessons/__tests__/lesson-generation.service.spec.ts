@@ -348,6 +348,12 @@ describe("LessonGenerationService", () => {
         originalDate: null,
         rescheduleReason: null,
         rescheduleNote: null,
+        // A generated lesson has nobody allocated yet (GUS-158, A2).
+        coverage: {
+          teacher: { confirmed: 0, expected: 1 },
+          monitors: { confirmed: 0, expected: null },
+        },
+        belowExpectedMonitors: false,
         createdById: ACTOR_ID,
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,

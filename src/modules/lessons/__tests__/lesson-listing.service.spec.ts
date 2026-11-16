@@ -7,6 +7,8 @@ import { LessonsCalendarQueryDto } from "../dto/calendar-query.dto";
 import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { ConfirmedStaff } from "../services/lesson-coverage";
+import { LessonCoverageRegistry } from "../services/lesson-coverage.registry";
 import { LessonListingService } from "../services/lesson-listing.service";
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
@@ -14,6 +16,12 @@ const CLASS_A_ID = "01999a3e-7c1b-7000-8000-0000000000a1";
 const CLASS_B_ID = "01999a3e-7c1b-7000-8000-0000000000b1";
 const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000001";
 const PLAN_ID = "01999a3e-7c1b-7000-8000-000000000011";
+const TEACHER = { id: "01999a3e-0000-7000-8000-0000000000b1", name: "Ana Torres" };
+const OTHER_TEACHER = { id: "01999a3e-0000-7000-8000-0000000000b2", name: "Bruno Lima" };
+
+function lessonId(n: number): string {
+  return `01999a3e-7c1b-7000-8000-${String(n).padStart(12, "0")}`;
+}
 
 function buildClassRef(overrides: Partial<ClassRef> = {}): ClassRef {
   return {
@@ -112,6 +120,7 @@ describe("LessonListingService", () => {
   const repository = { createQueryBuilder: jest.fn() };
   const dataSource = { getRepository: jest.fn() };
   const classes = { listClassRefs: jest.fn() };
+  const coverage = { findConfirmedStaff: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -121,12 +130,15 @@ describe("LessonListingService", () => {
     repository.createQueryBuilder.mockReturnValue(base);
     dataSource.getRepository.mockReturnValue(repository);
     classes.listClassRefs.mockResolvedValue([buildClassRef()]);
+    // No counter registered, or nobody confirmed: the registry answers an empty map.
+    coverage.findConfirmedStaff.mockResolvedValue(new Map());
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         LessonListingService,
         { provide: DataSource, useValue: dataSource },
         { provide: ClassesService, useValue: classes },
+        { provide: LessonCoverageRegistry, useValue: coverage },
       ],
     }).compile();
 
@@ -428,6 +440,161 @@ describe("LessonListingService", () => {
         await expect(service.list(listQuery())).rejects.toThrow("was not resolved");
       });
     });
+
+    describe("the staff of the page (GUS-158)", () => {
+      /** A page of `size` lessons of the class A, with their ids in order. */
+      function pageOf(size: number): Lesson[] {
+        return Array.from({ length: size }, (_, index) =>
+          buildLesson({ id: lessonId(index + 1), title: `Aula ${index + 1}` }),
+        );
+      }
+
+      it("asks the registry ONCE for the whole page, with the ids of its lessons in the order of the page", async () => {
+        state.lessons = pageOf(3);
+
+        await service.list(listQuery());
+
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledTimes(1);
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledWith([
+          lessonId(1),
+          lessonId(2),
+          lessonId(3),
+        ]);
+      });
+
+      it("costs one call for a full page, not one per lesson: 100 lessons, one call", async () => {
+        state.lessons = pageOf(100);
+
+        const page = await service.list(listQuery({ limit: 100 }));
+
+        expect(page.data).toHaveLength(100);
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledTimes(1);
+        expect(coverage.findConfirmedStaff.mock.calls[0][0]).toHaveLength(100);
+      });
+
+      it("asks for the lessons of the page and not for the ones of the count: after the page was read", async () => {
+        state.lessons = pageOf(2);
+        state.total = 57;
+
+        await service.list(listQuery({ page: 2, limit: 2 }));
+
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledWith([lessonId(1), lessonId(2)]);
+        const [pageQuery] = state.clones;
+        expect(pageQuery.getMany.mock.invocationCallOrder[0]).toBeLessThan(
+          coverage.findConfirmedStaff.mock.invocationCallOrder[0],
+        );
+      });
+
+      it("fills the teacher and belowExpectedMonitors of each item from the staff of its own lesson", async () => {
+        state.lessons = [
+          buildLesson({ id: lessonId(1), expectedMonitors: 2 }),
+          buildLesson({ id: lessonId(2), expectedMonitors: 2 }),
+          buildLesson({ id: lessonId(3), expectedMonitors: null }),
+        ];
+        coverage.findConfirmedStaff.mockResolvedValue(
+          new Map<string, ConfirmedStaff>([
+            [lessonId(1), { teachers: 1, monitors: 1, teacher: TEACHER }],
+            [lessonId(2), { teachers: 1, monitors: 2, teacher: OTHER_TEACHER }],
+            [lessonId(3), { teachers: 0, monitors: 0, teacher: null }],
+          ]),
+        );
+
+        const page = await service.list(listQuery());
+
+        expect(
+          page.data.map((item) => [item.id, item.teacher, item.belowExpectedMonitors]),
+        ).toEqual([
+          [lessonId(1), TEACHER, true],
+          [lessonId(2), OTHER_TEACHER, false],
+          [lessonId(3), null, false],
+        ]);
+      });
+
+      it("reads a lesson that the registry does not list as a lesson with nobody confirmed", async () => {
+        state.lessons = [
+          buildLesson({ id: lessonId(1), expectedMonitors: 3 }),
+          buildLesson({ id: lessonId(2), expectedMonitors: null }),
+        ];
+
+        const page = await service.list(listQuery());
+
+        // Nobody is confirmed, so the three monitors the first one expects are all missing.
+        expect(page.data.map((item) => [item.teacher, item.belowExpectedMonitors])).toEqual([
+          [null, true],
+          [null, false],
+        ]);
+      });
+
+      it("keeps the order of the page, whatever the order the registry answers in", async () => {
+        state.lessons = pageOf(3);
+        coverage.findConfirmedStaff.mockResolvedValue(
+          new Map<string, ConfirmedStaff>([
+            [lessonId(3), { teachers: 1, monitors: 0, teacher: OTHER_TEACHER }],
+            [lessonId(1), { teachers: 1, monitors: 0, teacher: TEACHER }],
+          ]),
+        );
+
+        const page = await service.list(listQuery());
+
+        expect(page.data.map((item) => item.id)).toEqual([lessonId(1), lessonId(2), lessonId(3)]);
+        expect(page.data.map((item) => item.teacher?.name ?? null)).toEqual([
+          "Ana Torres",
+          null,
+          "Bruno Lima",
+        ]);
+      });
+
+      it("shows no belowExpectedMonitors for a cancelled lesson, and keeps its confirmed teacher", async () => {
+        state.lessons = [
+          buildLesson({
+            id: lessonId(1),
+            expectedMonitors: 2,
+            status: LessonStatus.CANCELLED,
+            cancelledAt: new Date("2026-03-09T12:00:00.000Z"),
+            cancelledById: ACTOR_ID,
+          }),
+        ];
+        coverage.findConfirmedStaff.mockResolvedValue(
+          new Map<string, ConfirmedStaff>([
+            [lessonId(1), { teachers: 1, monitors: 0, teacher: TEACHER }],
+          ]),
+        );
+
+        const [item] = (await service.list(listQuery())).data;
+
+        expect(item.belowExpectedMonitors).toBe(false);
+        expect(item.teacher).toEqual(TEACHER);
+      });
+
+      it("does not ask the registry when no class matches: no lesson is read", async () => {
+        classes.listClassRefs.mockResolvedValue([]);
+
+        await service.list(listQuery());
+
+        expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+      });
+
+      it("does not ask the registry for an empty page: there is nobody to ask about", async () => {
+        state.lessons = [];
+        state.total = 25;
+
+        await service.list(listQuery({ page: 9, limit: 10 }));
+
+        expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+      });
+
+      it("does not ask the registry when the period is not valid: nothing is read before that", async () => {
+        await httpFailure(service.list(listQuery({ from: "2026-04-11", to: "2026-03-01" })));
+
+        expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+      });
+
+      it("fails the page when the registry fails, instead of answering rows with made-up staff", async () => {
+        coverage.findConfirmedStaff.mockRejectedValue(new Error("boom"));
+
+        await expect(service.list(listQuery())).rejects.toThrow("boom");
+      });
+    });
   });
 
   describe("listCalendar()", () => {
@@ -586,6 +753,87 @@ describe("LessonListingService", () => {
         state.lessons = [buildLesson({ classId: CLASS_B_ID })];
 
         await expect(service.listCalendar(calendarQuery())).rejects.toThrow("was not resolved");
+      });
+    });
+
+    describe("the staff of the period (GUS-158)", () => {
+      it("asks the registry ONCE for the whole period, with the ids of every lesson of it", async () => {
+        state.lessons = [
+          buildLesson({ id: lessonId(1) }),
+          buildLesson({ id: lessonId(2), date: "2026-03-17" }),
+          buildLesson({ id: lessonId(3), date: "2026-04-02" }),
+        ];
+
+        await service.listCalendar(calendarQuery());
+
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledTimes(1);
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledWith([
+          lessonId(1),
+          lessonId(2),
+          lessonId(3),
+        ]);
+      });
+
+      it("costs one call for a busy month, not one per lesson", async () => {
+        state.lessons = Array.from({ length: 250 }, (_, index) =>
+          buildLesson({ id: lessonId(index + 1) }),
+        );
+
+        const items = await service.listCalendar(calendarQuery());
+
+        expect(items).toHaveLength(250);
+        expect(coverage.findConfirmedStaff).toHaveBeenCalledTimes(1);
+        expect(coverage.findConfirmedStaff.mock.calls[0][0]).toHaveLength(250);
+      });
+
+      it("fills the teacher and belowExpectedMonitors of each item, the same rule as the list", async () => {
+        state.lessons = [
+          buildLesson({ id: lessonId(1), expectedMonitors: 2 }),
+          buildLesson({ id: lessonId(2), expectedMonitors: 2 }),
+          buildLesson({ id: lessonId(3), expectedMonitors: 2 }),
+        ];
+        coverage.findConfirmedStaff.mockResolvedValue(
+          new Map<string, ConfirmedStaff>([
+            [lessonId(1), { teachers: 1, monitors: 1, teacher: TEACHER }],
+            [lessonId(2), { teachers: 0, monitors: 2, teacher: null }],
+          ]),
+        );
+
+        const items = await service.listCalendar(calendarQuery());
+
+        expect(items.map((item) => [item.teacher, item.belowExpectedMonitors])).toEqual([
+          [TEACHER, true],
+          [null, false],
+          [null, true],
+        ]);
+      });
+
+      it("does not ask the registry when no class matches, nor for a period with no lesson", async () => {
+        classes.listClassRefs.mockResolvedValue([]);
+        await service.listCalendar(calendarQuery());
+
+        classes.listClassRefs.mockResolvedValue([buildClassRef()]);
+        state.lessons = [];
+        await service.listCalendar(calendarQuery());
+
+        expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+      });
+
+      it("does not ask the registry when the period is not valid", async () => {
+        await httpFailure(
+          service.listCalendar(calendarQuery({ from: "2026-04-11", to: "2026-03-01" })),
+        );
+        await httpFailure(
+          service.listCalendar(calendarQuery({ from: "2026-03-01", to: "2026-04-12" })),
+        );
+
+        expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+      });
+
+      it("fails the calendar when the registry fails", async () => {
+        coverage.findConfirmedStaff.mockRejectedValue(new Error("boom"));
+
+        await expect(service.listCalendar(calendarQuery())).rejects.toThrow("boom");
       });
     });
   });
