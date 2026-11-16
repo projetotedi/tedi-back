@@ -102,6 +102,15 @@ export interface CourseSummary {
   status: CourseStatus;
 }
 
+/**
+ * Id and name of a course, for another module (classes, GUS-108: the prerequisites of the course of
+ * a class, for the warning of the enrollment).
+ */
+export interface CourseRef {
+  id: string;
+  name: string;
+}
+
 /** Options of `CoursesService.getCourseSummary`. */
 export interface GetCourseSummaryOptions {
   /** Reads the row `FOR SHARE` until the end of the transaction. Needs the `manager` of one. */
@@ -357,6 +366,55 @@ export class CoursesService {
       category: course.category,
       status: courseStatusOf(course),
     };
+  }
+
+  /**
+   * The summaries of many courses in one query, for another module (classes, GUS-108: the courses
+   * of the enrollment history of a student). A course that is not found and an id that is not a
+   * UUID are left out, a repeated id answers once, and archived courses come with status archived.
+   * The order is not guaranteed: callers index by `id`. Pass the `manager` of a transaction to read
+   * inside it. No lock, no event.
+   */
+  async getCourseSummaries(
+    ids: readonly string[],
+    manager?: EntityManager,
+  ): Promise<CourseSummary[]> {
+    // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
+    const unique = [...new Set(ids.filter((id) => isUUID(id)))];
+    if (unique.length === 0) return [];
+
+    const courses = await (manager ?? this.dataSource)
+      .getRepository(Course)
+      .find({ where: { id: In(unique) } });
+
+    return courses.map((course) => ({
+      id: course.id,
+      name: course.name,
+      category: course.category,
+      status: courseStatusOf(course),
+    }));
+  }
+
+  /**
+   * The courses that `courseId` requires (RF-032), id and name, by name and then id, for another
+   * module (classes, GUS-108: the warning PREREQUISITE_NOT_COMPLETED of an enrollment). An archived
+   * prerequisite is still one: the link stays in the graph and the page of the course shows it. A
+   * removed course and a removed link are left out. A malformed id answers [] without querying.
+   * Pass the `manager` of a transaction to read inside it. No lock, no event.
+   */
+  async findPrerequisiteRefs(courseId: string, manager?: EntityManager): Promise<CourseRef[]> {
+    if (!isUUID(courseId)) return [];
+
+    const rows: CourseRef[] = await (manager ?? this.dataSource).query(
+      `SELECT c.id AS "id", c.name AS "name"
+         FROM course_prerequisites link
+         JOIN courses c ON c.id = link.prerequisite_id AND c.deleted_at IS NULL
+        WHERE link.course_id = $1 AND link.deleted_at IS NULL
+        ORDER BY c.name, c.id`,
+      [courseId],
+    );
+
+    return rows.map((row) => ({ id: row.id, name: row.name }));
   }
 
   /** Runs the work in a transaction and turns the unique violation of the name into 409. */
