@@ -98,9 +98,10 @@ export class EnrollmentsService {
    * Enrolls the students of the body in the class, all or none of the errors (section 19, M6).
    *
    * Errors, in order: 400 DUPLICATE_STUDENT (before the transaction); 404 CLASS_NOT_FOUND; 409
-   * CLASS_ARCHIVED; 409 CLASS_CLOSED; 400 STUDENT_NOT_FOUND; 409 STUDENT_ARCHIVED; 409 CLASS_FULL
-   * (only the new ones count, against the seats left). A student who already has an enrollment in
-   * the class that is not removed, in any status, is skipped (`skipped`), not refused. A prerequisite
+   * CLASS_ARCHIVED; 409 CLASS_CLOSED; 400 STUDENT_NOT_FOUND; 409 STUDENT_ARCHIVED (only among the
+   * ones that would be enrolled); 409 CLASS_FULL (only the new ones count, against the seats left).
+   * A student who already has an enrollment in the class that is not removed, in any status, is
+   * skipped (`skipped`), not refused, even when she is archived. A prerequisite
    * of the course that a student did not complete is a warning (`warnings`, RF-032).
    *
    * Every enrollment made now has `enrolledAt`, `createdAt` and `updatedAt` = one instant of the
@@ -128,11 +129,16 @@ export class EnrollmentsService {
       const studentsById = new Map(students.map((student) => [student.id, student]));
       const notFound = bodyFields(ids, (id) => !studentsById.has(id));
       if (notFound.length > 0) throw studentNotFoundInBody(notFound);
-      const archived = bodyFields(ids, (id) => (studentsById.get(id)?.archivedAt ?? null) !== null);
-      if (archived.length > 0) throw studentArchived(archived);
 
       const live = await this.findLiveEnrollments(manager, schoolClass.id, ids);
       const liveByStudent = new Map(live.map((row) => [row.studentId, row]));
+      // Only who would be enrolled now is refused for being archived: a student who already has an
+      // enrollment in the class is skipped, archived or not (M6).
+      const archived = bodyFields(
+        ids,
+        (id) => !liveByStudent.has(id) && (studentsById.get(id)?.archivedAt ?? null) !== null,
+      );
+      if (archived.length > 0) throw studentArchived(archived);
       const skipped = ids.flatMap((studentId): EnrollmentSkippedResponseDto[] => {
         const row = liveByStudent.get(studentId);
         return row === undefined

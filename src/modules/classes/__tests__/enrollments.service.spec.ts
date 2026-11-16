@@ -402,6 +402,42 @@ describe("EnrollmentsService", () => {
       expect(parameters).toEqual([CLASS_ID, [CARLA, ANA, BRUNO]]);
     });
 
+    it("skips an archived student who already has an enrollment in the class and enrolls the others", async () => {
+      state.students = [
+        summary(ANA, "Ana Souza"),
+        summary(BRUNO, "Bruno Lima", new Date("2026-09-01T12:00:00.000Z")),
+      ];
+      state.live = [
+        {
+          id: "01999a3e-7c1b-7000-8000-0000000000a1",
+          studentId: BRUNO,
+          status: EnrollmentStatus.COMPLETED,
+        },
+      ];
+
+      const result = await service.enroll(CLASS_ID, { studentIds: [BRUNO, ANA] }, ACTOR_ID);
+
+      expect(result.skipped).toEqual([
+        {
+          studentId: BRUNO,
+          reason: "ALREADY_ENROLLED",
+          enrollmentId: "01999a3e-7c1b-7000-8000-0000000000a1",
+          status: EnrollmentStatus.COMPLETED,
+        },
+      ]);
+      expect(result.enrolled.map((enrollment) => enrollment.student.id)).toEqual([ANA]);
+
+      // Archived and not enrolled yet: still refused, with its position.
+      state.live = [];
+      const failure = await httpFailure(
+        service.enroll(CLASS_ID, { studentIds: [BRUNO, ANA] }, ACTOR_ID),
+      );
+      expect(failure.getResponse()).toMatchObject({
+        error: "STUDENT_ARCHIVED",
+        details: [{ field: "studentIds.0", message: "student is archived" }],
+      });
+    });
+
     it("answers 409 CLASS_FULL with the seats left and writes nothing when the new ones pass the seats", async () => {
       state.schoolClass = buildClass({ capacity: 15 });
       state.active = 13;
