@@ -1,9 +1,9 @@
 ---
 feature: E4 Calendário e planejamento de aulas
 epico: E4 Calendário e planejamento de aulas
-modulo: lessons (back; o front entra nas GUS-152, GUS-155 e GUS-156)
-status: GUS-151 implementada no back em 2026-11-11 (PR #42, em develop); GUS-153 (listagem e calendário) implementada no back em 2026-11-16 (branch feature/GUS-153-lessons-list, a abrir PR para develop); GUS-152, 154, 155, 156, 158 e 166 destravadas
-cards: GUS-151 (back), GUS-153 (back). Dependentes: GUS-152 (front do CRUD), GUS-154 (gerar aulas da turma a partir do plano do curso), GUS-155 (front da listagem e do calendário), GUS-156 (detalhe, front), GUS-158 (alocação, preenche teacher e belowExpectedMonitors), GUS-166 (chamada), GUS-168 (horas pela presença de monitores)
+modulo: lessons (back; o front entra nas GUS-152, GUS-155, GUS-156 e GUS-157)
+status: GUS-151 no develop (PR #42); GUS-154 no develop (PR #44); GUS-153 (listagem e calendário) implementada no back em 2026-11-16 (PR #45, em revisão); GUS-152, 155, 156, 157, 158 e 166 destravadas
+cards: GUS-151 (back), GUS-153 (back, listagem e calendário), GUS-154 (back, gerar aulas da turma a partir do plano do curso). Dependentes: GUS-152 (front do CRUD), GUS-155 (front da listagem e do calendário), GUS-156 (detalhe, front), GUS-157 (front do modal "Gerar aulas"), GUS-158 (alocação, preenche teacher e belowExpectedMonitors), GUS-166 (chamada), GUS-168 (horas pela presença de monitores)
 atualizado: 2026-11-16
 ---
 
@@ -13,6 +13,8 @@ atualizado: 2026-11-16
 
 A aula é a unidade que o resto do produto usa: a listagem e o calendário, a geração em série a partir da sequência do curso, a alocação de professor e monitor, a chamada e, mais adiante, as horas (E7). A GUS-151 é o primeiro card do módulo `lessons` e cria o ciclo de vida de uma aula avulsa: criar, ler, editar, cancelar e remarcar. Serve ao objetivo **O3** (turma completa, com aulas geradas e alocação, em menos de 15 min), épico **E4**, funcionalidades F4.1, F4.3 e F4.5, e atende RN-07, RN-18, RN-20, RN-21, RN-22 e RN-27.
 
+A **GUS-154** é o segundo card do módulo: gera as aulas de uma turma a partir da sequência de planos de aula do curso dela (F4.2, RN-17). A coordenação escolhe o dia da semana, o horário e a primeira data, vê uma prévia que marca as aulas fora do período da turma e gera: uma aula por plano, copiando título e objetivo (RN-18), tudo ou nada. Serve ao mesmo **O3** (turma completa em menos de 15 min); o front é a GUS-157.
+
 Valem também as decisões do card: remarcar é a mesma aula, e a data anterior vai para `originalDate` (decisão do Figma para a Q3.4); a aula nasce `planned` e cancelar a mantém, com status `cancelled` (F4.5).
 
 A GUS-153 entrega a leitura em lote (F4.4, RF-043, RF-030): `GET /lessons` (lista paginada, com busca e filtros) e `GET /lessons/calendar` (as aulas de um período de até 42 dias, de todas as turmas, numa chamada só e sem página, com uma cor estável por turma). Serve ao objetivo **O3** (montar o calendário da turma rápido) e destrava a GUS-155 (front). O responsável (`teacher`) e o indicador de monitores abaixo do esperado (`belowExpectedMonitors`) entram no contrato com valor fixo, para a E5 (GUS-158) só preencher.
@@ -20,7 +22,7 @@ A GUS-153 entrega a leitura em lote (F4.4, RF-043, RF-030): `GET /lessons` (list
 ## Posição no roadmap
 
 - **Depende de:** GUS-101 (turmas, PR #37) e GUS-94 (planos de aula, PR #32). `lessons` lê a turma por `ClassesService.getClassSummary` e o catálogo por `LessonPlansService.getLessonPlanSummary`, `CourseLessonPlansService.findPosition` e `CoursesService.getCourseSummary`, todos acrescentados ou exportados nesta feature.
-- **Bloqueia:** GUS-152 (front do CRUD), GUS-153 (listagem e calendário, entregue: criou o índice só por `date`), GUS-154 (gerar aulas da turma: reusa o `LessonCreationService`), GUS-156 (detalhe), GUS-158 (alocação) e GUS-166 (chamada).
+- **Bloqueia:** GUS-152 (front do CRUD), GUS-153 (listagem e calendário, entregue: criou o índice só por `date`), GUS-154 (gerar aulas da turma, entregue: reusou o `LessonCreationService` e acrescentou `CourseLessonPlansService.getSequenceSummaries` ao contrato do `catalog`), GUS-156 (detalhe), GUS-157 (front da geração), GUS-158 (alocação) e GUS-166 (chamada).
 - **GUS-153 depende de:** GUS-151 (a entidade `Lesson`) e GUS-102 (turmas com curso). Acrescenta o contrato `ClassesService.listClassRefs` e a busca `applyTextSearchAllWords` (shared). **Bloqueia:** GUS-155 (front da listagem e do calendário, que gera os hooks do Orval de `listLessons` e `listLessonsCalendar`) e GUS-158 (preencher `teacher` e `belowExpectedMonitors` em lote por página, sem N+1).
 
 ## Escopo
@@ -34,10 +36,18 @@ A GUS-153 entrega a leitura em lote (F4.4, RF-043, RF-030): `GET /lessons` (list
 - Contratos novos entre módulos: `ClassesService.getClassSummary`, `LessonPlansService.getLessonPlanSummary` e `CourseLessonPlansService.findPosition`, com `ClassesModule` e `CatalogModule` exportando os services.
 - Requests do Bruno em `collections/lessons/` e a seção 14 de `docs/ARCHITECTURE.md`.
 
+**GUS-154 (geração em série):**
+
+- `POST /classes/:id/lessons/preview` (`previewClassLessons`, 200, não grava) e `POST /classes/:id/lessons/generate` (`generateClassLessons`, 201, tudo ou nada), com `lessons.manage` e o corpo `{ weekday, startTime, endTime, firstDate, location? }`, em `ClassLessonsController` (a turma é o recurso da URL).
+- `LessonGenerationService`, `services/lesson-series.ts` (datas, funções puras), `lesson-audit.ts` (o payload do `LESSON_CREATED`, agora compartilhado com o `POST /lessons`), enum `Weekday` (só do corpo e do OpenAPI) e os erros `LESSONS_ALREADY_GENERATED`, `COURSE_WITHOUT_SEQUENCE`, `LESSONS_OUTSIDE_CLASS_PERIOD` e o 404 `CLASS_NOT_FOUND` da URL. **Sem migration, sem entidade, sem índice novo** (a `Lesson` já tem `lessonPlanId` e `sequenceOrder`, e `idx_lessons_class_id_date` atende a consulta "a turma já tem aulas geradas?").
+- `CourseLessonPlansService.getSequenceSummaries(courseId, manager?, { forShare? })`, exportado pelo `catalog`.
+- Requests `preview-class-lessons.bru` e `generate-class-lessons.bru`, `docs/openapi.json` e a seção 14 de `docs/ARCHITECTURE.md`.
+
 ### Fora (explicitamente)
 
-- Listagem, filtros, paginação e calendário (GUS-153); geração em série a partir da sequência do curso (GUS-154); alocação e candidatura (GUS-158); chamada e presença (GUS-166); o listener de estorno de horas (E7), de que só o evento `lesson.cancelled` existe.
+- Listagem, filtros, paginação e calendário (GUS-153); alocação e candidatura (GUS-158); chamada e presença (GUS-166); o listener de estorno de horas (E7), de que só o evento `lesson.cancelled` existe.
 - Descancelar, excluir ou arquivar aula; regras de transição de status (quem marca `done`, `done` só depois da data) e bloqueio de remarcar aula `done`.
+- Da geração em série (GUS-154): o front, modal "Gerar aulas" (GUS-157); estender o período da turma pelo modal; desfazer, apagar ou regerar aulas já geradas; mais de um dia por semana, feriados e datas a pular; `expectedStudents`, `expectedMonitors` e `subject` no corpo da geração; conflito de horário ou de local e checar a data contra "hoje"; mudança na matriz de permissões.
 - Validar as aulas contra a mudança de período da turma (risco P9 da GUS-101), conflito de horário ou de local entre aulas, seed de dados de desenvolvimento, o front (GUS-152, GUS-156), mudança na matriz de permissões e i18n.
 
 ### GUS-153 (listagem e calendário), dentro
@@ -54,7 +64,7 @@ A GUS-153 entrega a leitura em lote (F4.4, RF-043, RF-030): `GET /lessons` (list
 
 ## Decisões
 
-Decisões L1 a L12 do plano da GUS-151, propostas pelo planejador e **aprovadas em 2026-11-11** como recomendadas, e L13 a L26 do plano da GUS-153, **aprovadas em 2026-11-16** como recomendadas. A justificativa vai junto de cada uma.
+Decisões L1 a L12 do plano da GUS-151, propostas pelo planejador e **aprovadas em 2026-11-11** como recomendadas; L13 a L26 do plano da GUS-153, **aprovadas em 2026-11-16** como recomendadas; e G1 a G13 do plano da GUS-154, **aprovadas em 2026-11-16** com as opções recomendadas (a), por pré-autorização do usuário para a execução da esteira (o CRIT foi pulado). A justificativa vai junto de cada uma.
 
 | #   | Data       | Pergunta                                                       | Decisão                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | --- | ---------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,14 +95,33 @@ Decisões L1 a L12 do plano da GUS-151, propostas pelo planejador e **aprovadas 
 | L25 | 2026-11-16 | Que formato tem o calendário?                                  | **Array simples com o mesmo item da lista, e aceita `search`:** um tipo só no Orval. "Os mesmos filtros", como pede o card.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | L26 | 2026-11-16 | Onde mora o código? E a ordem das rotas?                       | **`LessonListingService` separado** (o `LessonsService` já tem mais de 600 linhas). **As duas rotas são declaradas antes de `GET /lessons/:id`**: sem a ordem certa, `/lessons/calendar` responderia 404 `LESSON_NOT_FOUND`.                                                                                                                                                                                                                                                                                                                 |
 
+Decisões G1 a G13 da GUS-154 (geração em série):
+
+| #   | Data       | Pergunta                                    | Decisão                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ---------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | 2026-11-16 | O que conta como "já gerada"?               | **Qualquer aula da turma com `sequenceOrder IS NOT NULL`, cancelada inclusive**: a posição é a marca de "veio da sequência" e a cancelada continua existindo (F4.5). Aula avulsa, sem `sequenceOrder`, não bloqueia. Gerar de novo: 409 `LESSONS_ALREADY_GENERATED`.                                                                                                                                                                    |
+| G2  | 2026-11-16 | Duplicação em corrida?                      | **`pg_advisory_xact_lock(hashtext('lessons.generate:<classId>'))` dentro da transação, com a checagem de G1 refeita sob a trava** (precedente: o grafo de pré-requisitos do catálogo; não muda o `classes`). Limite: não serializa contra um `POST /lessons` manual com `sequenceOrder` no mesmo instante, caso raro que se corrige cancelando a aula. Índice único parcial foi descartado: exige migration e quebra a aula substituta. |
+| G3  | 2026-11-16 | `firstDate` fora do `weekday`?              | **Avança até o primeiro `weekday` a partir da data** ("a partir de"); a prévia mostra a data real. Não é 400.                                                                                                                                                                                                                                                                                                                           |
+| G4  | 2026-11-16 | Aula antes do início ou depois do fim?      | **Fora do período (RN-21): a prévia marca `outsideClassPeriod`, o `generate` responde 409 `LESSONS_OUTSIDE_CLASS_PERIOD` antes de qualquer insert** (o Figma confirma que o sistema não grava aula fora do período). 409 e não 400 porque o corpo está certo, quem briga é o período da turma. `details[].field = "firstDate"`.                                                                                                         |
+| G5  | 2026-11-16 | Duração na prévia?                          | **`expectedDurationMinutes` do plano em cada item** (o "1h30" do Figma) **e `durationMinutes` do horário** (`endTime - startTime`, a duração real de cada aula) no topo. A aula gravada usa o horário do corpo.                                                                                                                                                                                                                         |
+| G6  | 2026-11-16 | Plano arquivado na sequência?               | **Pula**: não origina aula (L1, RN-27) e aparece em `skippedLessonPlans`. As datas seguem consecutivas e o `sequenceOrder` das demais mantém a posição real (pode haver lacuna). Tudo arquivado ou sequência vazia: 409 `COURSE_WITHOUT_SEQUENCE`.                                                                                                                                                                                      |
+| G7  | 2026-11-16 | Erros da prévia?                            | **Os mesmos 404 e 409 do generate, menos o de período, que só marca**: a prévia é "o que o generate faria".                                                                                                                                                                                                                                                                                                                             |
+| G8  | 2026-11-16 | Evento de auditoria?                        | **Um `LESSON_CREATED` por aula, depois do commit**, com o payload do `POST /lessons` (`lessonCreatedPayload`). Nenhum `AuditableAction` novo.                                                                                                                                                                                                                                                                                           |
+| G9  | 2026-11-16 | Resposta do generate?                       | **201 com `{ classId, lessons }`**: objeto, que pode crescer sem quebrar o Orval, e não array cru.                                                                                                                                                                                                                                                                                                                                      |
+| G10 | 2026-11-16 | Curso arquivado?                            | **Não bloqueia**: a turma de curso arquivado continua editável (seção 13) e a sequência continua legível.                                                                                                                                                                                                                                                                                                                               |
+| G11 | 2026-11-16 | Status da turma (`completed`, `cancelled`)? | **Não bloqueia** (L9 herdada): só a turma arquivada é somente leitura.                                                                                                                                                                                                                                                                                                                                                                  |
+| G12 | 2026-11-16 | Como ler os planos da sequência?            | **Método novo `CourseLessonPlansService.getSequenceSummaries`**: uma leitura em ordem de posição, com o objetivo e `FOR SHARE` quando pedido. O `readSequence` não traz o objetivo, e `getLessonPlanSummary` por plano seria N+1. **Mexe no `catalog` (de outro time): avisar no PR.**                                                                                                                                                  |
+| G13 | 2026-11-16 | Onde mora o cálculo das datas?              | **`services/lesson-series.ts`, funções puras testáveis sem Nest nem banco**, e `lesson-generation.service.ts` como orquestrador injetável (precedente: `lesson-schedule.ts`).                                                                                                                                                                                                                                                           |
+
 ## Regras de negócio confirmadas
 
 - RN-07: cancelar a aula estorna as horas já lançadas. Aqui só sai o evento `lesson.cancelled`; o estorno é do `hours` (E7).
-- RN-18: título e objetivo são copiados do plano na criação e são da aula depois; mudar ou arquivar o plano não muda aula já criada.
+- RN-17: a sequência de planos do curso tem uma ordem, e a geração em série a segue: a primeira aula é o plano da posição 1, e assim por diante (aqui, a posição de um plano arquivado só some da lista, não renumera as outras).
+- RN-18: título e objetivo são copiados do plano na criação e são da aula depois; mudar ou arquivar o plano não muda aula já criada. Vale para a geração em série, que copia o objetivo de cada plano (`null` inclusive).
 - RN-20: a aula pertence a uma turma, e a turma, o plano de origem e a posição na sequência não mudam depois de criada.
-- RN-21: a data da aula cai no período da turma, extremos incluídos.
+- RN-21: a data da aula cai no período da turma, extremos incluídos. Na geração em série o sistema **não grava** aula fora dele: a prévia a marca e o `generate` recusa a série inteira (409).
 - RN-22: a turma não tem turno; o horário mora em cada aula.
-- RN-27: turma arquivada é somente leitura, e isso vale para as aulas dela (409 `CLASS_ARCHIVED`).
+- RN-27: turma arquivada é somente leitura, e isso vale para as aulas dela (409 `CLASS_ARCHIVED`), inclusive para a prévia e a geração em série. Plano arquivado não origina aula nova: a geração o pula.
 - F4.5: o status da aula é `planned`, `confirmed`, `done` ou `cancelled`; a cancelada é definitiva.
 - RN-27 (listagem, GUS-153): a aula de turma arquivada não entra na lista nem no calendário, e só aparece quando o filtro é a própria turma (`classId`).
 
@@ -102,17 +131,22 @@ Decisões L1 a L12 do plano da GUS-151, propostas pelo planejador e **aprovadas 
 | ---------------------------------------------------------- | ------ | ------- | ------------ |
 | Ler uma aula, a lista e o calendário (`lessons.view`)      | ✅     | ✅      | ✅           |
 | Criar, editar, cancelar e remarcar aula (`lessons.manage`) | ❌     | ✅      | ✅           |
+| Prévia e geração em série das aulas (`lessons.manage`)     | ❌     | ✅      | ✅           |
 
 Superadmin passa em tudo. O escopo é só `all` ou `none`, então o guard decide e o service não usa `PermissionPolicy`. A matriz de permissões não mudou nesta feature.
 
 ## Riscos e pendências
 
-- **P9 da GUS-101:** `PATCH /classes/:id` encurta o período da turma sem olhar as aulas. Depois desta feature, uma turma pode ficar com aulas fora do período. A GUS-153 **não bloqueia nem avisa**: a listagem não filtra pelo período da turma, então essas aulas continuam aparecendo. Continua aberto para a F2.6 decidir se bloqueia com 409 ou avisa. Remarcar uma aula assim exige data dentro do período novo.
+- **P9 da GUS-101:** `PATCH /classes/:id` encurta o período da turma sem olhar as aulas. Depois desta feature, uma turma pode ficar com aulas fora do período (e a geração em série, com a série já gravada dentro do período antigo, deixa isso mais provável). A GUS-153 **não bloqueia nem avisa**: a listagem não filtra pelo período da turma, então essas aulas continuam aparecendo. Continua aberto para a F2.6 decidir se bloqueia com 409 ou avisa. Remarcar uma aula assim exige data dentro do período novo.
 - **L5 a confirmar no Figma** (modal Editar aula, node 662-33222) pelo revisor humano no PR.
-- **GUS-154:** montar os `LessonDraft` a partir de `CourseLessonPlansService.readSequence` e chamar `LessonCreationService.createMany` dentro da própria transação, com a turma lida por `getClassSummary(..., { forShare: true })`, e emitir `LESSON_CREATED` de cada aula depois do commit.
+- **GUS-154 (feita):** o `LessonGenerationService` monta os `LessonDraft` a partir de `CourseLessonPlansService.getSequenceSummaries` (o `readSequence` não traz o objetivo, G12) e chama `LessonCreationService.createMany` dentro da própria transação, com a turma lida por `getClassSummary(..., { forShare: true })`, e emite `LESSON_CREATED` de cada aula depois do commit. A ordem das travas é turma `FOR SHARE`, advisory lock da turma, curso `FOR SHARE`, planos `FOR SHARE`, insert; qualquer escrita nova que trave turma, curso ou plano deve respeitá-la.
+- **GUS-157 (front, modal "Gerar aulas"):** consome `previewClassLessons` e `generateClassLessons`. O aviso "A turma termina em 24/04/2026" lê `classEndDate` e `outsideClassPeriodCount` da prévia; não há rota de "estender período" no modal, então o front leva o usuário ao `PATCH /classes/:id`. Os 409 chegam pelo `error` (`LESSONS_OUTSIDE_CLASS_PERIOD`, `LESSONS_ALREADY_GENERATED`, `COURSE_WITHOUT_SEQUENCE`, `CLASS_ARCHIVED`); `skippedLessonPlans` diz quais planos arquivados ficaram de fora.
+- **Advisory lock (G2):** a geração serializa contra outra geração da mesma turma, mas não contra um `POST /lessons` manual com `sequenceOrder` no mesmo instante. Raro; se acontecer, a coordenação cancela a aula repetida.
+- **Mudança no `catalog` (G12):** `getSequenceSummaries` é um método novo exportado por um módulo de outro time. Avisar no PR; o contrato é o que o `lessons` lê, e o `catalog` não conhece o `lessons`.
+- **Sequência do curso mudando depois da geração:** não muda as aulas (fotografia, RN-18 e RN-20), e gerar de novo responde 409. Um plano acrescentado depois vira aula à mão, por `POST /lessons`.
 - **E7 (`hours`):** ouvir `lesson.cancelled` (`LessonCancelledEvent`) e estornar as horas da aula; hoje ninguém ouve.
 - **GUS-108 (matrícula):** vai travar a turma `FOR UPDATE`; convive com o `FOR SHARE` das aulas, e não há espera em círculo porque `classes` nunca trava aula.
-- **Conflito de horário** entre aulas da mesma turma não é checado; remarcar aula `done` é permitido; não há regra de transição de status.
+- **Conflito de horário** entre aulas da mesma turma não é checado (as aulas geradas podem coincidir com aulas avulsas que a turma já tinha); remarcar aula `done` é permitido; não há regra de transição de status.
 - **Seed de dados de desenvolvimento** (L12): a infraestrutura não existe; sugerir uma issue.
 - **GUS-153, N das cores (L15):** confirmar com os tokens `calendar/event-*` do Figma que são 8 cores; mudar o N é mudar `LESSON_CALENDAR_COLOR_COUNT` (e o `maximum` do `colorIndex` no contrato).
 - **GUS-153, nome do responsável (L20):** confirmar `teacher` com a GUS-158 (alternativa: `responsible`).
@@ -123,11 +157,11 @@ Superadmin passa em tudo. O escopo é só `all` ou `none`, então o guard decide
 
 ## Issues no Linear
 
-GUS-151 Aulas: módulo, entidade e CRUD, criar, editar, cancelar e remarcar (back). Destravadas: GUS-152, GUS-153, GUS-154, GUS-156, GUS-158, GUS-166. Sugeridas: período da turma contra as aulas (P9) e infraestrutura de seed de desenvolvimento.
+GUS-151 Aulas: módulo, entidade e CRUD, criar, editar, cancelar e remarcar (back). GUS-154 Gerar aulas da turma a partir do plano do curso (back). Destravadas: GUS-152, GUS-153, GUS-156, GUS-157 (front da geração), GUS-158, GUS-166. Sugeridas: período da turma contra as aulas (P9) e infraestrutura de seed de desenvolvimento.
 
 GUS-153 Aulas: listagem e calendário (back). Destravadas: GUS-155 (front) e a parte de leitura da GUS-158.
 
 ## Referências
 
-- Arquitetura: `docs/ARCHITECTURE.md` seção 3 (`catalog ← lessons`, `classes ← lessons`, `lessons ──evento──▶ hours`), seção 10 (arquivar em vez de excluir), seção 12 (busca textual, incluindo a busca por palavras), seção 13 (turmas), seção 14 (aulas) e seção 14.1 (listagem e calendário, GUS-153).
+- Arquitetura: `docs/ARCHITECTURE.md` seção 3 (`catalog ← lessons`, `classes ← lessons`, `lessons ──evento──▶ hours`), seção 10 (arquivar em vez de excluir), seção 12 (busca textual, incluindo a busca por palavras), seção 13 (turmas), seção 14 (aulas, com o item da geração em série da GUS-154) e seção 14.1 (listagem e calendário, GUS-153).
 - Memória vizinha: `e2-classes-enrollments.md` (a turma, o P9 e o `FOR UPDATE` da matrícula) e `e9a-acesso-ao-sistema.md` (decisão 6: módulos não importam `auth`; decisão 35: código em inglês).

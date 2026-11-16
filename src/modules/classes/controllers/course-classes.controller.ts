@@ -34,8 +34,8 @@ const COURSE_ID = new ParseUUIDPipe({ exceptionFactory: () => courseNotFound() }
  * the classes (docs/ARCHITECTURE.md, section 3).
  *
  * Both need classes.view, which every profile has. The module registers this controller before
- * `ClassesController` on purpose: when the detail `GET /classes/:id` exists (GUS-104), it must not
- * capture `GET /classes/summary-by-course`.
+ * `ClassesController` on purpose: the detail `GET /classes/:id` (GUS-104) must not capture
+ * `GET /classes/summary-by-course`.
  */
 @ApiTags("classes")
 @Controller()

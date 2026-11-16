@@ -20,8 +20,19 @@ import {
   toCourseLessonPlansResponse,
 } from "./course-lesson-plans-response.mapper";
 import { courseArchived, courseNotFound } from "./courses.service";
+import { LessonPlanSummary } from "./lesson-plans.service";
 
 const COURSE_TARGET_TYPE = "course";
+
+/**
+ * A lesson plan of the sequence of a course, as another module reads it: the summary of the plan
+ * (title, objective, duration, `archivedAt`) with the `position` it has in that sequence. The shape
+ * is the contract of `getSequenceSummaries`: the entities never leave this module.
+ */
+export interface SequencedLessonPlanSummary extends LessonPlanSummary {
+  /** Place of the plan in the sequence of the course, from 1: the "aula 1" the coordination sees. */
+  position: number;
+}
 
 /**
  * 400 here, 404 in the routes of the lesson plans: the id of a lesson plan is in the body of the
@@ -217,6 +228,72 @@ export class CourseLessonPlansService {
     });
 
     return link?.position ?? null;
+  }
+
+  /**
+   * The sequence of `courseId` in order of position, one summary per plan, each with the
+   * `position` it has (from 1). It is the contract of the generation of the lessons of a class
+   * (GUS-154): one lesson per plan, in this order, copying the title and the objective (RN-18),
+   * with the duration the preview shows. `readSequence`, the answer of the routes of the catalog,
+   * does not carry the objective, and reading each plan with `getLessonPlanSummary` would be one
+   * query per plan.
+   *
+   * An archived plan that stayed in the sequence is returned, with `archivedAt` set: it is the
+   * caller that decides what an archived plan means (RN-27). A plan that was removed (soft delete)
+   * is not, the same as in `readSequence`: its link is left out. Empty for an id that is not a
+   * UUID, for a course that does not exist and for a course without plans: whoever calls decides
+   * the error.
+   *
+   * Pass the `manager` of a transaction to read inside it. `forShare` locks the plans of the
+   * sequence FOR SHARE until the end of that transaction (so it needs one: without it this throws,
+   * as a bug of the caller, like `CoursesService.getCourseSummary`). That lock conflicts with the
+   * FOR UPDATE that `PATCH /lesson-plans/:id` and its `/archive` take, so a plan cannot be edited
+   * or archived between the read and the writes that depend on it. It does not lock the course nor
+   * the links: whoever needs the sequence itself to hold still locks the course too
+   * (`CoursesService.getCourseSummary` with `forShare`), which conflicts with the FOR UPDATE that
+   * `replace` takes first. A plain read otherwise: no transaction of its own, no event.
+   */
+  async getSequenceSummaries(
+    courseId: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<SequencedLessonPlanSummary[]> {
+    if (options.forShare === true && manager === undefined) {
+      throw new Error("forShare needs the manager of a transaction");
+    }
+    // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
+    if (!isUUID(courseId)) return [];
+
+    const source = manager ?? this.dataSource.manager;
+    const links = await source.find(CourseLessonPlan, {
+      where: { courseId },
+      order: { position: "ASC" },
+    });
+    if (links.length === 0) return [];
+
+    const plans = await source.find(LessonPlan, {
+      where: { id: In(links.map((link) => link.lessonPlanId)) },
+      ...(options.forShare === true ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
+    const plansById = new Map(plans.map((plan) => [plan.id, plan]));
+
+    // The order is the one of the links: `find` over the plans promises none.
+    return links.flatMap((link) => {
+      const plan = plansById.get(link.lessonPlanId);
+      if (plan === undefined) return [];
+
+      return [
+        {
+          id: plan.id,
+          title: plan.title,
+          objective: plan.objective ?? null,
+          expectedDurationMinutes: plan.expectedDurationMinutes,
+          // The embedded columns are missing on an entity that was just inserted, not loaded.
+          archivedAt: plan.archive?.archivedAt ?? null,
+          position: link.position,
+        },
+      ];
+    });
   }
 
   /** The course, locked FOR UPDATE until the end of the transaction. */

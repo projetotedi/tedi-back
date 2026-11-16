@@ -268,6 +268,391 @@
         ],
         "type": "object"
       },
+      "ClassDetailCourseResponseDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "description": "Always the current category of the course: a class has no category of its own (RN-14).",
+            "example": "basic"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonPlanCount": {
+            "description": "Lesson plans in the sequence of the course, archived plans that stayed in it included (same number as GET /courses/{id}).",
+            "example": 6,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "example": "Informática Básica",
+            "type": "string"
+          },
+          "plannedWorkloadMinutes": {
+            "description": "Sum of the expected durations of the sequence (RF-018, RN-24), never stored.",
+            "example": 540,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseStatus"
+              }
+            ],
+            "description": "Status of the course now. An archived course keeps its classes, and takes no new class (RF-020).",
+            "example": "active"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "status",
+          "lessonPlanCount",
+          "plannedWorkloadMinutes"
+        ],
+        "type": "object"
+      },
+      "ClassDetailDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Set when archived: the class is then read-only (RN-27). Null while active.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "capacity": {
+            "description": "Number of seats.",
+            "example": 15,
+            "type": "integer"
+          },
+          "code": {
+            "description": "Unique inside its edition.",
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "course": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassDetailCourseResponseDto"
+              }
+            ],
+            "description": "The course this class offers, read now: its category is the one of the course (RN-14, RF-029), and changing it there changes it here."
+          },
+          "createdAt": {
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Null when the person who created the class was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "edition": {
+            "$ref": "#/components/schemas/EditionResponseDto"
+          },
+          "endDate": {
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "enrollmentsPreview": {
+            "description": "Up to 5 active enrollments, the earliest first. The full list is GET /classes/{id}/enrollments (GUS-108). Empty when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/ClassEnrollmentPreviewItemResponseDto"
+            },
+            "type": "array"
+          },
+          "enrollmentsTotal": {
+            "description": "Active enrollments of the class, the same as summary.enrolledCount.",
+            "example": 12,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "location": {
+            "description": "Null when not informed.",
+            "example": "Laboratório 3, bloco B",
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional label. Null when not informed.",
+            "example": "Informática Básica, turma A",
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "description": "Independent of archiving: an archived class keeps its status (RF-034, RN-27).",
+            "example": "planned"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ClassDetailSummaryResponseDto"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "edition",
+          "startDate",
+          "endDate",
+          "location",
+          "capacity",
+          "status",
+          "archivedAt",
+          "createdAt",
+          "createdBy",
+          "course",
+          "summary",
+          "enrollmentsPreview",
+          "enrollmentsTotal"
+        ],
+        "type": "object"
+      },
+      "ClassDetailSummaryResponseDto": {
+        "properties": {
+          "averageAttendance": {
+            "description": "Fraction from 0 to 1. Null until the attendance module exists (E6).",
+            "example": null,
+            "maximum": 1,
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "capacity": {
+            "description": "Number of seats.",
+            "example": 15,
+            "type": "integer"
+          },
+          "enrolledCount": {
+            "description": "Active enrollments. 0 until enrollments exist (GUS-108).",
+            "example": 12,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lessonsDone": {
+            "description": "Null until the lessons module feeds the sheet of the class (RF-035).",
+            "example": null,
+            "nullable": true,
+            "type": "integer"
+          },
+          "lessonsTotal": {
+            "description": "Null until the lessons module feeds the sheet of the class (RF-035).",
+            "example": null,
+            "nullable": true,
+            "type": "integer"
+          },
+          "occupancyRate": {
+            "description": "enrolledCount / capacity, rounded to two decimals. Can pass 1 if the class is over capacity.",
+            "example": 0.8,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "enrolledCount",
+          "capacity",
+          "occupancyRate",
+          "lessonsDone",
+          "lessonsTotal",
+          "averageAttendance"
+        ],
+        "type": "object"
+      },
+      "ClassEnrollmentPreviewItemResponseDto": {
+        "properties": {
+          "enrolledAt": {
+            "example": "2026-02-20T14:30:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id of the enrollment.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "student": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "The enrolled student."
+          }
+        },
+        "required": [
+          "id",
+          "student",
+          "enrolledAt"
+        ],
+        "type": "object"
+      },
+      "ClassLessonPreviewItemResponseDto": {
+        "properties": {
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD, one week after the lesson before it.",
+            "example": "2026-04-07",
+            "format": "date",
+            "type": "string"
+          },
+          "expectedDurationMinutes": {
+            "description": "The duration the lesson plan expects, in minutes. The lesson itself gets the time of the body (startTime to endTime), which is the top-level durationMinutes.",
+            "example": 90,
+            "type": "integer"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000011",
+            "format": "uuid",
+            "type": "string"
+          },
+          "outsideClassPeriod": {
+            "description": "True when `date` is before the first day or after the last day of the class (RN-21). The preview only marks it: generating with any such lesson answers 409 LESSONS_OUTSIDE_CLASS_PERIOD.",
+            "example": false,
+            "type": "boolean"
+          },
+          "sequenceOrder": {
+            "description": "Position of the plan in the sequence of the course: the `sequenceOrder` its lesson would carry. It keeps the real position, so it can skip a number when an archived plan is left out (see skippedLessonPlans).",
+            "example": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "description": "The title the lesson would copy from the plan (RN-18).",
+            "example": "Conhecendo o computador",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequenceOrder",
+          "lessonPlanId",
+          "title",
+          "date",
+          "expectedDurationMinutes",
+          "outsideClassPeriod"
+        ],
+        "type": "object"
+      },
+      "ClassLessonsPreviewResponseDto": {
+        "properties": {
+          "classEndDate": {
+            "description": "Last day of the class: no lesson can be after it. The warning of the lessons outside the period reads it.",
+            "example": "2026-04-24",
+            "format": "date",
+            "type": "string"
+          },
+          "classId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "classStartDate": {
+            "description": "First day of the class: no lesson can be before it.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "durationMinutes": {
+            "description": "From startTime to endTime, in minutes: how long each lesson would be. Calculated, not typed.",
+            "example": 120,
+            "type": "integer"
+          },
+          "endTime": {
+            "example": "11:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "items": {
+            "description": "One per active lesson plan of the sequence of the course, in the order of the sequence: the first on the first weekday on or after firstDate and each next one a week later. Never empty (a course without an active plan answers 409 COURSE_WITHOUT_SEQUENCE).",
+            "items": {
+              "$ref": "#/components/schemas/ClassLessonPreviewItemResponseDto"
+            },
+            "type": "array"
+          },
+          "lessonCount": {
+            "description": "How many lessons would be created: the number of items.",
+            "example": 4,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "location": {
+            "description": "The place every lesson would have. Null when not informed.",
+            "example": "Laboratório 2 — Bloco B",
+            "nullable": true,
+            "type": "string"
+          },
+          "outsideClassPeriodCount": {
+            "description": "How many items are outsideClassPeriod. Above 0, generating answers 409 LESSONS_OUTSIDE_CLASS_PERIOD: the class must be extended (or the series moved) first.",
+            "example": 1,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skippedLessonPlans": {
+            "description": "The archived plans of the sequence, which originate no lesson (RN-27). The days stay consecutive: a skipped plan leaves no gap. Empty when none is archived.",
+            "items": {
+              "$ref": "#/components/schemas/SkippedLessonPlanResponseDto"
+            },
+            "type": "array"
+          },
+          "startTime": {
+            "example": "09:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "weekday": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Weekday"
+              }
+            ],
+            "example": "tuesday"
+          }
+        },
+        "required": [
+          "classId",
+          "classStartDate",
+          "classEndDate",
+          "weekday",
+          "startTime",
+          "endTime",
+          "durationMinutes",
+          "location",
+          "lessonCount",
+          "outsideClassPeriodCount",
+          "items",
+          "skippedLessonPlans"
+        ],
+        "type": "object"
+      },
       "ClassResponseDto": {
         "properties": {
           "archiveReason": {
@@ -1321,6 +1706,72 @@
         "required": [
           "name",
           "phone"
+        ],
+        "type": "object"
+      },
+      "GenerateClassLessonsDto": {
+        "properties": {
+          "endTime": {
+            "description": "End of every lesson, HH:mm in 24 hours. It must be after startTime (else 400 INVALID_TIME_RANGE): a lesson does not cross midnight.",
+            "example": "11:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "firstDate": {
+            "description": "Where the series starts, YYYY-MM-DD. The first lesson is on the first weekday on or after this date: this very date when it already is that weekday, otherwise the next one (a monday with weekday tuesday starts the next day). Each next lesson is a week after the one before.",
+            "example": "2026-04-07",
+            "format": "date",
+            "type": "string"
+          },
+          "location": {
+            "description": "Place of every lesson. Null or blank means not informed. A lesson can have its place changed afterwards.",
+            "example": "Laboratório 2 — Bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "startTime": {
+            "description": "Start of every lesson, HH:mm in 24 hours.",
+            "example": "09:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "weekday": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Weekday"
+              }
+            ],
+            "description": "The day of the week of the lessons: one lesson a week, always on this day. Lower case English name.",
+            "example": "tuesday"
+          }
+        },
+        "required": [
+          "weekday",
+          "startTime",
+          "endTime",
+          "firstDate"
+        ],
+        "type": "object"
+      },
+      "GeneratedClassLessonsResponseDto": {
+        "properties": {
+          "classId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessons": {
+            "description": "The lessons created, planned, in the order of the sequence (so by date). Each one is the same LessonResponseDto the other routes of the module answer.",
+            "items": {
+              "$ref": "#/components/schemas/LessonResponseDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "classId",
+          "lessons"
         ],
         "type": "object"
       },
@@ -3581,6 +4032,38 @@
         ],
         "type": "string"
       },
+      "SkippedLessonPlanResponseDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "When the plan was archived.",
+            "example": "2026-03-20T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000012",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "Position of the plan in the sequence of the course.",
+            "example": 2,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequenceOrder",
+          "lessonPlanId",
+          "title",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
       "StudentDetailDto": {
         "properties": {
           "accessibilityNeed": {
@@ -4201,6 +4684,19 @@
           }
         },
         "type": "object"
+      },
+      "Weekday": {
+        "description": "The day of the week of the lessons: one lesson a week, always on this day. Lower case English name.",
+        "enum": [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday"
+        ],
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -5183,6 +5679,86 @@
       }
     },
     "/classes/{id}": {
+      "get": {
+        "operationId": "getClass",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassDetailDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      },
       "patch": {
         "operationId": "updateClass",
         "parameters": [
@@ -5383,6 +5959,210 @@
         },
         "tags": [
           "classes"
+        ]
+      }
+    },
+    "/classes/{id}/lessons/generate": {
+      "post": {
+        "operationId": "generateClassLessons",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateClassLessonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedClassLessonsResponseDto"
+                }
+              }
+            },
+            "description": "The lessons created, in the order of the sequence, all or none. Each one is planned and copies the title and the objective of its lesson plan (RN-18)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | LESSONS_ALREADY_GENERATED | COURSE_WITHOUT_SEQUENCE | LESSONS_OUTSIDE_CLASS_PERIOD"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/classes/{id}/lessons/preview": {
+      "post": {
+        "operationId": "previewClassLessons",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateClassLessonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassLessonsPreviewResponseDto"
+                }
+              }
+            },
+            "description": "What generateClassLessons would create with the same body, without creating it: one lesson per active lesson plan of the sequence of the course, in order, with its day. A lesson outside the period of the class is marked (outsideClassPeriod), not refused. Writes nothing and emits no event."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | LESSONS_ALREADY_GENERATED | COURSE_WITHOUT_SEQUENCE"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
         ]
       }
     },

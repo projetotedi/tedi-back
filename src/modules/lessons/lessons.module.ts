@@ -3,9 +3,11 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { ClassesModule } from "@modules/classes/classes.module";
 import { Clock } from "@shared/dates/clock";
+import { ClassLessonsController } from "./controllers/class-lessons.controller";
 import { LessonsController } from "./controllers/lessons.controller";
 import { Lesson } from "./entities/lesson.entity";
 import { LessonCreationService } from "./services/lesson-creation.service";
+import { LessonGenerationService } from "./services/lesson-generation.service";
 import { LessonListingService } from "./services/lesson-listing.service";
 import { LessonsService } from "./services/lessons.service";
 
@@ -15,16 +17,27 @@ import { LessonsService } from "./services/lessons.service";
   //   and the classes of the list and the calendar, with their course and color slot
   //   (ClassesService.listClassRefs, GUS-153: the lessons read no table of `classes`);
   // - CatalogModule: the name of the course (CoursesService.getCourseSummary), the lesson plan a
-  //   lesson is created from (LessonPlansService.getLessonPlanSummary) and the position of that
-  //   plan in the sequence of the course (CourseLessonPlansService.findPosition).
+  //   lesson is created from (LessonPlansService.getLessonPlanSummary), the position of that
+  //   plan in the sequence of the course (CourseLessonPlansService.findPosition) and, for the
+  //   generation of the lessons of a class (GUS-154), the whole sequence with the title and the
+  //   objective of each plan (CourseLessonPlansService.getSequenceSummaries).
   // Neither AuthModule nor PeopleModule: the guard is global and the routes only need the
   // permission, which has the scope all or none.
   imports: [TypeOrmModule.forFeature([Lesson]), ClassesModule, CatalogModule],
-  controllers: [LessonsController],
-  providers: [LessonsService, LessonListingService, LessonCreationService, Clock],
+  // ClassLessonsController is the generation of the lessons of a class (GUS-154), which lives at
+  // /classes/:id/lessons: the class is the resource there, so it is not in LessonsController.
+  controllers: [LessonsController, ClassLessonsController],
+  providers: [
+    LessonsService,
+    LessonListingService,
+    LessonGenerationService,
+    LessonCreationService,
+    Clock,
+  ],
   // Nobody consumes the lessons yet: the allocation (GUS-158) and the attendance (GUS-166) will say
   // what they need, and the export is added then. LessonCreationService stays inside on purpose:
-  // the series of lessons of a class (GUS-154) is in this module and reuses it from here.
+  // LessonsService and LessonGenerationService (GUS-154) both build lessons through it, so a lesson
+  // of the series is born with the same rules as one of POST /lessons.
   exports: [],
 })
 export class LessonsModule {}

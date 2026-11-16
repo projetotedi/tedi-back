@@ -25,6 +25,7 @@ import { RescheduleLessonDto } from "../dto/reschedule-lesson.dto";
 import { UpdateLessonDto } from "../dto/update-lesson.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { lessonCreatedPayload } from "./lesson-audit";
 import { LessonCreationService, LessonDraft } from "./lesson-creation.service";
 import {
   classArchived,
@@ -187,21 +188,13 @@ export class LessonsService {
     });
 
     const { lesson } = created;
-    this.emit(AuditableAction.LESSON_CREATED, actorId, lesson.id, null, {
-      classId: lesson.classId,
-      lessonPlanId: lesson.lessonPlanId,
-      sequenceOrder: lesson.sequenceOrder,
-      title: lesson.title,
-      objective: lesson.objective,
-      date: lesson.date,
-      startTime: lesson.startTime,
-      endTime: lesson.endTime,
-      location: lesson.location,
-      expectedStudents: lesson.expectedStudents,
-      expectedMonitors: lesson.expectedMonitors,
-      subject: lesson.subject,
-      status: lesson.status,
-    });
+    this.emit(
+      AuditableAction.LESSON_CREATED,
+      actorId,
+      lesson.id,
+      null,
+      lessonCreatedPayload(lesson),
+    );
 
     return created.response;
   }

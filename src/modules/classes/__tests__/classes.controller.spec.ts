@@ -1,12 +1,16 @@
 import "reflect-metadata";
+import { RequestMethod } from "@nestjs/common";
+import { METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { Role } from "@shared/enums/role.enum";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { ClassesController } from "../controllers/classes.controller";
+import { ClassDetailDto } from "../dto/class-detail.response.dto";
 import { ClassResponseDto } from "../dto/class.response.dto";
 import { ClassStatus } from "../enums/class-status.enum";
+import { ClassDetailService } from "../services/class-detail.service";
 import { ClassesService } from "../services/classes.service";
 
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
@@ -19,6 +23,7 @@ const ACTOR: AuthUser = {
 
 describe("ClassesController", () => {
   it.each([
+    ["getClass", Permission.CLASSES_VIEW],
     ["createClass", Permission.CLASSES_MANAGE],
     ["updateClass", Permission.CLASSES_MANAGE],
     ["archiveClass", Permission.CLASSES_MANAGE],
@@ -30,6 +35,14 @@ describe("ClassesController", () => {
     expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
   });
 
+  it("serves GET /classes/:id", () => {
+    expect(Reflect.getMetadata(PATH_METADATA, ClassesController)).toBe("classes");
+
+    const handler = ClassesController.prototype.getClass;
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(":id");
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+  });
+
   describe("delegation", () => {
     const schoolClass = { id: CLASS_ID } as ClassResponseDto;
     const service = {
@@ -38,11 +51,24 @@ describe("ClassesController", () => {
       archive: jest.fn(),
       unarchive: jest.fn(),
     };
-    const controller = new ClassesController(service as unknown as ClassesService);
+    const detail = { id: CLASS_ID } as ClassDetailDto;
+    const detailService = { findDetail: jest.fn() };
+    const controller = new ClassesController(
+      service as unknown as ClassesService,
+      detailService as unknown as ClassDetailService,
+    );
 
     beforeEach(() => {
       jest.clearAllMocks();
       for (const method of Object.values(service)) method.mockResolvedValue(schoolClass);
+      detailService.findDetail.mockResolvedValue(detail);
+    });
+
+    it("delegates getClass to ClassDetailService.findDetail with the id", async () => {
+      await expect(controller.getClass(CLASS_ID)).resolves.toBe(detail);
+
+      expect(detailService.findDetail).toHaveBeenCalledTimes(1);
+      expect(detailService.findDetail).toHaveBeenCalledWith(CLASS_ID);
     });
 
     it("delegates createClass to ClassesService.create with the actor id", async () => {
