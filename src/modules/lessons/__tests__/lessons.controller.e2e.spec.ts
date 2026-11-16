@@ -1731,7 +1731,7 @@ describe("LessonsController (e2e)", () => {
       }
     });
 
-    it("cancelling a cancelled lesson is a 200 no-op that keeps the first reason", async () => {
+    it("cancelling a cancelled lesson is a 200 no-op that keeps the first reason, and only announces lesson.cancelled again", async () => {
       const created = await createLesson();
       const first = await cancelLesson(created.id, director, { reason: "Primeiro motivo." }).expect(
         200,
@@ -1749,7 +1749,16 @@ describe("LessonsController (e2e)", () => {
         cancelledById: director.id,
       });
       expect(events).toHaveLength(0);
-      expect(cancelled).toHaveLength(0);
+      // The hook of the hours goes out again, with who asked (GUS-168): the hours are idempotent.
+      expect(cancelled).toEqual([
+        {
+          lessonId: created.id,
+          classId,
+          date: "2026-03-10",
+          cancelledById: coordinator.id,
+          cancelledAt: expect.any(Date),
+        },
+      ]);
       expect(await storedLesson(created.id)).toMatchObject({
         cancel_reason: "Primeiro motivo.",
         cancelled_by_id: director.id,

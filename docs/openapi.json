@@ -11704,7 +11704,7 @@
                 }
               }
             },
-            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason."
+            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the attendance hours of the lesson if that had failed."
           },
           "400": {
             "content": {
