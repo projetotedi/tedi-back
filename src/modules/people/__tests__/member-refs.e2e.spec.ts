@@ -220,4 +220,35 @@ describe("MembersService.findMemberRefs (e2e)", () => {
       ),
     ).toEqual([ana, carla]);
   });
+
+  it("gives the same department as findAccessFacts (departmentScopeOf) for an approved, a pending, a rejected and no member profile", async () => {
+    const approved = await createPerson("Ana Souza", {
+      role: Role.MEMBER,
+      status: "approved",
+      departmentId: tech,
+    });
+    const approvedWithoutDepartment = await createPerson("Bruno Lima", {
+      role: Role.MEMBER,
+      status: "approved",
+      departmentId: null,
+    });
+    const pending = await createPerson("Carla Dias", { status: "pending", departmentId: tech });
+    const rejected = await createPerson("Daniel Rocha", {
+      status: "rejected",
+      departmentId: comms,
+    });
+    const withoutProfile = await createPerson("Elisa Prado", { role: Role.COORDINATOR });
+    const ids = [approved, approvedWithoutDepartment, pending, rejected, withoutProfile];
+
+    const refs = await membersService.findMemberRefs({ ids });
+
+    expect(refs.map((ref) => ref.id)).toEqual(ids);
+    const fromSql = refs.map((ref) => (ref.department === null ? [] : [ref.department.id]));
+    const fromTypeScript = [];
+    for (const id of ids) {
+      fromTypeScript.push((await membersService.findAccessFacts(id)).departmentIds);
+    }
+    expect(fromSql).toEqual(fromTypeScript);
+    expect(fromSql).toEqual([[tech], [], [], [], []]);
+  });
 });
