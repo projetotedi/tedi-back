@@ -12,9 +12,11 @@ import {
 } from "@shared/events/auditable-action.event";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
+import { OwnAccountException } from "@shared/permissions/permission.errors";
 import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { applyTextSearch } from "@shared/search/search.util";
 import { ApproveMemberRegistrationDto } from "../dto/approve-member-registration.dto";
+import { DeactivateMemberDto } from "../dto/deactivate-member.dto";
 import { ListMemberRegistrationsQueryDto } from "../dto/list-member-registrations-query.dto";
 import { MemberDetailResponseDto } from "../dto/member-detail.response.dto";
 import { MemberRegistrationFormDto } from "../dto/member-registration-form.dto";
@@ -35,6 +37,7 @@ import {
   toMemberRegistrationListItem,
   toMemberRegistrationResponse,
 } from "./member-registration.mapper";
+import { PeopleService } from "./people.service";
 
 /**
  * What the AuthGuard and the login need to know about the member registration of a person.
@@ -128,6 +131,45 @@ function departmentNotFound(): HttpException {
 }
 
 /**
+ * The one place that builds the 409 MEMBER_INACTIVE: a write that needs an active member answers
+ * it for an inactive one (a second deactivation here, the edit of the member record later).
+ */
+export function memberInactive(): HttpException {
+  return new HttpException({ error: "MEMBER_INACTIVE", message: "The member is inactive." }, 409);
+}
+
+/** 409 NO_MEMBER_PROFILE: a person with an access role and no member profile is not deactivated. */
+function noMemberProfile(): HttpException {
+  return new HttpException(
+    { error: "NO_MEMBER_PROFILE", message: "This person has no member profile." },
+    409,
+  );
+}
+
+/** 409 REGISTRATION_NOT_APPROVED: a pending or rejected registration is not a member that leaves. */
+function registrationNotApproved(): HttpException {
+  return new HttpException(
+    {
+      error: "REGISTRATION_NOT_APPROVED",
+      message: "Only members with an approved registration can be deactivated.",
+    },
+    409,
+  );
+}
+
+/** 400 EXIT_DATE_BEFORE_JOINED_AT, with the field in `details` so the front anchors it on exitDate. */
+function exitDateBeforeJoinedAt(): HttpException {
+  return new HttpException(
+    {
+      error: "EXIT_DATE_BEFORE_JOINED_AT",
+      message: "exitDate must be on or after the join date.",
+      details: [{ field: "exitDate", message: "exitDate must be on or after the join date" }],
+    },
+    400,
+  );
+}
+
+/**
  * Department scope that a member profile gives to its person: the department of an APPROVED
  * profile, or nothing. The department suggested at sign-up (pending) and the one kept after a
  * rejection never give scope (ARCHITECTURE section 9.1).
@@ -147,8 +189,9 @@ function departmentScopeOf(
 }
 
 /**
- * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011), and
- * the member record that reads it back (GUS-144).
+ * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011), the
+ * member record that reads it back (GUS-144), and the deactivation and reactivation of a member
+ * (GUS-147).
  *
  * The registration is born from an access invite (submitFromInvite, called by the invites in
  * the transaction of the accept) as PENDING with no access: Person.role stays null and
@@ -167,6 +210,7 @@ export class MembersService {
     private readonly clock: Clock,
     private readonly departments: DepartmentsService,
     private readonly permissions: PermissionPolicy,
+    private readonly people: PeopleService,
   ) {}
 
   /**
@@ -304,6 +348,136 @@ export class MembersService {
     });
 
     return this.toMemberRecord(person, profile);
+  }
+
+  /**
+   * Ends the participation of a member (RF-011, GUS-147): status inactive, exit date, reason and
+   * note, who and when, and Person.accessEnabled false, in ONE transaction. Emits
+   * MEMBER_DEACTIVATED after the commit, without the note. Allocations (E5) are not touched yet.
+   *
+   * Order: 404 MEMBER_NOT_FOUND for a malformed id (the service is exported: a value that is not a
+   * uuid must not reach Postgres, 22P02 -> 500) and 403 OWN_ACCOUNT, both before the transaction as
+   * in /access; then, inside it, 404 MEMBER_NOT_FOUND, 409 NO_MEMBER_PROFILE, 409
+   * REGISTRATION_NOT_APPROVED, 409 MEMBER_INACTIVE (a second exit would silently overwrite the
+   * first one), 400 EXIT_DATE_BEFORE_JOINED_AT and 409 LAST_COORDINATOR.
+   *
+   * The exit may be on the join date ("YYYY-MM-DD" compares chronologically as text); a profile
+   * approved by the backfill has no join date, so only the floor of the DTO applies.
+   * LAST_COORDINATOR is the rule of /access with the same superadmin bypass (decision 10 of E9.a,
+   * GUS-81): it runs when the target is a coordinator, even one whose access is already disabled.
+   *
+   * SERIALIZABLE, like PATCH /access/:id/role and /enabled: LAST_COORDINATOR counts the active
+   * coordinators, and two coordinators removing each other at the same time (one here, one in
+   * /access) is a write skew that only Postgres SSI catches, and only when both sides are
+   * SERIALIZABLE. The price is the one /access already pays: an overlapping duplicate request may
+   * answer 500 (40001) instead of 409.
+   */
+  async deactivateMember(
+    id: string,
+    dto: DeactivateMemberDto,
+    actor: AuthUser,
+  ): Promise<MemberDetailResponseDto> {
+    if (!isUUID(id)) throw memberNotFound();
+    if (actor.id === id) throw new OwnAccountException();
+
+    const result = await this.dataSource.transaction("SERIALIZABLE", async (manager) => {
+      const { person, profile } = await this.loadMemberForUpdate(manager, id);
+      if (profile === null) throw noMemberProfile();
+      if (profile.registrationStatus !== MemberRegistrationStatus.APPROVED) {
+        throw registrationNotApproved();
+      }
+      if (profile.status === MemberStatus.INACTIVE) throw memberInactive();
+      if (profile.joinedAt !== null && dto.exitDate < profile.joinedAt) {
+        throw exitDateBeforeJoinedAt();
+      }
+      if (person.role === Role.COORDINATOR && actor.role !== Role.SUPERADMIN) {
+        await this.people.assertNotLastActiveCoordinator(manager);
+      }
+
+      const before = { status: profile.status, accessEnabled: person.accessEnabled };
+      profile.status = MemberStatus.INACTIVE;
+      profile.exitDate = dto.exitDate;
+      profile.exitReason = dto.reason;
+      profile.exitNote = dto.note ?? null;
+      profile.deactivatedAt = this.clock.now();
+      profile.deactivatedById = actor.id;
+      person.accessEnabled = false;
+
+      const savedProfile = await manager.save(MemberProfile, profile);
+      const savedPerson = await manager.save(Person, person);
+      return { person: savedPerson, profile: savedProfile, before };
+    });
+
+    this.emit(
+      buildMemberEvent(
+        AuditableAction.MEMBER_DEACTIVATED,
+        actor.id,
+        id,
+        result.before,
+        {
+          status: MemberStatus.INACTIVE,
+          accessEnabled: false,
+          exitDate: result.profile.exitDate,
+          exitReason: result.profile.exitReason,
+        },
+        this.clock.now(),
+      ),
+    );
+
+    return this.toMemberRecord(result.person, result.profile);
+  }
+
+  /**
+   * The member is active again and the exit is cleared (GUS-147). The access is NOT enabled: that
+   * stays with PATCH /access/:id/enabled. An active member, a pending or rejected registration and
+   * a person without member profile answer unchanged (200, no write, no event: section 10.3 of
+   * ARCHITECTURE). The old exit only survives in the MEMBER_DEACTIVATED event. Same 404 and 403
+   * OWN_ACCOUNT as deactivateMember. Default isolation: nothing here reduces the coordinators nor
+   * touches the access, and the row locks serialize two reactivations of the same member.
+   *
+   * `reactivated` carries the `before` only when something changed, so an event can never go out
+   * with an empty `before`, and there are no two flags that could disagree.
+   */
+  async reactivateMember(id: string, actor: AuthUser): Promise<MemberDetailResponseDto> {
+    if (!isUUID(id)) throw memberNotFound();
+    if (actor.id === id) throw new OwnAccountException();
+
+    const result = await this.dataSource.transaction(async (manager) => {
+      const { person, profile } = await this.loadMemberForUpdate(manager, id);
+      if (profile === null || profile.status === MemberStatus.ACTIVE) {
+        return { person, profile, reactivated: null };
+      }
+
+      const before = {
+        status: profile.status,
+        exitDate: profile.exitDate,
+        exitReason: profile.exitReason,
+      };
+      profile.status = MemberStatus.ACTIVE;
+      profile.exitDate = null;
+      profile.exitReason = null;
+      profile.exitNote = null;
+      profile.deactivatedAt = null;
+      profile.deactivatedById = null;
+
+      const savedProfile = await manager.save(MemberProfile, profile);
+      return { person, profile: savedProfile, reactivated: { before } };
+    });
+
+    if (result.reactivated !== null) {
+      this.emit(
+        buildMemberEvent(
+          AuditableAction.MEMBER_REACTIVATED,
+          actor.id,
+          id,
+          result.reactivated.before,
+          { status: MemberStatus.ACTIVE, exitDate: null, exitReason: null },
+          this.clock.now(),
+        ),
+      );
+    }
+
+    return this.toMemberRecord(result.person, result.profile);
   }
 
   /**
@@ -675,6 +849,34 @@ export class MembersService {
       );
     }
 
+    return { person, profile };
+  }
+
+  /**
+   * Person and member profile of a member-record id inside a transaction, both rows locked,
+   * Person first (the order of submitFromInvite and loadPending). 404 MEMBER_NOT_FOUND with the
+   * predicate of getMember: an unknown or deleted person, or one with no role and no profile.
+   * `profile` is null for a person with a role and no member profile. Two reads and no relation:
+   * FOR UPDATE cannot lock the nullable side of an outer join.
+   */
+  private async loadMemberForUpdate(
+    manager: EntityManager,
+    id: string,
+  ): Promise<{ person: Person; profile: MemberProfile | null }> {
+    const person = await manager.findOne(Person, {
+      where: { id },
+      lock: { mode: "pessimistic_write" },
+    });
+    const profile =
+      person === null
+        ? null
+        : await manager.findOne(MemberProfile, {
+            where: { personId: id },
+            lock: { mode: "pessimistic_write" },
+          });
+    if (person === null || (person.role === null && profile === null)) {
+      throw memberNotFound();
+    }
     return { person, profile };
   }
 
