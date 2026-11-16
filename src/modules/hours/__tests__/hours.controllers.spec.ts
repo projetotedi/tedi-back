@@ -16,6 +16,7 @@ import { HoursSummaryResponseDto } from "../dto/hours-summary.response.dto";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import { HoursReviewService } from "../services/hours-review.service";
+import { HoursViewService } from "../services/hours-view.service";
 import { HoursService } from "../services/hours.service";
 
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
@@ -255,9 +256,11 @@ describe("hours controllers", () => {
 
   describe("HourEntriesController", () => {
     it.each([
+      ["listPendingHourEntries", Permission.HOURS_VIEW_OTHERS],
       ["validateHourEntries", Permission.HOURS_REVIEW],
       ["adjustHourEntry", Permission.HOURS_REVIEW],
       ["rejectHourEntry", Permission.HOURS_REVIEW],
+      ["getHourEntryHistory", Permission.ACCOUNT_MANAGE_OWN],
     ] as const)("protects HourEntriesController.%s with %s and no @Roles", (name, permission) => {
       const handler = HourEntriesController.prototype[name];
 
@@ -266,6 +269,12 @@ describe("hours controllers", () => {
     });
 
     it.each([
+      {
+        name: "listPendingHourEntries",
+        route: "GET /hour-entries",
+        method: RequestMethod.GET,
+        path: "/",
+      },
       {
         name: "validateHourEntries",
         route: "PATCH /hour-entries/validate",
@@ -284,6 +293,12 @@ describe("hours controllers", () => {
         method: RequestMethod.PATCH,
         path: ":id/reject",
       },
+      {
+        name: "getHourEntryHistory",
+        route: "GET /hour-entries/:id/history",
+        method: RequestMethod.GET,
+        path: ":id/history",
+      },
     ] as const)("routes $name on $route", ({ name, method, path }) => {
       const handler = HourEntriesController.prototype[name];
 
@@ -293,7 +308,22 @@ describe("hours controllers", () => {
       expect(Reflect.getMetadata(HTTP_CODE_METADATA, handler)).toBeUndefined();
     });
 
-    it.each(["adjustHourEntry", "rejectHourEntry"] as const)(
+    it("has no route that edits the declared fields of an entry: only the review routes patch it", () => {
+      const patches = Object.getOwnPropertyNames(HourEntriesController.prototype).filter(
+        (name) =>
+          name !== "constructor" &&
+          Reflect.getMetadata(
+            "method",
+            (HourEntriesController.prototype as unknown as Record<string, () => void>)[name],
+          ) === RequestMethod.PATCH,
+      );
+
+      expect(patches.sort()).toEqual(["adjustHourEntry", "rejectHourEntry", "validateHourEntries"]);
+      expect(methodsOf(HourEntriesController)).not.toContain(RequestMethod.PUT);
+      expect(methodsOf(HourEntriesController)).not.toContain(RequestMethod.DELETE);
+    });
+
+    it.each(["adjustHourEntry", "rejectHourEntry", "getHourEntryHistory"] as const)(
       "answers 404 HOUR_ENTRY_NOT_FOUND to a malformed id of %s, through the pipe of the route",
       async (name) => {
         const pipes = idPipesOf(HourEntriesController, name);
@@ -319,7 +349,11 @@ describe("hours controllers", () => {
         adjustEntry: jest.fn(),
         rejectEntry: jest.fn(),
       };
-      const controller = new HourEntriesController(reviewService as unknown as HoursReviewService);
+      const viewService = { listEntries: jest.fn(), getHistory: jest.fn() };
+      const controller = new HourEntriesController(
+        viewService as unknown as HoursViewService,
+        reviewService as unknown as HoursReviewService,
+      );
 
       beforeEach(() => {
         jest.clearAllMocks();
@@ -345,6 +379,19 @@ describe("hours controllers", () => {
 
         expect(reviewService.adjustEntry).toHaveBeenCalledWith(ENTRY_ID, adjust, ACTOR);
         expect(reviewService.rejectEntry).toHaveBeenCalledWith(ENTRY_ID, reject, ACTOR);
+      });
+
+      it("passes the actor and the query to the view service on listPendingHourEntries, and the id on getHourEntryHistory", async () => {
+        const page = { data: [], total: 0, page: 1, limit: 20 };
+        viewService.listEntries.mockResolvedValue(page);
+        viewService.getHistory.mockResolvedValue([]);
+        const query = { status: HourEntryStatus.PENDING, personId: MEMBER_ID, from: "2026-03-01" };
+
+        await expect(controller.listPendingHourEntries(query, ACTOR)).resolves.toBe(page);
+        await expect(controller.getHourEntryHistory(ENTRY_ID, ACTOR)).resolves.toEqual([]);
+
+        expect(viewService.listEntries).toHaveBeenCalledWith(ACTOR, query);
+        expect(viewService.getHistory).toHaveBeenCalledWith(ENTRY_ID, ACTOR);
       });
 
       it("passes the failure of the review service on as it is", async () => {

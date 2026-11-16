@@ -39,14 +39,17 @@ import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
 const HOUR_ENTRY_TARGET_TYPE = "hour_entry";
 
 /** 400 INVALID_PERIOD when both ends come and the start is after the end. YYYY-MM-DD compares as text. */
-function assertValidPeriod(period: HoursPeriodQueryDto): void {
+export function assertValidPeriod(period: HoursPeriodQueryDto): void {
   if (period.from !== undefined && period.to !== undefined && period.from > period.to) {
     throw invalidPeriod();
   }
 }
 
 /** Restricts the query to the days of the period, both ends included, for the ends that come. */
-function applyPeriod(builder: SelectQueryBuilder<HourEntry>, period: HoursPeriodQueryDto): void {
+export function applyPeriod(
+  builder: SelectQueryBuilder<HourEntry>,
+  period: HoursPeriodQueryDto,
+): void {
   if (period.from !== undefined) builder.andWhere("entry.date >= :from", { from: period.from });
   if (period.to !== undefined) builder.andWhere("entry.date <= :to", { to: period.to });
 }

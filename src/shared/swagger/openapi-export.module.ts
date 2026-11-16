@@ -52,6 +52,7 @@ import { LessonGenerationService } from "@modules/lessons/services/lesson-genera
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { HoursService } from "@modules/hours/services/hours.service";
 import { HoursReviewService } from "@modules/hours/services/hours-review.service";
+import { HoursViewService } from "@modules/hours/services/hours-view.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -231,6 +232,13 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         listMyEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         getMySummary: async () => ({}),
         removeMyEntry: async () => undefined,
+      },
+    },
+    {
+      provide: HoursViewService,
+      useValue: {
+        listEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getHistory: async () => [],
       },
     },
     {

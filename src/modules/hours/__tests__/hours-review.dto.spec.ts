@@ -2,8 +2,10 @@ import "reflect-metadata";
 import { ClassConstructor, plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { AdjustHourEntryDto } from "../dto/adjust-hour-entry.dto";
+import { ListHourEntriesQueryDto } from "../dto/list-hour-entries-query.dto";
 import { RejectHourEntryDto } from "../dto/reject-hour-entry.dto";
 import { ValidateHourEntriesDto } from "../dto/validate-hour-entries.dto";
+import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
 
@@ -89,5 +91,30 @@ describe("RejectHourEntryDto", () => {
     for (const reason of ["", "   ", undefined, 42, "a".repeat(501)]) {
       expect((await check(RejectHourEntryDto, { reason })).fields).toEqual(["reason"]);
     }
+  });
+});
+
+describe("query DTOs", () => {
+  it("accepts every status and a uuid as personId, and rejects others (ListHourEntriesQueryDto)", async () => {
+    for (const status of Object.values(HourEntryStatus)) {
+      expect((await check(ListHourEntriesQueryDto, { status })).fields).toEqual([]);
+    }
+    const { instance, fields } = await check(ListHourEntriesQueryDto, {
+      personId: ENTRY_ID.toUpperCase(),
+      page: "2",
+      limit: "100",
+      from: "2026-03-01",
+      to: "2026-03-31",
+    });
+    expect(fields).toEqual([]);
+    expect(instance).toMatchObject({ page: 2, limit: 100 });
+
+    expect((await check(ListHourEntriesQueryDto, { status: "done" })).fields).toEqual(["status"]);
+    expect((await check(ListHourEntriesQueryDto, { personId: "42" })).fields).toEqual(["personId"]);
+    expect((await check(ListHourEntriesQueryDto, { limit: "101", page: "0" })).fields).toEqual([
+      "limit",
+      "page",
+    ]);
+    expect((await check(ListHourEntriesQueryDto, { from: "1999-12-31" })).fields).toEqual(["from"]);
   });
 });

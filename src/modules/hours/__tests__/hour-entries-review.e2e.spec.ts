@@ -67,6 +67,34 @@ interface HourEntryBody {
   reviewedAt: string | null;
 }
 
+interface QueueItem {
+  id: string;
+  personId: string;
+  status: string;
+  date: string;
+  member: { id: string; name: string; department: { id: string; name: string } | null } | null;
+}
+
+interface QueuePage {
+  data: QueueItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+interface HistoryItem {
+  id: string;
+  hourEntryId: string;
+  type: string;
+  actor: { id: string; name: string } | null;
+  fromStatus: string | null;
+  toStatus: string | null;
+  fromMinutes: number | null;
+  toMinutes: number | null;
+  note: string | null;
+  createdAt: string;
+}
+
 interface ReviewRow {
   status: string;
   declared_minutes: number;
@@ -243,6 +271,195 @@ describe("HourEntriesController (e2e)", () => {
     eventEmitter.on(AUDITABLE_ACTION_EVENT, (event: AuditableActionEvent) => events.push(event));
     return events;
   }
+
+  function queueOf(actor: Actor, query: Record<string, string | number> = {}) {
+    return request(app.getHttpServer())
+      .get("/hour-entries")
+      .query(query)
+      .set("Cookie", actor.cookie);
+  }
+
+  function historyOf(actor: Actor, id: string) {
+    return request(app.getHttpServer())
+      .get(`/hour-entries/${id}/history`)
+      .set("Cookie", actor.cookie);
+  }
+
+  describe("GET /hour-entries", () => {
+    it("lists the pending entries of every member to coordination, oldest day first, with the member and the department", async () => {
+      const ana = await logOwn(memberTech, { date: "2026-03-12" });
+      const clara = await logOwn(memberComms, { date: "2026-03-10" });
+      const diego = await logOwn(directorTech, { date: "2026-03-11" });
+      const validated = await logOwn(memberTech2, { date: "2026-03-09" });
+      await validate(coordinator, [validated.id]).expect(200);
+
+      const res = await queueOf(coordinator).expect(200);
+      const page = res.body as QueuePage;
+
+      expect(page).toMatchObject({ total: 3, page: 1, limit: 20 });
+      expect(page.data.map((item) => item.id)).toEqual([clara.id, diego.id, ana.id]);
+      expect(page.data.every((item) => item.status === "pending")).toBe(true);
+      expect(page.data[0].member).toEqual({
+        id: memberComms.id,
+        name: "Clara Nunes",
+        department: { id: comms, name: "Comunicação" },
+      });
+      expect(page.data[2].member).toEqual({
+        id: memberTech.id,
+        name: "Ana Souza",
+        department: { id: tech, name: "Tecnologia" },
+      });
+    });
+
+    it("lists to a director only the pending entries of her own department, her own included", async () => {
+      const ana = await logOwn(memberTech, { date: "2026-03-10" });
+      const bruno = await logOwn(memberTech2, { date: "2026-03-11" });
+      const own = await logOwn(directorTech, { date: "2026-03-12" });
+      await logOwn(memberComms, { date: "2026-03-09" });
+      await logOwn(coordinator, { date: "2026-03-09" });
+
+      const res = await queueOf(directorTech).expect(200);
+
+      expect((res.body as QueuePage).data.map((item) => item.id)).toEqual([
+        ana.id,
+        bruno.id,
+        own.id,
+      ]);
+      expect((res.body as QueuePage).total).toBe(3);
+    });
+
+    it("filters by status, by member and by period", async () => {
+      const march1 = await logOwn(memberTech, { date: "2026-03-01" });
+      const march15 = await logOwn(memberTech, { date: "2026-03-15" });
+      const march31 = await logOwn(memberTech2, { date: "2026-03-31" });
+      const april1 = await logOwn(memberTech, { date: "2026-04-01" });
+      await validate(coordinator, [march15.id]).expect(200);
+      const ids = async (query: Record<string, string>) =>
+        ((await queueOf(coordinator, query).expect(200)).body as QueuePage).data.map(
+          (item) => item.id,
+        );
+
+      expect(await ids({ status: "approved" })).toEqual([march15.id]);
+      expect(await ids({ personId: memberTech.id })).toEqual([march1.id, april1.id]);
+      expect(await ids({ from: "2026-03-01", to: "2026-03-31" })).toEqual([march1.id, march31.id]);
+      expect(await ids({ status: "pending", personId: memberTech2.id })).toEqual([march31.id]);
+
+      const invalid = await queueOf(coordinator, { from: "2026-03-31", to: "2026-03-01" }).expect(
+        400,
+      );
+      expect(invalid.body.error).toBe("INVALID_PERIOD");
+      const malformed = await queueOf(coordinator, { personId: "42" }).expect(400);
+      expect(malformed.body.error).toBe("VALIDATION_FAILED");
+    });
+
+    it("leaves removed entries out", async () => {
+      const kept = await logOwn(memberTech);
+      const removed = await logOwn(memberTech);
+      await removeOwn(memberTech, removed.id).expect(204);
+
+      const res = await queueOf(coordinator).expect(200);
+
+      expect((res.body as QueuePage).data.map((item) => item.id)).toEqual([kept.id]);
+    });
+
+    it("answers 403 FORBIDDEN to a member and an empty page to a director without department", async () => {
+      await logOwn(memberTech);
+
+      const member = await queueOf(memberTech).expect(403);
+      expect(member.body.error).toBe("FORBIDDEN");
+
+      const empty = await queueOf(directorWithoutDepartment).expect(200);
+      expect(empty.body).toEqual({ data: [], total: 0, page: 1, limit: 20 });
+    });
+  });
+
+  describe("GET /hour-entries/:id/history", () => {
+    it("shows the creation and the adjustment with author and instant (CA4)", async () => {
+      const entry = await logOwn(memberTech, { declaredMinutes: 240 });
+      const adjusted = await adjust(coordinator, entry.id, {
+        validatedMinutes: 120,
+        justification: JUSTIFICATION,
+      }).expect(200);
+
+      const res = await historyOf(coordinator, entry.id).expect(200);
+      const history = res.body as HistoryItem[];
+
+      expect(history).toHaveLength(2);
+      expect(history[0]).toMatchObject({
+        hourEntryId: entry.id,
+        type: "created",
+        actor: { id: memberTech.id, name: "Ana Souza" },
+        fromStatus: null,
+        toStatus: "pending",
+        fromMinutes: null,
+        toMinutes: 240,
+        note: null,
+      });
+      expect(history[1]).toMatchObject({
+        hourEntryId: entry.id,
+        type: "adjusted",
+        actor: { id: coordinator.id, name: "Carla Coordenadora" },
+        fromStatus: "pending",
+        toStatus: "adjusted",
+        fromMinutes: 240,
+        toMinutes: 120,
+        note: JUSTIFICATION,
+      });
+      expect(history[1].createdAt).toBe((adjusted.body as HourEntryBody).reviewedAt);
+      expect(new Date(history[0].createdAt).getTime()).toBeLessThanOrEqual(
+        new Date(history[1].createdAt).getTime(),
+      );
+      expect(history[0]).not.toHaveProperty("updatedAt");
+    });
+
+    it("shows the history of a removed entry: created, then removed", async () => {
+      const entry = await logOwn(memberTech);
+      await removeOwn(memberTech, entry.id).expect(204);
+
+      for (const actor of [memberTech, coordinator]) {
+        const res = await historyOf(actor, entry.id).expect(200);
+        expect((res.body as HistoryItem[]).map((item) => [item.type, item.actor?.id])).toEqual([
+          ["created", memberTech.id],
+          ["removed", memberTech.id],
+        ]);
+      }
+    });
+
+    it("lets the member read the history of her entry and answers 403 FORBIDDEN_SCOPE for someone else's", async () => {
+      const own = await logOwn(memberTech);
+      const other = await logOwn(memberTech2);
+
+      await historyOf(memberTech, own.id).expect(200);
+      const res = await historyOf(memberTech, other.id).expect(403);
+
+      expect(res.body).toMatchObject({ statusCode: 403, error: "FORBIDDEN_SCOPE" });
+    });
+
+    it("lets a director read the history of an entry of her department and answers 403 FORBIDDEN_SCOPE for another department", async () => {
+      const techEntry = await logOwn(memberTech);
+      const commsEntry = await logOwn(memberComms);
+
+      await historyOf(directorTech, techEntry.id).expect(200);
+      const res = await historyOf(directorTech, commsEntry.id).expect(403);
+      expect(res.body.error).toBe("FORBIDDEN_SCOPE");
+      const withoutDepartment = await historyOf(directorWithoutDepartment, techEntry.id).expect(
+        403,
+      );
+      expect(withoutDepartment.body.error).toBe("FORBIDDEN_SCOPE");
+      await historyOf(superadmin, commsEntry.id).expect(200);
+    });
+
+    it("answers 404 HOUR_ENTRY_NOT_FOUND for an unknown or malformed id", async () => {
+      for (const id of [UNKNOWN_ID, "not-a-uuid"]) {
+        const res = await historyOf(memberTech, id).expect(404);
+        expect(res.body).toMatchObject({
+          statusCode: 404,
+          error: "HOUR_ENTRY_NOT_FOUND",
+          message: "Hour entry not found.",
+        });
+      }
+    });
+  });
 
   describe("PATCH /hour-entries/validate", () => {
     it("stores approved with the declared minutes, the reviewer and the instant, and an approved event per entry at that instant", async () => {
