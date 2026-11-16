@@ -70,6 +70,8 @@ export enum AuditableAction {
   LESSON_RESCHEDULED = "LESSON_RESCHEDULED",
   /** An hour entry was logged: by the person, on her behalf or by the attendance (GUS-162). No free text in the payload (RNF-13). */
   HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
+  /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */
+  HOUR_ENTRY_REMOVED = "HOUR_ENTRY_REMOVED",
 }
 
 /**

@@ -21,7 +21,12 @@ import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
-import { hourEntryDateInFuture, invalidPeriod } from "./hour-entry-errors";
+import {
+  entryNotPending,
+  hourEntryDateInFuture,
+  hourEntryNotFound,
+  invalidPeriod,
+} from "./hour-entry-errors";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
 import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
 
@@ -68,7 +73,8 @@ export interface CreatedHourEntry {
 }
 
 /**
- * Hour entries of the people (E7, GUS-162): log for oneself, read one's own statement and summary.
+ * Hour entries of the people (E7, GUS-162): log for oneself, read one's own statement and summary,
+ * and remove one's own pending entry.
  *
  * Every write runs in a transaction and the audit event goes out after the commit. Every instant
  * of a write (the columns of the entry, the row of its history and the audit event) is the same
@@ -246,6 +252,68 @@ export class HoursService {
       .getRawMany<HoursSummaryRow>();
 
     return buildHoursSummary(rows, { from: query.from ?? null, to: query.to ?? null });
+  }
+
+  /**
+   * `DELETE /me/hour-entries/:id`: the person removes one of her own pending entries. It is a soft
+   * delete: `deleted_at` is set and the row stays, so its history stays whole, and a `removed` event
+   * (from `pending` and the declared minutes to nothing) is written in the same transaction.
+   *
+   * The owner is checked by the query (`id` and `person_id` of the session), never by the policy:
+   * the superadmin has `all` on account.manageOwn and would remove anyone's entry. So an entry of
+   * another person answers 404 HOUR_ENTRY_NOT_FOUND, like an unknown one and one already removed;
+   * a reviewed entry answers 409 ENTRY_NOT_PENDING.
+   *
+   * The entry is read FOR UPDATE: two removals of it, or a removal and the review of GUS-164, run
+   * one after the other. The one that waits reads the row again after the other commits, and
+   * answers 404 (it was removed) or 409 (it was reviewed). `deleted_at`, `updated_at`, the instant
+   * of the event and the one of the audit are the same `now`. Emits HOUR_ENTRY_REMOVED after the
+   * commit.
+   *
+   * `requestedId` is only the key of the lookup (the pipe accepts upper case): the writes and the
+   * event use the id the database returns.
+   */
+  async removeMyEntry(requestedId: string, actor: AuthUser): Promise<void> {
+    const now = this.clock.now();
+
+    const removed = await this.dataSource.transaction(async (manager) => {
+      const entry = await manager.findOne(HourEntry, {
+        where: { id: requestedId, personId: actor.id },
+        lock: { mode: "pessimistic_write" },
+      });
+      if (entry === null) throw hourEntryNotFound();
+      if (entry.status !== HourEntryStatus.PENDING) throw entryNotPending();
+
+      await manager.update(HourEntry, { id: entry.id }, { deletedAt: now, updatedAt: now });
+      await manager.save(
+        manager.create(HourEntryEvent, {
+          hourEntryId: entry.id,
+          type: HourEntryEventType.REMOVED,
+          actorId: actor.id,
+          fromStatus: HourEntryStatus.PENDING,
+          toStatus: null,
+          fromMinutes: entry.declaredMinutes,
+          toMinutes: null,
+          note: null,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+
+      return entry;
+    });
+
+    this.eventEmitter.emit(
+      AUDITABLE_ACTION_EVENT,
+      this.buildAuditEvent(
+        AuditableAction.HOUR_ENTRY_REMOVED,
+        actor.id,
+        removed.id,
+        { status: HourEntryStatus.PENDING, declaredMinutes: removed.declaredMinutes },
+        { deletedAt: now },
+        now,
+      ),
+    );
   }
 
   private buildAuditEvent(

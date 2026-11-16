@@ -248,6 +248,12 @@ describe("MyHoursController (e2e)", () => {
     return res.body as SummaryBody;
   }
 
+  function removeEntry(id: string, actor: Actor) {
+    return request(app.getHttpServer())
+      .delete(`/me/hour-entries/${id}`)
+      .set("Cookie", actor.cookie);
+  }
+
   function categoryTotal(summary: SummaryBody, category: string): CategoryTotal | undefined {
     return summary.byCategory.find((total) => total.category === category);
   }
@@ -551,6 +557,17 @@ describe("MyHoursController (e2e)", () => {
       expect(beyond).toMatchObject({ data: [], total: 5 });
     });
 
+    it("leaves removed entries out of the statement", async () => {
+      const kept = await logEntry(member, { date: "2026-03-10" });
+      const removed = await logEntry(member, { date: "2026-03-11" });
+      await removeEntry(removed.id, member).expect(204);
+
+      const page = await statement(member);
+
+      expect(page.total).toBe(1);
+      expect(page.data.map((entry) => entry.id)).toEqual([kept.id]);
+    });
+
     it("answers 400 INVALID_PERIOD when from is after to", async () => {
       const res = await listEntries(member, { from: "2026-03-31", to: "2026-03-01" }).expect(400);
 
@@ -681,6 +698,31 @@ describe("MyHoursController (e2e)", () => {
       expect(summary.bankMinutes).toBe(150);
     });
 
+    it("restricts the totals to the period and leaves removed entries and other people's entries out", async () => {
+      await logEntry(member, { date: "2026-02-28", declaredMinutes: 10 });
+      await logEntry(member, { date: "2026-03-01", declaredMinutes: 20 });
+      await logEntry(member, { date: "2026-03-31", declaredMinutes: 40 });
+      await logEntry(member, { date: "2026-04-01", declaredMinutes: 80 });
+      const removed = await logEntry(member, { date: "2026-03-15", declaredMinutes: 160 });
+      await removeEntry(removed.id, member).expect(204);
+      await logEntry(otherMember, { date: "2026-03-15", declaredMinutes: 320 });
+
+      const march = await summaryOf(member, { from: "2026-03-01", to: "2026-03-31" });
+      expect(march).toMatchObject({ from: "2026-03-01", to: "2026-03-31" });
+      expect(statusTotal(march, "pending")).toMatchObject({ entries: 2, declaredMinutes: 60 });
+      expect(categoryTotal(march, "planning")).toMatchObject({ entries: 2, pendingMinutes: 60 });
+
+      const fromMarch31 = await summaryOf(member, { from: "2026-03-31" });
+      expect(fromMarch31).toMatchObject({ from: "2026-03-31", to: null });
+      expect(statusTotal(fromMarch31, "pending")).toMatchObject({ declaredMinutes: 120 });
+
+      const everything = await summaryOf(member);
+      expect(statusTotal(everything, "pending")).toMatchObject({
+        entries: 4,
+        declaredMinutes: 150,
+      });
+    });
+
     it("answers zeros for a person with no entries", async () => {
       await logEntry(otherMember);
 
@@ -703,6 +745,157 @@ describe("MyHoursController (e2e)", () => {
 
     it("answers 401 without a session cookie", async () => {
       await request(app.getHttpServer()).get("/me/hours/summary").expect(401);
+    });
+  });
+
+  describe("DELETE /me/hour-entries/:id", () => {
+    it("removes a pending entry of the logged-in person: 204, gone from the statement and the summary, the row kept with deleted_at (CA2)", async () => {
+      const entry = await logEntry(member);
+
+      const res = await removeEntry(entry.id, member).expect(204);
+
+      expect(res.body).toEqual({});
+      expect((await statement(member)).total).toBe(0);
+      expect(statusTotal(await summaryOf(member), "pending")).toMatchObject({ entries: 0 });
+      const row = await entryRow(dataSource, entry.id);
+      expect(row?.status).toBe("pending");
+      expect(row?.deleted_at).toBeInstanceOf(Date);
+      expect(row?.updated_at).toEqual(row?.deleted_at);
+    });
+
+    it("records a removed event, from pending and the declared minutes to nothing, with the member as actor, at the instant of deleted_at (CA2)", async () => {
+      const entry = await logEntry(member, { declaredMinutes: 45 });
+
+      await removeEntry(entry.id, member).expect(204);
+
+      const events = await eventsOf(dataSource, entry.id);
+      expect(events.map((event) => event.type)).toEqual(["created", "removed"]);
+      expect(events[1]).toMatchObject({
+        type: "removed",
+        actor_id: member.id,
+        from_status: "pending",
+        to_status: null,
+        from_minutes: 45,
+        to_minutes: null,
+        note: null,
+      });
+      expect(events[1].created_at).toEqual((await entryRow(dataSource, entry.id))?.deleted_at);
+    });
+
+    it("answers 409 ENTRY_NOT_PENDING for an approved, adjusted or rejected entry, and changes nothing (CA2)", async () => {
+      const reviews = [
+        { status: "approved", validatedMinutes: 150, reviewNote: null },
+        { status: "adjusted", validatedMinutes: 120, reviewNote: "Duas horas." },
+        { status: "rejected", validatedMinutes: null, reviewNote: "Fora do projeto." },
+      ] as const;
+
+      for (const review of reviews) {
+        const entry = await logEntry(member);
+        await reviewEntry(dataSource, entry.id, { ...review, reviewedById: coordinator.id });
+
+        const res = await removeEntry(entry.id, member).expect(409);
+
+        expect(res.body).toMatchObject({
+          statusCode: 409,
+          error: "ENTRY_NOT_PENDING",
+          message: "Only pending hour entries can be removed.",
+        });
+        const row = await entryRow(dataSource, entry.id);
+        expect(row).toMatchObject({ status: review.status, deleted_at: null });
+        expect((await eventsOf(dataSource, entry.id)).map((event) => event.type)).toEqual([
+          "created",
+        ]);
+      }
+    });
+
+    it("answers 404 HOUR_ENTRY_NOT_FOUND for another person's entry, an unknown id, a malformed id and an entry already removed", async () => {
+      const othersEntry = await logEntry(otherMember);
+      const removed = await logEntry(member);
+      await removeEntry(removed.id, member).expect(204);
+      const notFound = {
+        statusCode: 404,
+        error: "HOUR_ENTRY_NOT_FOUND",
+        message: "Hour entry not found.",
+      };
+
+      for (const [id, actor] of [
+        [othersEntry.id, member],
+        [othersEntry.id, superadmin],
+        [othersEntry.id, director],
+        ["01999a3e-0000-7000-8000-000000000000", member],
+        ["not-a-uuid", member],
+        [removed.id, member],
+      ] as const) {
+        const res = await removeEntry(id, actor).expect(404);
+        expect(res.body).toMatchObject(notFound);
+      }
+
+      expect((await entryRow(dataSource, othersEntry.id))?.deleted_at).toBeNull();
+      expect((await eventsOf(dataSource, removed.id)).map((event) => event.type)).toEqual([
+        "created",
+        "removed",
+      ]);
+    });
+
+    it("accepts the id of the entry in upper case", async () => {
+      const entry = await logEntry(member);
+
+      await removeEntry(entry.id.toUpperCase(), member).expect(204);
+
+      expect((await entryRow(dataSource, entry.id))?.deleted_at).toBeInstanceOf(Date);
+    });
+
+    it("emits HOUR_ENTRY_REMOVED after the commit", async () => {
+      const entry = await logEntry(member);
+      const events = collectEvents();
+
+      await removeEntry(entry.id, member).expect(204);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        action: AuditableAction.HOUR_ENTRY_REMOVED,
+        actorId: member.id,
+        targetType: "hour_entry",
+        targetId: entry.id,
+        before: { status: "pending", declaredMinutes: 150 },
+      });
+      expect(events[0].after.deletedAt).toEqual((await entryRow(dataSource, entry.id))?.deleted_at);
+    });
+
+    it("removes once when two requests race: one 204, one 404, a single removed event", async () => {
+      const entry = await logEntry(member);
+
+      const [first, second] = await Promise.all([
+        removeEntry(entry.id, member),
+        removeEntry(entry.id, member),
+      ]);
+
+      expect([first.status, second.status].sort()).toEqual([204, 404]);
+      expect((await eventsOf(dataSource, entry.id)).map((event) => event.type)).toEqual([
+        "created",
+        "removed",
+      ]);
+    });
+
+    it("keeps the history in order: read by created_at, id it is created, then removed", async () => {
+      const entry = await logEntry(member);
+      await removeEntry(entry.id, member).expect(204);
+
+      const events = await eventsOf(dataSource, entry.id);
+
+      expect(events.map((event) => event.type)).toEqual(["created", "removed"]);
+      expect(events[0].created_at.getTime()).toBeLessThan(events[1].created_at.getTime());
+      const row = await entryRow(dataSource, entry.id);
+      expect(events[0].created_at).toEqual(row?.created_at);
+      expect(events[1].created_at).toEqual(row?.deleted_at);
+    });
+
+    it("answers 401 without a session cookie", async () => {
+      const entry = await logEntry(member);
+
+      await request(app.getHttpServer()).delete(`/me/hour-entries/${entry.id}`).expect(401);
+
+      expect((await entryRow(dataSource, entry.id))?.deleted_at).toBeNull();
     });
   });
 });

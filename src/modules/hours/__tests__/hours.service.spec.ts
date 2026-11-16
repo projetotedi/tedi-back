@@ -552,4 +552,153 @@ describe("HoursService", () => {
       ).toMatchObject({ entries: 2, pendingMinutes: 90 });
     });
   });
+
+  describe("removeMyEntry", () => {
+    const CREATED_AT = new Date("2026-03-10T21:00:00.000Z");
+    let stored: HourEntry | null;
+
+    function storedEntry(overrides: Partial<HourEntry> = {}): HourEntry {
+      return Object.assign(new HourEntry(), {
+        id: ENTRY_ID,
+        personId: MEMBER.id,
+        createdById: MEMBER.id,
+        origin: HourEntryOrigin.MANUAL,
+        activity: CARD_DTO.activity,
+        category: HourEntryCategory.PLANNING,
+        date: "2026-03-10",
+        declaredMinutes: 150,
+        validatedMinutes: null,
+        notes: null,
+        status: HourEntryStatus.PENDING,
+        classId: null,
+        lessonId: null,
+        reviewNote: null,
+        reviewedById: null,
+        reviewedAt: null,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+        deletedAt: null,
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      stored = storedEntry();
+      manager.findOne.mockImplementation(async () => {
+        order.push("load-entry");
+        return stored;
+      });
+      manager.update.mockImplementation(async () => {
+        order.push("soft-delete");
+        return { affected: 1 };
+      });
+    });
+
+    it("soft-deletes a pending entry of the actor and records a removed event in the same transaction, then emits HOUR_ENTRY_REMOVED", async () => {
+      await expect(service.removeMyEntry(ENTRY_ID, MEMBER)).resolves.toBeUndefined();
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(order).toEqual(["load-entry", "soft-delete", "insert-event", "commit", "emit-audit"]);
+      expect(manager.update).toHaveBeenCalledWith(
+        HourEntry,
+        { id: ENTRY_ID },
+        { deletedAt: NOW, updatedAt: NOW },
+      );
+      expect(savedEvents()).toHaveLength(1);
+      expect(savedEvents()[0]).toMatchObject({ createdAt: NOW, updatedAt: NOW });
+      expect(savedEntries()).toEqual([]);
+      expect(auditEvents()).toHaveLength(1);
+      expect(auditEvents()[0]).toMatchObject({
+        action: AuditableAction.HOUR_ENTRY_REMOVED,
+        actorId: MEMBER.id,
+        targetType: "hour_entry",
+        targetId: ENTRY_ID,
+        before: { status: HourEntryStatus.PENDING, declaredMinutes: 150 },
+        after: { deletedAt: NOW },
+        occurredAt: NOW,
+      });
+      expect(clock.now).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads the entry FOR UPDATE, filtered by the actor's person id", async () => {
+      await service.removeMyEntry(ENTRY_ID, MEMBER);
+
+      expect(manager.findOne).toHaveBeenCalledWith(HourEntry, {
+        where: { id: ENTRY_ID, personId: MEMBER.id },
+        lock: { mode: "pessimistic_write" },
+      });
+    });
+
+    it("throws HOUR_ENTRY_NOT_FOUND when the entry is not the actor's or does not exist", async () => {
+      stored = null;
+
+      const failure = await httpFailure(service.removeMyEntry(ENTRY_ID, DIRECTOR));
+
+      expect(failure.getStatus()).toBe(404);
+      expect(codeOf(failure)).toBe("HOUR_ENTRY_NOT_FOUND");
+      expect(manager.findOne).toHaveBeenCalledWith(HourEntry, {
+        where: { id: ENTRY_ID, personId: DIRECTOR.id },
+        lock: { mode: "pessimistic_write" },
+      });
+      expect(manager.update).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it.each([HourEntryStatus.APPROVED, HourEntryStatus.ADJUSTED, HourEntryStatus.REJECTED])(
+      "throws ENTRY_NOT_PENDING for a %s entry and writes nothing",
+      async (status) => {
+        stored = storedEntry({ status, validatedMinutes: 120 });
+
+        const failure = await httpFailure(service.removeMyEntry(ENTRY_ID, MEMBER));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(codeOf(failure)).toBe("ENTRY_NOT_PENDING");
+        expect(manager.update).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      },
+    );
+
+    it("does not emit when the transaction fails", async () => {
+      const failure = new Error("connection lost");
+      manager.save.mockRejectedValueOnce(failure);
+
+      await expect(service.removeMyEntry(ENTRY_ID, MEMBER)).rejects.toBe(failure);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("records the removed event as: from pending and the declared minutes to nothing, actor = the person", async () => {
+      stored = storedEntry({
+        declaredMinutes: 45,
+        createdById: DIRECTOR.id,
+        origin: HourEntryOrigin.ON_BEHALF,
+      });
+
+      await service.removeMyEntry(ENTRY_ID, MEMBER);
+
+      expect(savedEvents()[0]).toMatchObject({
+        hourEntryId: ENTRY_ID,
+        type: HourEntryEventType.REMOVED,
+        actorId: MEMBER.id,
+        fromStatus: HourEntryStatus.PENDING,
+        toStatus: null,
+        fromMinutes: 45,
+        toMinutes: null,
+        note: null,
+      });
+    });
+
+    it("writes with the id the database returns, not the one of the URL", async () => {
+      await service.removeMyEntry(ENTRY_ID.toUpperCase(), MEMBER);
+
+      expect(manager.findOne).toHaveBeenCalledWith(HourEntry, {
+        where: { id: ENTRY_ID.toUpperCase(), personId: MEMBER.id },
+        lock: { mode: "pessimistic_write" },
+      });
+      expect(manager.update).toHaveBeenCalledWith(HourEntry, { id: ENTRY_ID }, expect.anything());
+      expect(savedEvents()[0].hourEntryId).toBe(ENTRY_ID);
+      expect(auditEvents()[0].targetId).toBe(ENTRY_ID);
+    });
+  });
 });

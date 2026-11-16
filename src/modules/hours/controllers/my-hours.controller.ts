@@ -1,5 +1,24 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
-import { ApiBadRequestResponse, ApiCreatedResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+} from "@nestjs/common";
+import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiParam,
+  ApiTags,
+} from "@nestjs/swagger";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { ApiErrorDto } from "@shared/dto/api-error.dto";
@@ -13,7 +32,11 @@ import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
 import { HoursPeriodQueryDto } from "../dto/hours-period-query.dto";
 import { HoursSummaryResponseDto } from "../dto/hours-summary.response.dto";
 import { ListMyHourEntriesQueryDto } from "../dto/list-my-hour-entries-query.dto";
+import { hourEntryNotFound } from "../services/hour-entry-errors";
 import { HoursService } from "../services/hours.service";
+
+/** A malformed id is an entry that does not exist, so it answers the same 404 as an unknown one. */
+const HOUR_ENTRY_ID = new ParseUUIDPipe({ exceptionFactory: () => hourEntryNotFound() });
 
 /**
  * The hours of the logged-in person. Every profile has account.manageOwn, and the person is always
@@ -65,5 +88,25 @@ export class MyHoursController {
     @CurrentUser() actor: AuthUser,
   ): Promise<HoursSummaryResponseDto> {
     return this.hoursService.getMySummary(actor, query);
+  }
+
+  @Delete("hour-entries/:id")
+  @HttpCode(204)
+  @RequirePermission(Permission.ACCOUNT_MANAGE_OWN)
+  @ApiParam({ name: "id", format: "uuid", description: "Id of an hour entry of the person." })
+  @ApiNoContentResponse({
+    description:
+      "Removed: the entry leaves the statement and the summary, the row stays (soft delete) and its history gets a removed event.",
+  })
+  @ApiNotFoundResponse({
+    type: ApiErrorDto,
+    description: "HOUR_ENTRY_NOT_FOUND: malformed, unknown, of another person or already removed.",
+  })
+  @ApiConflictResponse({ type: ApiErrorDto, description: "ENTRY_NOT_PENDING" })
+  removeMyHourEntry(
+    @Param("id", HOUR_ENTRY_ID) id: string,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<void> {
+    return this.hoursService.removeMyEntry(id, actor);
   }
 }
