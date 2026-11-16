@@ -30,6 +30,7 @@ import { ClassLessonsController } from "@modules/lessons/controllers/class-lesso
 import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
 import { MemberHoursController } from "@modules/hours/controllers/member-hours.controller";
 import { MyHoursController } from "@modules/hours/controllers/my-hours.controller";
+import { HourEntriesController } from "@modules/hours/controllers/hour-entries.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -50,6 +51,7 @@ import { EditionsService } from "@modules/classes/services/editions.service";
 import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { HoursService } from "@modules/hours/services/hours.service";
+import { HoursReviewService } from "@modules/hours/services/hours-review.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -79,6 +81,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     ClassLessonsController,
     MyHoursController,
     MemberHoursController,
+    HourEntriesController,
   ],
   providers: [
     {
@@ -228,6 +231,14 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         listMyEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         getMySummary: async () => ({}),
         removeMyEntry: async () => undefined,
+      },
+    },
+    {
+      provide: HoursReviewService,
+      useValue: {
+        validateEntries: async () => [],
+        adjustEntry: async () => ({}),
+        rejectEntry: async () => ({}),
       },
     },
     {

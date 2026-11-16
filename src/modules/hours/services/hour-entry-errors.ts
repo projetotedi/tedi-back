@@ -64,3 +64,86 @@ export function invalidPeriod(): HttpException {
     400,
   );
 }
+
+/** The `details` of an error about some positions of the body, one item per position. */
+function detailsOf(fields: readonly string[], message: string): { details?: FieldError[] } {
+  return fields.length === 0 ? {} : { details: fields.map((field) => ({ field, message })) };
+}
+
+interface FieldError {
+  field: string;
+  message: string;
+}
+
+/**
+ * 400 for ids of the body of `PATCH /hour-entries/validate` that are unknown or removed: an id in
+ * the body is 400, an id in the URL is 404 (docs/ARCHITECTURE.md section 10.3). `fields` are the
+ * positions, as `ids.<i>`.
+ */
+export function hourEntriesNotFound(fields: readonly string[]): HttpException {
+  return new HttpException(
+    {
+      error: "HOUR_ENTRY_NOT_FOUND",
+      message: "One or more hour entries do not exist.",
+      ...detailsOf(fields, "hour entry not found"),
+    },
+    400,
+  );
+}
+
+/** 400: the same entry more than once in the body, in any letter case, at the positions `fields`. */
+export function duplicateHourEntry(fields: readonly string[]): HttpException {
+  return new HttpException(
+    {
+      error: "DUPLICATE_HOUR_ENTRY",
+      message: "The same hour entry appears more than once.",
+      ...detailsOf(fields, "hour entry appears more than once"),
+    },
+    400,
+  );
+}
+
+/** 409: nobody reviews her own hours. `fields` are the positions in a batch, empty for one entry. */
+export function selfReviewNotAllowed(fields: readonly string[] = []): HttpException {
+  return new HttpException(
+    {
+      error: "SELF_REVIEW_NOT_ALLOWED",
+      message: "You cannot review your own hour entry.",
+      ...detailsOf(fields, "you cannot review your own hour entry"),
+    },
+    409,
+  );
+}
+
+/**
+ * 409: only a pending entry can be reviewed; a reviewed one is final. The same code as the removal
+ * (`entryNotPending`), with its own message. `fields` are the positions in a batch, empty for one.
+ */
+export function entryNotPendingForReview(fields: readonly string[] = []): HttpException {
+  return new HttpException(
+    {
+      error: "ENTRY_NOT_PENDING",
+      message: "Only pending hour entries can be reviewed.",
+      ...detailsOf(fields, "hour entry is not pending"),
+    },
+    409,
+  );
+}
+
+/** 400: an adjustment changes the minutes; keeping the declared ones is a validation. */
+export function adjustedMinutesUnchanged(): HttpException {
+  return new HttpException(
+    {
+      error: "ADJUSTED_MINUTES_UNCHANGED",
+      message:
+        "validatedMinutes must differ from the declared minutes; validate the entry instead.",
+      details: [
+        {
+          field: "validatedMinutes",
+          message: "validatedMinutes must differ from the declared minutes",
+        },
+      ],
+    },
+    400,
+  );
+}

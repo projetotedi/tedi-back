@@ -3,10 +3,12 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
+import { HourEntriesController } from "./controllers/hour-entries.controller";
 import { MemberHoursController } from "./controllers/member-hours.controller";
 import { MyHoursController } from "./controllers/my-hours.controller";
 import { HourEntryEvent } from "./entities/hour-entry-event.entity";
 import { HourEntry } from "./entities/hour-entry.entity";
+import { HoursReviewService } from "./services/hours-review.service";
 import { HoursService } from "./services/hours.service";
 
 /**
@@ -21,8 +23,8 @@ import { HoursService } from "./services/hours.service";
  */
 @Module({
   imports: [TypeOrmModule.forFeature([HourEntry, HourEntryEvent]), PeopleModule, PermissionsModule],
-  controllers: [MyHoursController, MemberHoursController],
-  providers: [HoursService, Clock],
+  controllers: [MyHoursController, MemberHoursController, HourEntriesController],
+  providers: [HoursService, HoursReviewService, Clock],
   exports: [],
 })
 export class HoursModule {}

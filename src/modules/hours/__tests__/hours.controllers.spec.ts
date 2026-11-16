@@ -7,6 +7,7 @@ import { Role } from "@shared/enums/role.enum";
 import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
+import { HourEntriesController } from "../controllers/hour-entries.controller";
 import { MemberHoursController } from "../controllers/member-hours.controller";
 import { MyHoursController } from "../controllers/my-hours.controller";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
@@ -14,6 +15,7 @@ import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
 import { HoursSummaryResponseDto } from "../dto/hours-summary.response.dto";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
+import { HoursReviewService } from "../services/hours-review.service";
 import { HoursService } from "../services/hours.service";
 
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
@@ -247,6 +249,115 @@ describe("hours controllers", () => {
         service.logHoursForMember.mockRejectedValueOnce(failure);
 
         await expect(controller.logHoursForMember(MEMBER_ID, BODY, ACTOR)).rejects.toBe(failure);
+      });
+    });
+  });
+
+  describe("HourEntriesController", () => {
+    it.each([
+      ["validateHourEntries", Permission.HOURS_REVIEW],
+      ["adjustHourEntry", Permission.HOURS_REVIEW],
+      ["rejectHourEntry", Permission.HOURS_REVIEW],
+    ] as const)("protects HourEntriesController.%s with %s and no @Roles", (name, permission) => {
+      const handler = HourEntriesController.prototype[name];
+
+      expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(permission);
+      expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+    });
+
+    it.each([
+      {
+        name: "validateHourEntries",
+        route: "PATCH /hour-entries/validate",
+        method: RequestMethod.PATCH,
+        path: "validate",
+      },
+      {
+        name: "adjustHourEntry",
+        route: "PATCH /hour-entries/:id/adjust",
+        method: RequestMethod.PATCH,
+        path: ":id/adjust",
+      },
+      {
+        name: "rejectHourEntry",
+        route: "PATCH /hour-entries/:id/reject",
+        method: RequestMethod.PATCH,
+        path: ":id/reject",
+      },
+    ] as const)("routes $name on $route", ({ name, method, path }) => {
+      const handler = HourEntriesController.prototype[name];
+
+      expect(Reflect.getMetadata("method", handler)).toBe(method);
+      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(path);
+      expect(Reflect.getMetadata(PATH_METADATA, HourEntriesController)).toBe("hour-entries");
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, handler)).toBeUndefined();
+    });
+
+    it.each(["adjustHourEntry", "rejectHourEntry"] as const)(
+      "answers 404 HOUR_ENTRY_NOT_FOUND to a malformed id of %s, through the pipe of the route",
+      async (name) => {
+        const pipes = idPipesOf(HourEntriesController, name);
+        expect(pipes).toHaveLength(1);
+
+        const failure: unknown = await Promise.resolve(
+          pipes[0].transform("not-a-uuid", { type: "param", data: "id" }),
+        ).catch((error: unknown) => error);
+
+        if (!(failure instanceof HttpException)) throw new Error("Expected an HttpException");
+        expect(failure.getStatus()).toBe(404);
+        expect(failure.getResponse()).toEqual({
+          error: "HOUR_ENTRY_NOT_FOUND",
+          message: "Hour entry not found.",
+        });
+      },
+    );
+
+    describe("delegation", () => {
+      const entry = { id: ENTRY_ID } as HourEntryResponseDto;
+      const reviewService = {
+        validateEntries: jest.fn(),
+        adjustEntry: jest.fn(),
+        rejectEntry: jest.fn(),
+      };
+      const controller = new HourEntriesController(reviewService as unknown as HoursReviewService);
+
+      beforeEach(() => {
+        jest.clearAllMocks();
+      });
+
+      it("passes the body and the actor to the review service on validateHourEntries", async () => {
+        reviewService.validateEntries.mockResolvedValue([entry]);
+        const dto = { ids: [ENTRY_ID] };
+
+        await expect(controller.validateHourEntries(dto, ACTOR)).resolves.toEqual([entry]);
+
+        expect(reviewService.validateEntries).toHaveBeenCalledWith(dto, ACTOR);
+      });
+
+      it("passes the id, the body and the actor to the review service on adjustHourEntry and rejectHourEntry", async () => {
+        reviewService.adjustEntry.mockResolvedValue(entry);
+        reviewService.rejectEntry.mockResolvedValue(entry);
+        const adjust = { validatedMinutes: 120, justification: "Duas horas." };
+        const reject = { reason: "Fora do projeto." };
+
+        await expect(controller.adjustHourEntry(ENTRY_ID, adjust, ACTOR)).resolves.toBe(entry);
+        await expect(controller.rejectHourEntry(ENTRY_ID, reject, ACTOR)).resolves.toBe(entry);
+
+        expect(reviewService.adjustEntry).toHaveBeenCalledWith(ENTRY_ID, adjust, ACTOR);
+        expect(reviewService.rejectEntry).toHaveBeenCalledWith(ENTRY_ID, reject, ACTOR);
+      });
+
+      it("passes the failure of the review service on as it is", async () => {
+        const failure = new HttpException({ error: "SELF_REVIEW_NOT_ALLOWED" }, 409);
+        reviewService.adjustEntry.mockRejectedValueOnce(failure);
+
+        await expect(
+          controller.adjustHourEntry(
+            ENTRY_ID,
+            { validatedMinutes: 120, justification: "Duas horas." },
+            ACTOR,
+          ),
+        ).rejects.toBe(failure);
       });
     });
   });

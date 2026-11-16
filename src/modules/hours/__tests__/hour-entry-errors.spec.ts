@@ -1,12 +1,17 @@
 import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import {
+  adjustedMinutesUnchanged,
+  duplicateHourEntry,
   entryNotPending,
+  entryNotPendingForReview,
+  hourEntriesNotFound,
   hourEntryDateInFuture,
   hourEntryNotFound,
   invalidPeriod,
   memberNotFound,
   selfOnBehalfNotAllowed,
+  selfReviewNotAllowed,
 } from "../services/hour-entry-errors";
 
 describe("hour entry errors", () => {
@@ -60,6 +65,89 @@ describe("hour entry errors", () => {
     },
   ])(
     "builds $name with its status, code, English message and details",
+    ({ build, status, body }) => {
+      const failure = build();
+
+      expect(failure).toBeInstanceOf(HttpException);
+      expect(failure.getStatus()).toBe(status);
+      expect(failure.getResponse()).toEqual(body);
+    },
+  );
+
+  it.each([
+    {
+      name: "hourEntriesNotFound",
+      build: () => hourEntriesNotFound(["ids.0", "ids.2"]),
+      status: 400,
+      body: {
+        error: "HOUR_ENTRY_NOT_FOUND",
+        message: "One or more hour entries do not exist.",
+        details: [
+          { field: "ids.0", message: "hour entry not found" },
+          { field: "ids.2", message: "hour entry not found" },
+        ],
+      },
+    },
+    {
+      name: "duplicateHourEntry",
+      build: () => duplicateHourEntry(["ids.1"]),
+      status: 400,
+      body: {
+        error: "DUPLICATE_HOUR_ENTRY",
+        message: "The same hour entry appears more than once.",
+        details: [{ field: "ids.1", message: "hour entry appears more than once" }],
+      },
+    },
+    {
+      name: "selfReviewNotAllowed with positions",
+      build: () => selfReviewNotAllowed(["ids.3"]),
+      status: 409,
+      body: {
+        error: "SELF_REVIEW_NOT_ALLOWED",
+        message: "You cannot review your own hour entry.",
+        details: [{ field: "ids.3", message: "you cannot review your own hour entry" }],
+      },
+    },
+    {
+      name: "selfReviewNotAllowed for one entry",
+      build: () => selfReviewNotAllowed(),
+      status: 409,
+      body: { error: "SELF_REVIEW_NOT_ALLOWED", message: "You cannot review your own hour entry." },
+    },
+    {
+      name: "entryNotPendingForReview with positions",
+      build: () => entryNotPendingForReview(["ids.0"]),
+      status: 409,
+      body: {
+        error: "ENTRY_NOT_PENDING",
+        message: "Only pending hour entries can be reviewed.",
+        details: [{ field: "ids.0", message: "hour entry is not pending" }],
+      },
+    },
+    {
+      name: "entryNotPendingForReview for one entry",
+      build: () => entryNotPendingForReview(),
+      status: 409,
+      body: { error: "ENTRY_NOT_PENDING", message: "Only pending hour entries can be reviewed." },
+    },
+    {
+      name: "adjustedMinutesUnchanged",
+      build: adjustedMinutesUnchanged,
+      status: 400,
+      body: {
+        error: "ADJUSTED_MINUTES_UNCHANGED",
+        message:
+          "validatedMinutes must differ from the declared minutes; validate the entry instead.",
+        details: [
+          {
+            field: "validatedMinutes",
+            message: "validatedMinutes must differ from the declared minutes",
+          },
+        ],
+      },
+    },
+  ])(
+    "builds the review error $name with its status, code, English message and details",
     ({ build, status, body }) => {
       const failure = build();
 

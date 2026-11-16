@@ -72,6 +72,12 @@ export enum AuditableAction {
   HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
   /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */
   HOUR_ENTRY_REMOVED = "HOUR_ENTRY_REMOVED",
+  /** A pending hour entry was approved by coordination with its declared minutes, alone or in a batch; one event per entry (GUS-164). */
+  HOUR_ENTRY_APPROVED = "HOUR_ENTRY_APPROVED",
+  /** A pending hour entry was approved with other minutes. The justification is not in the payload (RNF-13, GUS-164). */
+  HOUR_ENTRY_ADJUSTED = "HOUR_ENTRY_ADJUSTED",
+  /** A pending hour entry was rejected; it leaves the bank of hours. The reason is not in the payload (RNF-13, GUS-164). */
+  HOUR_ENTRY_REJECTED = "HOUR_ENTRY_REJECTED",
 }
 
 /**
