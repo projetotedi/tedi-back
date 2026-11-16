@@ -84,6 +84,23 @@ interface MemberTarget {
   departmentIds: string[];
 }
 
+/** Whose hours an entry logged through a route are, who logged them and how. */
+interface DraftAuthorship {
+  personId: string;
+  createdById: string;
+  origin: HourEntryOrigin;
+}
+
+/** What the audit event of an hour entry carries. `before` is null for a creation. */
+interface HourEntryAudit {
+  action: AuditableAction;
+  actorId: string;
+  hourEntryId: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown>;
+  occurredAt: Date;
+}
+
 /**
  * Hour entries of the people (E7, GUS-162): log for oneself or on behalf of a member, read one's
  * own statement and summary, and remove one's own pending entry.
@@ -160,12 +177,12 @@ export class HoursService {
       }),
     );
 
-    const auditEvent = this.buildAuditEvent(
-      AuditableAction.HOUR_ENTRY_CREATED,
-      draft.createdById,
-      entry.id,
-      null,
-      {
+    const auditEvent = this.buildAuditEvent({
+      action: AuditableAction.HOUR_ENTRY_CREATED,
+      actorId: draft.createdById,
+      hourEntryId: entry.id,
+      before: null,
+      after: {
         personId: entry.personId,
         category: entry.category,
         date: entry.date,
@@ -175,8 +192,8 @@ export class HoursService {
         classId: entry.classId,
         lessonId: entry.lessonId,
       },
-      now,
-    );
+      occurredAt: now,
+    });
 
     return { entry, auditEvent };
   }
@@ -187,17 +204,13 @@ export class HoursService {
    * HOUR_ENTRY_CREATED after the commit.
    */
   async logMyHours(dto: CreateHourEntryDto, actor: AuthUser): Promise<HourEntryResponseDto> {
+    const draft = this.draftFrom(dto, {
+      personId: actor.id,
+      createdById: actor.id,
+      origin: HourEntryOrigin.MANUAL,
+    });
     const { entry, auditEvent } = await this.dataSource.transaction((manager) =>
-      this.createEntry(manager, {
-        personId: actor.id,
-        createdById: actor.id,
-        origin: HourEntryOrigin.MANUAL,
-        activity: dto.activity,
-        category: dto.category,
-        date: dto.date,
-        declaredMinutes: dto.declaredMinutes,
-        notes: dto.notes ?? null,
-      }),
+      this.createEntry(manager, draft),
     );
 
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
@@ -230,17 +243,13 @@ export class HoursService {
     const target = await this.findMemberTarget(requestedPersonId);
     this.permissions.assertCan(actor, Permission.HOURS_LOG_FOR_OTHERS, target);
 
+    const draft = this.draftFrom(dto, {
+      personId: target.personId,
+      createdById: actor.id,
+      origin: HourEntryOrigin.ON_BEHALF,
+    });
     const { entry, auditEvent } = await this.dataSource.transaction((manager) =>
-      this.createEntry(manager, {
-        personId: target.personId,
-        createdById: actor.id,
-        origin: HourEntryOrigin.ON_BEHALF,
-        activity: dto.activity,
-        category: dto.category,
-        date: dto.date,
-        declaredMinutes: dto.declaredMinutes,
-        notes: dto.notes ?? null,
-      }),
+      this.createEntry(manager, draft),
     );
 
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
@@ -366,14 +375,14 @@ export class HoursService {
 
     this.eventEmitter.emit(
       AUDITABLE_ACTION_EVENT,
-      this.buildAuditEvent(
-        AuditableAction.HOUR_ENTRY_REMOVED,
-        actor.id,
-        removed.id,
-        { status: HourEntryStatus.PENDING, declaredMinutes: removed.declaredMinutes },
-        { deletedAt: now },
-        now,
-      ),
+      this.buildAuditEvent({
+        action: AuditableAction.HOUR_ENTRY_REMOVED,
+        actorId: actor.id,
+        hourEntryId: removed.id,
+        before: { status: HourEntryStatus.PENDING, declaredMinutes: removed.declaredMinutes },
+        after: { deletedAt: now },
+        occurredAt: now,
+      }),
     );
   }
 
@@ -396,14 +405,31 @@ export class HoursService {
     return { personId: person.id, departmentIds: facts.departmentIds };
   }
 
-  private buildAuditEvent(
-    action: AuditableAction,
-    actorId: string,
-    hourEntryId: string,
-    before: Record<string, unknown> | null,
-    after: Record<string, unknown>,
-    occurredAt: Date,
-  ): AuditableActionEvent {
+  /**
+   * The draft of an entry logged through one of the two routes: the fields of the body, with whose
+   * hours they are, who logged them and how. Notes omitted in the body are null.
+   */
+  private draftFrom(dto: CreateHourEntryDto, authorship: DraftAuthorship): HourEntryDraft {
+    return {
+      personId: authorship.personId,
+      createdById: authorship.createdById,
+      origin: authorship.origin,
+      activity: dto.activity,
+      category: dto.category,
+      date: dto.date,
+      declaredMinutes: dto.declaredMinutes,
+      notes: dto.notes ?? null,
+    };
+  }
+
+  private buildAuditEvent({
+    action,
+    actorId,
+    hourEntryId,
+    before,
+    after,
+    occurredAt,
+  }: HourEntryAudit): AuditableActionEvent {
     const event = new AuditableActionEvent();
     event.actorId = actorId;
     event.action = action;
