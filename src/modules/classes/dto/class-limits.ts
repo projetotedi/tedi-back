@@ -12,6 +12,6 @@ export const CLASSES_SUMMARY_MAX_COURSES = 100;
 
 /**
  * Most enrollments the sheet of the class (`GET /classes/:id`) shows. The whole list is
- * `GET /classes/:id/enrollments` (GUS-108).
+ * `GET /classes/:id/enrollments`.
  */
 export const CLASS_ENROLLMENTS_PREVIEW_LIMIT = 5;

@@ -34,6 +34,7 @@ import { ClassesController } from "@modules/classes/controllers/classes.controll
 import { CourseClassesController } from "@modules/classes/controllers/course-classes.controller";
 import { EditionsController } from "@modules/classes/controllers/editions.controller";
 import { EnrollmentsController } from "@modules/classes/controllers/enrollments.controller";
+import { StudentEnrollmentsController } from "@modules/classes/controllers/student-enrollments.controller";
 import { ClassLessonsController } from "@modules/lessons/controllers/class-lessons.controller";
 import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
 import { MemberHoursController } from "@modules/hours/controllers/member-hours.controller";
@@ -63,6 +64,7 @@ import { ClassDetailService } from "@modules/classes/services/class-detail.servi
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { CourseClassesService } from "@modules/classes/services/course-classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
+import { EnrollmentListingService } from "@modules/classes/services/enrollment-listing.service";
 import { EnrollmentsService } from "@modules/classes/services/enrollments.service";
 import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
 import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
@@ -100,6 +102,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     CourseClassesController,
     ClassEnrollmentsController,
     EnrollmentsController,
+    StudentEnrollmentsController,
     LessonsController,
     ClassLessonsController,
     LessonAssignmentsController,
@@ -255,6 +258,15 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         enroll: async () => ({ enrolled: [], skipped: [], warnings: [] }),
         updateStatus: async () => ({}),
         remove: async () => undefined,
+      },
+    },
+    {
+      provide: EnrollmentListingService,
+      useValue: {
+        listClassEnrollments: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listAvailableStudents: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listStudentEnrollments: async () => ({}),
+        listStudentsByEnrollment: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
       },
     },
     {

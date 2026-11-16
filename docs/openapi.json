@@ -425,6 +425,39 @@
         ],
         "type": "object"
       },
+      "AvailableStudentItemResponseDto": {
+        "properties": {
+          "age": {
+            "description": "Whole years today in America/Sao_Paulo.",
+            "example": 68,
+            "type": "integer"
+          },
+          "currentClasses": {
+            "description": "The other classes where the student has an active enrollment, the most recent edition first.",
+            "items": {
+              "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "Person id of the student.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "age",
+          "currentClasses"
+        ],
+        "type": "object"
+      },
       "BrazilianState": {
         "description": "Federative unit (UF). Upper-cased.",
         "enum": [
@@ -614,7 +647,7 @@
             "type": "string"
           },
           "enrollmentsPreview": {
-            "description": "Up to 5 active enrollments, the earliest first. The full list is GET /classes/{id}/enrollments (GUS-108). Empty when there are none.",
+            "description": "Up to 5 active enrollments, the earliest first. The full list is GET /classes/{id}/enrollments. Empty when there are none.",
             "items": {
               "$ref": "#/components/schemas/ClassEnrollmentPreviewItemResponseDto"
             },
@@ -728,6 +761,54 @@
           "lessonsDone",
           "lessonsTotal",
           "averageAttendance"
+        ],
+        "type": "object"
+      },
+      "ClassEnrollmentItemResponseDto": {
+        "properties": {
+          "attendanceRate": {
+            "description": "Always null until the student roll call (GUS-166).",
+            "example": null,
+            "nullable": true,
+            "type": "number"
+          },
+          "enrolledAt": {
+            "example": "2026-03-03T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id of the enrollment.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EnrollmentStatus"
+              }
+            ],
+            "description": "active, dropped or completed. Only active enrollments take a seat of the class; the completed ones are the courses the student finished (RN-16).",
+            "example": "active"
+          },
+          "statusChangedAt": {
+            "description": "From when the current status holds, YYYY-MM-DD in America/Sao_Paulo.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "student": {
+            "$ref": "#/components/schemas/EnrollmentStudentResponseDto"
+          }
+        },
+        "required": [
+          "id",
+          "student",
+          "status",
+          "enrolledAt",
+          "statusChangedAt",
+          "attendanceRate"
         ],
         "type": "object"
       },
@@ -1051,6 +1132,31 @@
           "courseId",
           "total",
           "active"
+        ],
+        "type": "object"
+      },
+      "CompletedCourseResponseDto": {
+        "properties": {
+          "completedAt": {
+            "description": "The latest statusChangedAt of the completed enrollments of the course, YYYY-MM-DD.",
+            "example": "2025-12-12",
+            "format": "date",
+            "type": "string"
+          },
+          "courseId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000b1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica",
+            "type": "string"
+          }
+        },
+        "required": [
+          "courseId",
+          "name",
+          "completedAt"
         ],
         "type": "object"
       },
@@ -2141,6 +2247,34 @@
         ],
         "type": "object"
       },
+      "EnrollmentClassRefResponseDto": {
+        "properties": {
+          "code": {
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "edition": {
+            "$ref": "#/components/schemas/EditionResponseDto"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "edition"
+        ],
+        "type": "object"
+      },
       "EnrollmentResponseDto": {
         "properties": {
           "classId": {
@@ -2253,6 +2387,49 @@
           "completed"
         ],
         "type": "string"
+      },
+      "EnrollmentStudentResponseDto": {
+        "properties": {
+          "accessibilityNeed": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityNeed"
+              }
+            ],
+            "description": "null when the caller cannot see students (students.view).",
+            "example": "none",
+            "nullable": true
+          },
+          "age": {
+            "description": "Whole years today in America/Sao_Paulo.",
+            "example": 68,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Person id of the student.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only. Null when the student has none or when the caller cannot see students (students.view).",
+            "example": "43999990000",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "age",
+          "phone",
+          "accessibilityNeed"
+        ],
+        "type": "object"
       },
       "EnrollmentWarningCode": {
         "enum": [
@@ -6062,6 +6239,56 @@
         ],
         "type": "object"
       },
+      "StudentByEnrollmentItemResponseDto": {
+        "properties": {
+          "accessibilityNeed": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityNeed"
+              }
+            ],
+            "description": "Category of what the student needs in class, never a diagnosis (RNF-13).",
+            "example": "none"
+          },
+          "age": {
+            "description": "Whole years today in America/Sao_Paulo.",
+            "example": 68,
+            "type": "integer"
+          },
+          "currentClasses": {
+            "description": "The classes where the student has an active enrollment, the most recent edition first.",
+            "items": {
+              "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "Person id of the student.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Digits only.",
+            "example": "43999990000",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "age",
+          "phone",
+          "accessibilityNeed",
+          "currentClasses"
+        ],
+        "type": "object"
+      },
       "StudentDetailDto": {
         "properties": {
           "accessibilityNeed": {
@@ -6194,6 +6421,106 @@
           "updatedAt",
           "archivedAt",
           "archiveReason"
+        ],
+        "type": "object"
+      },
+      "StudentEnrollmentItemResponseDto": {
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
+          },
+          "course": {
+            "$ref": "#/components/schemas/ClassCourseResponseDto"
+          },
+          "enrolledAt": {
+            "example": "2025-08-04T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id of the enrollment.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EnrollmentStatus"
+              }
+            ],
+            "description": "active, dropped or completed. Only active enrollments take a seat of the class; the completed ones are the courses the student finished (RN-16).",
+            "example": "completed"
+          },
+          "statusChangedAt": {
+            "description": "From when the current status holds, YYYY-MM-DD in America/Sao_Paulo.",
+            "example": "2025-12-12",
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "enrolledAt",
+          "statusChangedAt",
+          "class",
+          "course"
+        ],
+        "type": "object"
+      },
+      "StudentEnrollmentSituation": {
+        "enum": [
+          "enrolled",
+          "not_enrolled"
+        ],
+        "type": "string"
+      },
+      "StudentEnrollmentsResponseDto": {
+        "properties": {
+          "enrollments": {
+            "description": "Every enrollment that is not removed, the newest first; archived classes too.",
+            "items": {
+              "$ref": "#/components/schemas/StudentEnrollmentItemResponseDto"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/StudentEnrollmentsSummaryResponseDto"
+          }
+        },
+        "required": [
+          "enrollments",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "StudentEnrollmentsSummaryResponseDto": {
+        "properties": {
+          "activeClasses": {
+            "description": "Active enrollments.",
+            "example": 1,
+            "type": "integer"
+          },
+          "completedCourses": {
+            "description": "One item per course with a completed enrollment, by completedAt and then name.",
+            "items": {
+              "$ref": "#/components/schemas/CompletedCourseResponseDto"
+            },
+            "type": "array"
+          },
+          "firstEnrollmentAt": {
+            "description": "The earliest enrolledAt; null without enrollments.",
+            "example": "2025-08-04T13:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "activeClasses",
+          "completedCourses",
+          "firstEnrollmentAt"
         ],
         "type": "object"
       },
@@ -8575,7 +8902,294 @@
         ]
       }
     },
+    "/classes/{id}/available-students": {
+      "get": {
+        "operationId": "listAvailableStudents",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Part of the name of the student, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "Maria",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/AvailableStudentItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
     "/classes/{id}/enrollments": {
+      "get": {
+        "operationId": "listClassEnrollments",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Part of the name of the student, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "Maria",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "active, dropped or completed. Only active enrollments take a seat of the class; the completed ones are the courses the student finished (RN-16).",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/EnrollmentStatus"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ClassEnrollmentItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      },
       "post": {
         "operationId": "enrollStudents",
         "parameters": [
@@ -9848,6 +10462,155 @@
               }
             },
             "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      }
+    },
+    "/enrollments/students": {
+      "get": {
+        "operationId": "listStudentsByEnrollment",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Part of the name of the student, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "Maria",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the enrollments of this class. An id that is not a class answers no one enrolled and everybody not enrolled.",
+            "in": "query",
+            "name": "classId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "enrolled: students with an active enrollment (in classId, or in any class); not_enrolled: students not archived without one. Omitted = enrolled.",
+            "in": "query",
+            "name": "situation",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StudentEnrollmentSituation"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/StudentByEnrollmentItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
           },
           "401": {
             "content": {
@@ -15471,6 +16234,88 @@
         },
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/students/{id}/enrollments": {
+      "get": {
+        "operationId": "listStudentEnrollments",
+        "parameters": [
+          {
+            "description": "Person id of the student.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentEnrollmentsResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
         ]
       }
     },

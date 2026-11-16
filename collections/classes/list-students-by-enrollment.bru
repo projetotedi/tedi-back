@@ -1,0 +1,33 @@
+meta {
+  name: list-students-by-enrollment
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/enrollments/students
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  ~classId: 01952ef7-0000-7000-8000-000000000003
+  ~situation: enrolled
+  ~search: Maria
+  page: 1
+  limit: 20
+}
+
+docs {
+  Alimenta a tela Alunos quando há filtro de turma ou de situação. A rota mora em classes/ porque o controller tem a tag classes.
+  Requer cookie tedi_session e a permissão students.view (@RequirePermission; todos os perfis).
+  Query: classId (opcional, uuid), situation (enrolled ou not_enrolled; omitida = enrolled), search (parte do nome, sem diferenciar maiúsculas nem acentos), page e limit (1 a 100, padrão 20).
+  enrolled: alunos com matrícula ativa na turma classId, ou em qualquer turma sem classId. not_enrolled: alunos não arquivados sem matrícula ativa na turma (ou em nenhuma). Um classId que não é turma responde vazio para enrolled e todos para not_enrolled.
+  Cada item é o item da lista de alunos (GUS-106: { id, name, age, phone, accessibilityNeed }) mais currentClasses (as turmas em que o aluno tem matrícula ativa, da edição mais recente para a mais antiga). Ordem pelo nome.
+  Retorna 200 { data, total, page, limit }.
+  Erros possíveis: 400 VALIDATION_FAILED (classId mal formado ou situation desconhecida), 401.
+}

@@ -21,6 +21,7 @@ import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { ClassesModule } from "../classes.module";
 import { ClassStatus } from "../enums/class-status.enum";
+import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import {
   ActiveEnrollmentPreviewRow,
   EnrollmentCountsService,
@@ -377,6 +378,32 @@ describe("GET /classes/:id (e2e)", () => {
       expect(body.enrollmentsTotal).toBe(0);
       expect(body.summary.enrolledCount).toBe(0);
       expect(body.summary.occupancyRate).toBe(0);
+    });
+
+    it("answers enrollmentsTotal equal to the total of GET /classes/:id/enrollments?status=active, with dropped and removed enrollments left out", async () => {
+      await enroll(3);
+      await insertEnrollments(dataSource, {
+        classId,
+        createdById: director.id,
+        count: 2,
+        status: EnrollmentStatus.DROPPED,
+        namePrefix: "Dropped",
+      });
+      await insertEnrollment(dataSource, {
+        classId,
+        studentId: await insertStudent(dataSource, { name: "Removed", createdById: director.id }),
+        createdById: director.id,
+        deletedAt: new Date("2026-03-10T12:00:00.000Z"),
+      });
+
+      const sheet = await getClass(director, classId).expect(200);
+      const list = await request(app.getHttpServer())
+        .get(`/classes/${classId}/enrollments?status=active`)
+        .set("Cookie", director.cookie)
+        .expect(200);
+
+      expect((sheet.body as ClassDetailBody).enrollmentsTotal).toBe(3);
+      expect((list.body as { total: number }).total).toBe(3);
     });
 
     it("names the students of the preview from people", async () => {

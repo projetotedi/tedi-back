@@ -3,8 +3,12 @@ import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { EnrollStudentsDto } from "../dto/enroll-students.dto";
 import { ENROLLMENT_MAX_STUDENTS } from "../dto/enrollment-limits";
+import { ListAvailableStudentsQueryDto } from "../dto/list-available-students-query.dto";
+import { ListClassEnrollmentsQueryDto } from "../dto/list-class-enrollments-query.dto";
+import { ListStudentsByEnrollmentQueryDto } from "../dto/list-students-by-enrollment-query.dto";
 import { UpdateEnrollmentStatusDto } from "../dto/update-enrollment-status.dto";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
+import { StudentEnrollmentSituation } from "../enums/student-enrollment-situation.enum";
 
 function fieldsOf(errors: ValidationError[]): string[] {
   return errors.map((error) => error.property).sort();
@@ -91,5 +95,45 @@ describe("enrollment DTOs", () => {
         })
       ).fields,
     ).toEqual([]);
+  });
+
+  it("accepts page, limit, search and one status in the class list; classId and situation in the list by enrollment", async () => {
+    const list = await check(ListClassEnrollmentsQueryDto, {
+      page: "2",
+      limit: "50",
+      search: "Ana",
+      status: "dropped",
+    });
+    expect(list.fields).toEqual([]);
+    expect(list.dto).toMatchObject({
+      page: 2,
+      limit: 50,
+      search: "Ana",
+      status: EnrollmentStatus.DROPPED,
+    });
+    expect((await check(ListClassEnrollmentsQueryDto, {})).fields).toEqual([]);
+    expect(
+      (await check(ListClassEnrollmentsQueryDto, { page: "0", limit: "101", status: "paused" }))
+        .fields,
+    ).toEqual(["limit", "page", "status"]);
+    expect(
+      (await check(ListAvailableStudentsQueryDto, { search: "a".repeat(101) })).fields,
+    ).toEqual(["search"]);
+
+    const byEnrollment = await check(ListStudentsByEnrollmentQueryDto, {
+      classId: "01999A3E-7C1B-7000-8000-0000000000C1",
+      situation: "not_enrolled",
+      page: "1",
+    });
+    expect(byEnrollment.fields).toEqual([]);
+    expect(byEnrollment.dto.situation).toBe(StudentEnrollmentSituation.NOT_ENROLLED);
+    expect((await check(ListStudentsByEnrollmentQueryDto, {})).fields).toEqual([]);
+  });
+
+  it("refuses a classId that is not a uuid and an unknown situation", async () => {
+    expect(
+      (await check(ListStudentsByEnrollmentQueryDto, { classId: "not-a-uuid", situation: "all" }))
+        .fields,
+    ).toEqual(["classId", "situation"]);
   });
 });

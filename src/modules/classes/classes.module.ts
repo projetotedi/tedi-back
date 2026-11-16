@@ -3,11 +3,13 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
+import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { ClassEnrollmentsController } from "./controllers/class-enrollments.controller";
 import { ClassesController } from "./controllers/classes.controller";
 import { CourseClassesController } from "./controllers/course-classes.controller";
 import { EditionsController } from "./controllers/editions.controller";
 import { EnrollmentsController } from "./controllers/enrollments.controller";
+import { StudentEnrollmentsController } from "./controllers/student-enrollments.controller";
 import { SchoolClass } from "./entities/class.entity";
 import { Edition } from "./entities/edition.entity";
 import { Enrollment } from "./entities/enrollment.entity";
@@ -16,6 +18,7 @@ import { ClassesService } from "./services/classes.service";
 import { CourseClassesService } from "./services/course-classes.service";
 import { EditionsService } from "./services/editions.service";
 import { EnrollmentCountsService } from "./services/enrollment-counts.service";
+import { EnrollmentListingService } from "./services/enrollment-listing.service";
 import { EnrollmentsService } from "./services/enrollments.service";
 
 @Module({
@@ -24,12 +27,17 @@ import { EnrollmentsService } from "./services/enrollments.service";
   // a class and gives the `course` that every answer shows. Since GUS-104 it also gives
   // CourseLessonPlansService.readSequence, for the workload of the course on the sheet of the class.
   // PeopleModule has its first consumer in GUS-104 too: PeopleService.findRefsByIds, for who
-  // created the class and the students of the preview. GUS-108 registers EnrollmentCountsService as
-  // the reader of the port StudentEnrollmentsRegistry (the archive of a student asks it).
+  // created the class and the students of the preview. GUS-108 (the enrollments) uses
+  // StudentsService.findStudentSummaries (the students of an enrollment, FOR SHARE on the profile)
+  // and listStudentRefs (the students of the lists, by ids), CoursesService.findPrerequisiteRefs and
+  // getCourseSummaries, and registers EnrollmentCountsService as the reader of the port
+  // StudentEnrollmentsRegistry (the archive of a student asks it). PermissionsModule gives the
+  // policy that decides whether the list of a class shows the contact of the students.
   imports: [
     TypeOrmModule.forFeature([SchoolClass, Edition, Enrollment]),
     CatalogModule,
     PeopleModule,
+    PermissionsModule,
   ],
   // CourseClassesController comes first on purpose: it holds GET /classes/summary-by-course, and
   // routes are registered in this order. The detail GET /classes/:id (GUS-104) lives in
@@ -42,6 +50,7 @@ import { EnrollmentsService } from "./services/enrollments.service";
     EditionsController,
     ClassEnrollmentsController,
     EnrollmentsController,
+    StudentEnrollmentsController,
   ],
   providers: [
     ClassesService,
@@ -50,12 +59,14 @@ import { EnrollmentsService } from "./services/enrollments.service";
     EditionsService,
     EnrollmentCountsService,
     EnrollmentsService,
+    EnrollmentListingService,
     Clock,
   ],
   // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151) and
   // the classes of its list and calendar (code, course, color slot) through
   // ClassesService.listClassRefs (GUS-153).
-  // The enrollments (GUS-108) live in this module, so they need no export.
+  // The enrollments (GUS-108) export nothing new: what the roll call of the students reads is
+  // added by GUS-166, with its consumer.
   exports: [ClassesService],
 })
 export class ClassesModule {}
