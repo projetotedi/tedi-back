@@ -176,3 +176,36 @@ export function applicationNotPending(): HttpException {
     409,
   );
 }
+
+/**
+ * 400 INVALID_DATE_RANGE for the period of "Minhas aulas" (GUS-160): `to` before `from`. The same
+ * code, message and `details` as the list and the calendar of the lessons
+ * (`lessons/services/lesson-date-range.ts`), a contract the front already maps; those helpers are
+ * internal to `lessons`, so the body is repeated here, not imported.
+ */
+export function invalidDateRange(): HttpException {
+  return new HttpException(
+    {
+      error: "INVALID_DATE_RANGE",
+      message: "to must be on or after from.",
+      details: [{ field: "to", message: "to must be on or after from" }],
+    },
+    400,
+  );
+}
+
+/**
+ * 400 DATE_RANGE_TOO_LONG for the period of "Minhas aulas" (GUS-160): more days than `maxDays`, both
+ * ends counted. The same body as the calendar of the lessons, for the same reason as
+ * `invalidDateRange`.
+ */
+export function dateRangeTooLong(maxDays: number): HttpException {
+  return new HttpException(
+    {
+      error: "DATE_RANGE_TOO_LONG",
+      message: `The period cannot be longer than ${maxDays} days, counting both ends.`,
+      details: [{ field: "to", message: `to must be at most ${maxDays - 1} days after from` }],
+    },
+    400,
+  );
+}

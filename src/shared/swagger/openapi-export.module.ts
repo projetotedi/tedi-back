@@ -22,6 +22,7 @@ import { AssignmentsController } from "@modules/assignments/controllers/assignme
 import { LessonApplicationsController } from "@modules/assignments/controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
 import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
+import { MyAssignmentsController } from "@modules/assignments/controllers/my-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
@@ -45,6 +46,7 @@ import { MyProfileController } from "@modules/people/controllers/my-profile.cont
 import { StudentsController } from "@modules/people/controllers/students.controller";
 import { ApplicationsService } from "@modules/assignments/services/applications.service";
 import { AssignmentsService } from "@modules/assignments/services/assignments.service";
+import { MyAssignmentsService } from "@modules/assignments/services/my-assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
@@ -96,6 +98,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     AssignmentsController,
     ApplicationsController,
     MemberAssignmentsController,
+    MyAssignmentsController,
     MyHoursController,
     MemberHoursController,
     MemberHoursViewController,
@@ -158,6 +161,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         approve: async () => ({}),
         reject: async () => ({}),
       },
+    },
+    {
+      provide: MyAssignmentsService,
+      useValue: { listMine: async () => ({}), listOpen: async () => [] },
     },
     {
       provide: MyProfileService,

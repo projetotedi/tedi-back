@@ -9,6 +9,8 @@ import {
   toAssignmentLesson,
   toLessonAssignmentResponse,
   toMemberAssignmentResponse,
+  toMyAssignmentResponse,
+  toOpenLessonResponse,
 } from "../services/assignment-response.mapper";
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
@@ -254,5 +256,40 @@ describe("toAssignmentLesson (GUS-160)", () => {
     expect(lesson.sequenceOrder).toBeNull();
     expect(lesson.location).toBeNull();
     expect(lesson).not.toHaveProperty("expectedMonitors");
+  });
+});
+
+describe("toMyAssignmentResponse (GUS-160)", () => {
+  it("maps an item of my lessons without the note", () => {
+    const response = toMyAssignmentResponse(
+      buildAssignment({ note: NOTE, source: AssignmentSource.APPLICATION }),
+      buildAgendaRef(),
+    );
+
+    expect(response).toEqual({
+      id: ASSIGNMENT_ID,
+      lesson: toAssignmentLesson(buildAgendaRef()),
+      role: AssignmentRole.MONITOR,
+      status: AssignmentStatus.CONFIRMED,
+      source: AssignmentSource.APPLICATION,
+    });
+    expect(JSON.stringify(response)).not.toContain(NOTE);
+  });
+});
+
+describe("toOpenLessonResponse (GUS-160)", () => {
+  it("maps an open lesson with the coverage of the lesson and the open roles", () => {
+    expect(toOpenLessonResponse(buildAgendaRef(), { teachers: 0, monitors: 2 })).toEqual({
+      lesson: toAssignmentLesson(buildAgendaRef()),
+      coverage: {
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 2, expected: 3 },
+      },
+      openRoles: [AssignmentRole.TEACHER, AssignmentRole.MONITOR],
+    });
+    expect(
+      toOpenLessonResponse(buildAgendaRef({ expectedMonitors: 2 }), { teachers: 1, monitors: 0 })
+        .openRoles,
+    ).toEqual([AssignmentRole.MONITOR]);
   });
 });

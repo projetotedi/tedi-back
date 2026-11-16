@@ -1,0 +1,26 @@
+meta {
+  name: list-open-lessons
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/me/open-lessons
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Aulas com vaga para você (F5.5, tabela "Aulas com vaga para candidatura"): as aulas do período com vaga para algum papel, em que a pessoa logada ainda não tem lugar.
+  Requer cookie tedi_session e a permissão assignments.manageOwn (@RequirePermission; todo perfil, sobre si mesmo). A pessoa é sempre a da sessão.
+  Query: o mesmo período de list-my-assignments (from e to opcionais, hoje e + 27 dias por padrão, até 42 dias), com os mesmos erros, para a tela pedir as duas rotas com os mesmos parâmetros.
+  Entra a aula do período a partir de hoje (aula passada nunca tem vaga para candidatura, mesmo com from antes de hoje), não cancelada, de turma não arquivada, em que a pessoa não tem lugar ativo (pending ou confirmed, de qualquer origem e papel; candidatura recusada ou alocação cancelada não impedem) e que tem vaga para algum papel. Vaga é a cobertura: só alocação confirmada ocupa lugar. Professor tem vaga enquanto a aula não tem professor confirmado; monitor, enquanto os confirmados estão abaixo de expectedMonitors (nulo ou 0 não espera ninguém). É a mesma regra de apply-to-lesson: papel listado é aceito, papel fora da lista responde ROLE_FULL.
+  Cada item traz lesson (com a turma, a posição e o local), coverage (teacher { confirmed, expected } e monitors { confirmed, expected }, o "Professor(a) 0 de 1 · Monitores 2 de 3") e openRoles (os papéis com vaga, teacher antes de monitor). Ordem: data, horário de início e id. Sem paginação: o tamanho da lista é o totals.openLessons de list-my-assignments no mesmo período.
+  Leitura simples: sem transação, sem lock e sem evento.
+  Retorna 200 OpenLessonResponseDto[].
+  Erros possíveis: 400 VALIDATION_FAILED, INVALID_DATE_RANGE ou DATE_RANGE_TOO_LONG, 401.
+}

@@ -9,10 +9,12 @@ import { AssignmentsController } from "./controllers/assignments.controller";
 import { LessonApplicationsController } from "./controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "./controllers/lesson-assignments.controller";
 import { MemberAssignmentsController } from "./controllers/member-assignments.controller";
+import { MyAssignmentsController } from "./controllers/my-assignments.controller";
 import { LessonAssignment } from "./entities/lesson-assignment.entity";
 import { ApplicationsService } from "./services/applications.service";
 import { AssignmentsService } from "./services/assignments.service";
 import { LessonStaffCounterService } from "./services/lesson-staff-counter.service";
+import { MyAssignmentsService } from "./services/my-assignments.service";
 
 @Module({
   // As docs/ARCHITECTURE.md section 3 draws it (lessons <- assignments, people <- assignments):
@@ -39,10 +41,17 @@ import { LessonStaffCounterService } from "./services/lesson-staff-counter.servi
     AssignmentsController,
     ApplicationsController,
     MemberAssignmentsController,
+    MyAssignmentsController,
   ],
   // LessonStaffCounterService plugs itself in the LessonCoverageRegistry in onModuleInit, so every
   // answer of the lessons counts the confirmed staff through it (F5.4).
-  providers: [AssignmentsService, ApplicationsService, LessonStaffCounterService, Clock],
+  providers: [
+    AssignmentsService,
+    ApplicationsService,
+    MyAssignmentsService,
+    LessonStaffCounterService,
+    Clock,
+  ],
   // Nobody consumes the assignments yet: the attendance and the hours (GUS-166, GUS-168) will say
   // what they need, and the export is added then.
   exports: [],

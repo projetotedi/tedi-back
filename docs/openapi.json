@@ -4818,6 +4818,116 @@
         ],
         "type": "string"
       },
+      "MyAssignmentResponseDto": {
+        "properties": {
+          "id": {
+            "description": "Id of the assignment (or application) of the member.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000a1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonResponseDto"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentSource"
+              }
+            ],
+            "example": "application"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "The latest status of the member in the lesson: the active one (pending or confirmed) when there is one, else the latest declined or cancelled.",
+            "example": "pending"
+          }
+        },
+        "required": [
+          "id",
+          "lesson",
+          "role",
+          "status",
+          "source"
+        ],
+        "type": "object"
+      },
+      "MyAssignmentsResponseDto": {
+        "properties": {
+          "from": {
+            "description": "First day of the period, as resolved (today when it was not asked).",
+            "example": "2026-03-09",
+            "format": "date",
+            "type": "string"
+          },
+          "items": {
+            "description": "One item per lesson of the period where the member has an assignment, soonest first (by date, start time and id). Not paginated: the period holds at most 42 days.",
+            "items": {
+              "$ref": "#/components/schemas/MyAssignmentResponseDto"
+            },
+            "type": "array"
+          },
+          "to": {
+            "description": "Last day of the period, as resolved (27 days after from when it was not asked).",
+            "example": "2026-04-05",
+            "format": "date",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/MyAssignmentsTotalsDto"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "totals",
+          "items"
+        ],
+        "type": "object"
+      },
+      "MyAssignmentsTotalsDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Items with status confirmed.",
+            "example": 2,
+            "type": "integer"
+          },
+          "openLessons": {
+            "description": "How many lessons of the period have an open place for the member (Aulas com vaga para você): the number of items GET /me/open-lessons answers for the same period.",
+            "example": 3,
+            "type": "integer"
+          },
+          "pending": {
+            "description": "Items with status pending (Aguardando confirmação): an application or a direct assignment still waiting.",
+            "example": 1,
+            "type": "integer"
+          },
+          "upcoming": {
+            "description": "Lessons of the period where the member is pending or confirmed (Próximas aulas): always confirmed plus pending.",
+            "example": 3,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "upcoming",
+          "confirmed",
+          "pending",
+          "openLessons"
+        ],
+        "type": "object"
+      },
       "MyProfileResponseDto": {
         "properties": {
           "accessEnabled": {
@@ -4972,6 +5082,38 @@
           "joinedAt",
           "cpfMasked",
           "lastLoginAt"
+        ],
+        "type": "object"
+      },
+      "OpenLessonResponseDto": {
+        "properties": {
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "The coverage of the lesson, the same as in the lesson itself (only confirmed assignments count): what draws Professor(a) 0 de 1 · Monitores 2 de 3."
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonResponseDto"
+          },
+          "openRoles": {
+            "description": "The roles with an open place, teacher before monitor; never empty. Applying for one of them is not refused with ROLE_FULL at that moment.",
+            "example": [
+              "teacher",
+              "monitor"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRole"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "lesson",
+          "coverage",
+          "openRoles"
         ],
         "type": "object"
       },
@@ -11994,6 +12136,100 @@
         ]
       }
     },
+    "/me/assignments": {
+      "get": {
+        "operationId": "listMyAssignments",
+        "parameters": [
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. Without it, today in America/Sao_Paulo.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-09",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. Without it, 27 days after from (four weeks, both ends counted). It cannot be before from (else 400 INVALID_DATE_RANGE), and the period holds at most 42 days counting both ends (else 400 DATE_RANGE_TOO_LONG).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-04-05",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAssignmentsResponseDto"
+                }
+              }
+            },
+            "description": "The lessons of the period (four weeks from today by default) where the member is assigned or applied, with the role and the latest status of each, and the totals of the top of the screen. No note."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE | DATE_RANGE_TOO_LONG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
     "/me/hour-entries": {
       "get": {
         "operationId": "listMyHourEntries",
@@ -12408,6 +12644,103 @@
         },
         "tags": [
           "hours"
+        ]
+      }
+    },
+    "/me/open-lessons": {
+      "get": {
+        "operationId": "listOpenLessons",
+        "parameters": [
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. Without it, today in America/Sao_Paulo.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-09",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. Without it, 27 days after from (four weeks, both ends counted). It cannot be before from (else 400 INVALID_DATE_RANGE), and the period holds at most 42 days counting both ends (else 400 DATE_RANGE_TOO_LONG).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-04-05",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OpenLessonResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The lessons of the period, from today on, that have an open place for some role and where the member holds no place, with the coverage and the open roles of each, soonest first. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE | DATE_RANGE_TOO_LONG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },

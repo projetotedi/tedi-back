@@ -6,6 +6,7 @@ import { ApplyToLessonDto } from "../dto/apply-to-lesson.dto";
 import { ASSIGNMENT_NOTE_MAX_LENGTH } from "../dto/assignment-limits";
 import { CreateAssignmentDto } from "../dto/create-assignment.dto";
 import { ListApplicationsQueryDto } from "../dto/list-applications-query.dto";
+import { MyLessonsPeriodQueryDto } from "../dto/my-lessons-period-query.dto";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 
@@ -255,6 +256,30 @@ describe("ListApplicationsQueryDto (GUS-160)", () => {
       });
 
       expect(fieldsOf(errors)).toEqual(["status"]);
+    }
+  });
+});
+
+describe("MyLessonsPeriodQueryDto (GUS-160)", () => {
+  it("takes both optional, rejects 2026-02-30 and 2026-3-3", async () => {
+    for (const query of [
+      {},
+      { from: "2026-03-09" },
+      { to: "2026-04-05" },
+      { from: "2026-03-09", to: "2026-04-05" },
+    ]) {
+      const dto = plainToInstance(MyLessonsPeriodQueryDto, query);
+
+      expect(await validate(dto, { whitelist: true })).toHaveLength(0);
+      expect(dto).toEqual(expect.objectContaining(query));
+    }
+    for (const value of ["2026-02-30", "2026-3-3", "09/03/2026", ""]) {
+      const errors = await validate(
+        plainToInstance(MyLessonsPeriodQueryDto, { from: value, to: value }),
+        { whitelist: true },
+      );
+
+      expect(fieldsOf(errors)).toEqual(["from", "to"]);
     }
   });
 });

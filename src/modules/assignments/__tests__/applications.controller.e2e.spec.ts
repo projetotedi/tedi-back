@@ -1,11 +1,12 @@
 /**
  * E2e spec for the applications of the members — GUS-160 (candidatura e aprovação).
  *
+ * CA1: a member applies as monitor to a lesson with an open place and sees it pending in Minhas aulas
  * CA2: a director approves and the coverage of the lesson goes up; declining frees the place
  * CA3: a member gets 403 on the routes of the review
  *
- * Routes: POST /lessons/:id/applications, GET /applications, PATCH /applications/:id/approve and
- * PATCH /applications/:id/reject.
+ * Routes: POST /lessons/:id/applications, GET /applications, PATCH /applications/:id/approve,
+ * PATCH /applications/:id/reject, GET /me/assignments and GET /me/open-lessons.
  *
  * The clock of the app is fixed at 2026-03-09 12:00 in São Paulo (`Clock` overridden in every
  * module that provides it), so "today" and "the past" do not move with the day the suite runs. The
@@ -114,6 +115,37 @@ interface AssignmentBody extends Record<string, unknown> {
 interface CoverageBody {
   teacher: { confirmed: number; expected: number };
   monitors: { confirmed: number; expected: number | null };
+}
+
+interface AgendaLessonBody {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  sequenceOrder: number | null;
+  location: string | null;
+  class: { id: string; code: string; name: string };
+}
+
+interface MyAssignmentsBody {
+  from: string;
+  to: string;
+  totals: { upcoming: number; confirmed: number; pending: number; openLessons: number };
+  items: Array<{
+    id: string;
+    lesson: AgendaLessonBody;
+    role: string;
+    status: string;
+    source: string;
+  }>;
+}
+
+interface OpenLessonBody {
+  lesson: AgendaLessonBody;
+  coverage: CoverageBody;
+  openRoles: string[];
 }
 
 function fieldsOf(body: { details?: FieldError[] }): string[] {
@@ -361,6 +393,20 @@ describe("Applications (e2e)", () => {
   function reject(id: string, actor: Actor) {
     return request(app.getHttpServer())
       .patch(`/applications/${id}/reject`)
+      .set("Cookie", actor.cookie);
+  }
+
+  function getMine(actor: Actor, query: Record<string, string> = {}) {
+    return request(app.getHttpServer())
+      .get("/me/assignments")
+      .query(query)
+      .set("Cookie", actor.cookie);
+  }
+
+  function getOpen(actor: Actor, query: Record<string, string> = {}) {
+    return request(app.getHttpServer())
+      .get("/me/open-lessons")
+      .query(query)
       .set("Cookie", actor.cookie);
   }
 
@@ -1347,10 +1393,402 @@ describe("Applications (e2e)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /me/assignments
+  // ---------------------------------------------------------------------------
+
+  describe("GET /me/assignments (listMyAssignments)", () => {
+    it("lists the lessons of the next 4 weeks where the member is assigned or applied, soonest first, with the class, the position, the role and the status", async () => {
+      const lessonThree = await createLessonOfPlan({
+        title: "Arquivos e pastas",
+        sequenceOrder: 3,
+        date: "2026-03-17",
+        location: "Laboratório 2",
+        expectedMonitors: 2,
+      });
+      const far = await createLesson({ date: "2026-04-20" });
+      const applied = await apply(ana, "monitor", lessonThree);
+      const assigned = await assignDirect(ana, { role: "teacher", status: "confirmed" });
+      await apply(ana, "teacher", far);
+
+      const res = await getMine(ana).expect(200);
+      const body = res.body as MyAssignmentsBody;
+
+      expect(body.items).toEqual([
+        {
+          id: assigned.id,
+          lesson: {
+            id: lessonId,
+            title: "Teclado, mouse e janelas",
+            date: "2026-03-10",
+            startTime: "14:00",
+            endTime: "15:30",
+            status: "planned",
+            sequenceOrder: null,
+            location: null,
+            class: { id: classId, code: "INFO-A", name: "INFO-A" },
+          },
+          role: "teacher",
+          status: "confirmed",
+          source: "direct",
+        },
+        {
+          id: applied.id,
+          lesson: {
+            id: lessonThree,
+            title: "Arquivos e pastas",
+            date: "2026-03-17",
+            startTime: "14:00",
+            endTime: "15:30",
+            status: "planned",
+            sequenceOrder: 3,
+            location: "Laboratório 2",
+            class: { id: classId, code: "INFO-A", name: "INFO-A" },
+          },
+          role: "monitor",
+          status: "pending",
+          source: "application",
+        },
+      ]);
+      expect(JSON.stringify(body)).not.toContain("note");
+    });
+
+    it("counts the totals: upcoming is confirmed plus pending, and openLessons", async () => {
+      const onePlace = await createLesson({ date: "2026-03-17", expectedMonitors: 1 });
+      const fullForAna = await createLesson({ date: "2026-03-24" });
+      await createLesson({ date: "2026-03-31", expectedMonitors: 2 });
+      await assignDirect(ana, { role: "monitor", status: "confirmed" });
+      await apply(ana, "monitor", onePlace);
+      // A confirmed teacher and no monitors expected: no place for Ana.
+      await assignDirect(bruno, { role: "teacher", status: "confirmed" }, fullForAna);
+
+      const res = await getMine(ana).expect(200);
+
+      expect((res.body as MyAssignmentsBody).totals).toEqual({
+        upcoming: 2,
+        confirmed: 1,
+        pending: 1,
+        openLessons: 1,
+      });
+    });
+
+    it("shows a declined application and a cancelled assignment with their status, and counts neither", async () => {
+      const other = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      const declined = await apply(ana, "monitor", other);
+      await reject(declined.id, coordinator).expect(200);
+      const cancelled = await assignDirect(ana, { role: "monitor", status: "pending" });
+      await cancelAssignment(cancelled.id).expect(200);
+
+      const body = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+
+      expect(body.items.map((item) => [item.lesson.id, item.id, item.status])).toEqual([
+        [lessonId, cancelled.id, "cancelled"],
+        [other, declined.id, "declined"],
+      ]);
+      // Neither keeps the lesson out of the ones with an open place for her.
+      expect(body.totals).toEqual({ upcoming: 0, confirmed: 0, pending: 0, openLessons: 2 });
+    });
+
+    it("shows only the latest assignment of the member in a lesson: a new application after a declined one replaces it", async () => {
+      const first = await apply(ana, "monitor");
+      await reject(first.id, coordinator).expect(200);
+      const second = await apply(ana, "teacher");
+
+      const body = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+
+      expect(body.items.map((item) => [item.id, item.role, item.status])).toEqual([
+        [second.id, "teacher", "pending"],
+      ]);
+    });
+
+    it("leaves out lessons outside the period, cancelled lessons and lessons of archived classes", async () => {
+      const far = await createLesson({ date: "2026-04-20" });
+      const cancelled = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      const archivedClass = await createClassOf(await createCourse("Segurança Digital"), "SEG-B");
+      const ofArchivedClass = await createLesson({
+        classId: archivedClass,
+        date: "2026-03-12",
+        expectedMonitors: 2,
+      });
+      await apply(ana, "teacher", far);
+      await apply(ana, "monitor", cancelled);
+      await apply(ana, "monitor", ofArchivedClass);
+      await apply(ana, "monitor", lessonId);
+      await cancelLesson(cancelled);
+      await classesService.archive(archivedClass, undefined, director.id);
+
+      const body = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+
+      expect(body.items.map((item) => item.lesson.id)).toEqual([lessonId]);
+      expect(body.totals.pending).toBe(1);
+    });
+
+    it("defaults to today and 27 days after it, and takes from and to", async () => {
+      const lessonSeventeen = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      await apply(ana, "monitor", lessonId);
+      await apply(ana, "monitor", lessonSeventeen);
+
+      const byDefault = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+      const asked = (await getMine(ana, { from: "2026-03-15", to: "2026-03-20" }).expect(200))
+        .body as MyAssignmentsBody;
+
+      expect([byDefault.from, byDefault.to]).toEqual(["2026-03-09", "2026-04-05"]);
+      expect(byDefault.items).toHaveLength(2);
+      expect([asked.from, asked.to]).toEqual(["2026-03-15", "2026-03-20"]);
+      expect(asked.items.map((item) => item.lesson.id)).toEqual([lessonSeventeen]);
+    });
+
+    it("answers 400 INVALID_DATE_RANGE for to before from and 400 DATE_RANGE_TOO_LONG over 42 days, with details.field to", async () => {
+      const reversed = await getMine(ana, { from: "2026-03-10", to: "2026-03-09" }).expect(400);
+      const toAlone = await getMine(ana, { to: "2026-03-08" }).expect(400);
+      const tooLong = await getMine(ana, { from: "2026-03-01", to: "2026-04-12" }).expect(400);
+      const malformed = await getMine(ana, { from: "2026-02-30" }).expect(400);
+
+      expect(reversed.body.error).toBe("INVALID_DATE_RANGE");
+      expect(toAlone.body.error).toBe("INVALID_DATE_RANGE");
+      expect(tooLong.body.error).toBe("DATE_RANGE_TOO_LONG");
+      for (const res of [reversed, toAlone, tooLong]) {
+        expect(fieldsOf(res.body)).toEqual(["to"]);
+      }
+      expect(malformed.body.error).toBe("VALIDATION_FAILED");
+      await getMine(ana, { from: "2026-03-01", to: "2026-04-11" }).expect(200);
+    });
+
+    it("shows only the assignments of the member of the session", async () => {
+      const other = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      await apply(ana, "monitor", lessonId);
+      await apply(bruno, "monitor", other);
+
+      const forAna = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+      const forBruno = (await getMine(bruno).expect(200)).body as MyAssignmentsBody;
+
+      expect(forAna.items.map((item) => item.lesson.id)).toEqual([lessonId]);
+      expect(forBruno.items.map((item) => item.lesson.id)).toEqual([other]);
+    });
+
+    it("answers no item and every total at zero for a member without assignments", async () => {
+      // The only lesson is cancelled: nothing will happen in the period.
+      await cancelLesson(lessonId);
+
+      const res = await getMine(carla).expect(200);
+
+      expect(res.body).toEqual({
+        from: "2026-03-09",
+        to: "2026-04-05",
+        totals: { upcoming: 0, confirmed: 0, pending: 0, openLessons: 0 },
+        items: [],
+      });
+    });
+
+    it("lets every profile read the own lessons, and answers 401 without a session", async () => {
+      for (const actor of [director, coordinator, superadmin, diego]) {
+        await getMine(actor).expect(200);
+      }
+
+      const res = await request(app.getHttpServer()).get("/me/assignments").expect(401);
+
+      expect(res.body.error).toBe("UNAUTHORIZED");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /me/open-lessons
+  // ---------------------------------------------------------------------------
+
+  describe("GET /me/open-lessons (listOpenLessons)", () => {
+    it("lists the future lessons with an open place, with the coverage and the open roles", async () => {
+      // The Figma: "Professor(a) 0 de 1 · Monitores 2 de 3", and "Monitores 0 de 2" when the
+      // teacher is already confirmed.
+      const twoOfThree = await createLesson({ date: "2026-03-17", expectedMonitors: 3 });
+      const withTeacher = await createLesson({ date: "2026-03-24", expectedMonitors: 2 });
+      await assignDirect(bruno, { role: "monitor", status: "confirmed" }, twoOfThree);
+      await assignDirect(carla, { role: "monitor", status: "confirmed" }, twoOfThree);
+      await assignDirect(diego, { role: "teacher", status: "confirmed" }, withTeacher);
+
+      const res = await getOpen(ana).expect(200);
+      const open = res.body as OpenLessonBody[];
+
+      expect(open.map((item) => [item.lesson.id, item.coverage, item.openRoles])).toEqual([
+        [
+          lessonId,
+          { teacher: { confirmed: 0, expected: 1 }, monitors: { confirmed: 0, expected: 2 } },
+          ["teacher", "monitor"],
+        ],
+        [
+          twoOfThree,
+          { teacher: { confirmed: 0, expected: 1 }, monitors: { confirmed: 2, expected: 3 } },
+          ["teacher", "monitor"],
+        ],
+        [
+          withTeacher,
+          { teacher: { confirmed: 1, expected: 1 }, monitors: { confirmed: 0, expected: 2 } },
+          ["monitor"],
+        ],
+      ]);
+      expect(open[0].lesson).toEqual({
+        id: lessonId,
+        title: "Teclado, mouse e janelas",
+        date: "2026-03-10",
+        startTime: "14:00",
+        endTime: "15:30",
+        status: "planned",
+        sequenceOrder: null,
+        location: null,
+        class: { id: classId, code: "INFO-A", name: "INFO-A" },
+      });
+    });
+
+    it("leaves out lessons where the member holds a place, pending or confirmed", async () => {
+      const assigned = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      const free = await createLesson({ date: "2026-03-24", expectedMonitors: 2 });
+      await apply(ana, "monitor", lessonId);
+      await assignDirect(ana, { role: "monitor", status: "confirmed" }, assigned);
+
+      const open = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+
+      expect(open.map((item) => item.lesson.id)).toEqual([free]);
+    });
+
+    it("lists a lesson again after the member's application was declined", async () => {
+      const application = await apply(ana);
+      expect(((await getOpen(ana).expect(200)).body as OpenLessonBody[]).length).toBe(0);
+
+      await reject(application.id, coordinator).expect(200);
+
+      const open = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+      expect(open.map((item) => item.lesson.id)).toEqual([lessonId]);
+    });
+
+    it("leaves out full lessons: a confirmed teacher and monitors at expected, or expectedMonitors null", async () => {
+      const notInformed = await createLesson({ date: "2026-03-17" });
+      const open24 = await createLesson({ date: "2026-03-24", expectedMonitors: 1 });
+      await assignDirect(bruno, { role: "teacher", status: "confirmed" });
+      await assignDirect(carla, { role: "monitor", status: "confirmed" });
+      await assignDirect(diego, { role: "monitor", status: "confirmed" });
+      await assignDirect(bruno, { role: "teacher", status: "confirmed" }, notInformed);
+
+      const open = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+
+      expect(open.map((item) => item.lesson.id)).toEqual([open24]);
+    });
+
+    it("keeps open a lesson that only has pending candidates", async () => {
+      await apply(bruno, "teacher");
+      await apply(carla, "monitor");
+
+      const open = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+
+      expect(open.map((item) => [item.lesson.id, item.openRoles, item.coverage])).toEqual([
+        [
+          lessonId,
+          ["teacher", "monitor"],
+          { teacher: { confirmed: 0, expected: 1 }, monitors: { confirmed: 0, expected: 2 } },
+        ],
+      ]);
+    });
+
+    it("leaves out past lessons even when from is before today, cancelled lessons and lessons of archived classes", async () => {
+      await createLesson({ date: "2026-03-05", expectedMonitors: 2 });
+      const today = await createLesson({ date: TODAY, expectedMonitors: 2 });
+      const cancelled = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      const archivedClass = await createClassOf(await createCourse("Segurança Digital"), "SEG-B");
+      await createLesson({ classId: archivedClass, date: "2026-03-12", expectedMonitors: 2 });
+      await cancelLesson(cancelled);
+      await classesService.archive(archivedClass, undefined, director.id);
+
+      const res = await getOpen(ana, { from: "2026-03-01", to: "2026-03-31" }).expect(200);
+
+      expect((res.body as OpenLessonBody[]).map((item) => item.lesson.id)).toEqual([
+        today,
+        lessonId,
+      ]);
+    });
+
+    it("agrees with applyToLesson: every open role listed is accepted, and a role not listed answers ROLE_FULL", async () => {
+      const notInformed = await createLesson({ date: "2026-03-17" });
+      const onePlace = await createLesson({ date: "2026-03-24", expectedMonitors: 1 });
+      const bothOpen = await createLesson({ date: "2026-03-31", expectedMonitors: 2 });
+      await assignDirect(bruno, { role: "teacher", status: "confirmed" });
+      await assignDirect(carla, { role: "monitor", status: "confirmed" }, onePlace);
+
+      const open = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+      expect(open.map((item) => [item.lesson.id, item.openRoles])).toEqual([
+        [lessonId, ["monitor"]],
+        [notInformed, ["teacher"]],
+        [onePlace, ["teacher"]],
+        [bothOpen, ["teacher", "monitor"]],
+      ]);
+
+      for (const item of open) {
+        for (const role of ["teacher", "monitor"].filter((r) => !item.openRoles.includes(r))) {
+          const refused = await applyTo(item.lesson.id, ana, { role }).expect(409);
+          expect(refused.body.error).toBe("ROLE_FULL");
+        }
+        // A pending application takes no place: a second applicant still finds the other role open.
+        const applicants = [ana, diego];
+        for (const [index, role] of item.openRoles.entries()) {
+          await applyTo(item.lesson.id, applicants[index], { role }).expect(201);
+        }
+      }
+    });
+
+    it("has as many items as totals.openLessons of GET /me/assignments for the same period", async () => {
+      await createLesson({ date: "2026-03-17", expectedMonitors: 1 });
+      const full = await createLesson({ date: "2026-03-24" });
+      await createLesson({ date: "2026-04-14", expectedMonitors: 2 });
+      await assignDirect(bruno, { role: "teacher", status: "confirmed" }, full);
+      await apply(ana, "monitor");
+
+      const queries: Array<Record<string, string>> = [
+        {},
+        { from: "2026-03-01", to: "2026-04-11" },
+        { from: "2026-03-20" },
+      ];
+      for (const query of queries) {
+        const mine = (await getMine(ana, query).expect(200)).body as MyAssignmentsBody;
+        const open = (await getOpen(ana, query).expect(200)).body as OpenLessonBody[];
+
+        expect(open).toHaveLength(mine.totals.openLessons);
+      }
+    });
+
+    it("answers 400 for a period that is not valid, and 401 without a session", async () => {
+      const reversed = await getOpen(ana, { from: "2026-03-10", to: "2026-03-09" }).expect(400);
+      const tooLong = await getOpen(ana, { from: "2026-03-01", to: "2026-04-12" }).expect(400);
+
+      expect(reversed.body.error).toBe("INVALID_DATE_RANGE");
+      expect(tooLong.body.error).toBe("DATE_RANGE_TOO_LONG");
+      await request(app.getHttpServer()).get("/me/open-lessons").expect(401);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Acceptance criteria of the card
   // ---------------------------------------------------------------------------
 
   describe("acceptance criteria", () => {
+    it("CA1: a member applies as monitor to a lesson with an open place and sees it pending in GET /me/assignments", async () => {
+      const before = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+      expect(before.map((item) => [item.lesson.id, item.openRoles])).toEqual([
+        [lessonId, ["teacher", "monitor"]],
+      ]);
+
+      const application = await apply(ana, "monitor");
+
+      const mine = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+      expect(mine.items).toEqual([
+        expect.objectContaining({
+          id: application.id,
+          role: "monitor",
+          status: "pending",
+          source: "application",
+          lesson: expect.objectContaining({ id: lessonId }),
+        }),
+      ]);
+      // "Aguardando confirmação" on the top of the screen.
+      expect(mine.totals).toEqual({ upcoming: 1, confirmed: 0, pending: 1, openLessons: 0 });
+      expect((await getOpen(ana).expect(200)).body).toEqual([]);
+    });
+
     it("CA2: a director approves and the coverage of the lesson goes up; declining frees the place", async () => {
       const onePlace = await createLesson({ date: "2026-03-17", expectedMonitors: 1 });
       const first = await apply(ana, "monitor", onePlace);
