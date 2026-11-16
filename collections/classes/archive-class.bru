@@ -29,7 +29,7 @@ docs {
   Arquiva uma turma em vez de excluir (RN-27). Não existe DELETE de turma.
   Requer cookie tedi_session e a permissão classes.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
   Corpo opcional: reason (até 500 caracteres; não registre informação de saúde).
-  Turma com matrícula ativa não pode ser arquivada: 409 CLASS_HAS_ACTIVE_ENROLLMENTS. Enquanto a matrícula não existe (GUS-108) o número é 0 e a regra não dispara; sem matrícula ativa, a turma é arquivada.
+  Turma com matrícula ativa não pode ser arquivada: 409 CLASS_HAS_ACTIVE_ENROLLMENTS (desistentes, concluídos e matrículas removidas não contam). A contagem é feita com a turma travada, a mesma trava da matrícula: um arquivamento e uma matrícula ao mesmo tempo não passam juntos.
   A turma arquivada sai da listagem padrão (GUS-103), continua acessível por id (GUS-104) e vira somente leitura: editar responde 409 CLASS_ARCHIVED. O status da turma (planned, in_progress...) não muda: é independente do arquivamento (RF-034).
   Arquivar de novo uma turma já arquivada responde 200 sem alterar nada e sem contar matrículas: vale o primeiro arquivamento.
   Retorna 200 ClassResponseDto com archivedAt, archivedById e archiveReason preenchidos e registra o evento CLASS_ARCHIVED.

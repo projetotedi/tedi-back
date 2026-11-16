@@ -2,9 +2,9 @@
 feature: E2 Turmas e matrículas
 epico: E2 Turmas e matrículas
 modulo: classes (back; o front entra na GUS-133)
-status: GUS-101 implementada no back em 2026-10-27; GUS-102 (vínculo curso x turma) implementada no back em 2026-11-11; GUS-104 (detalhe da turma) implementada no back em 2026-11-15; GUS-103, 108, 133, 134, 136, 151 e 170 destravadas
-cards: GUS-101 (back), GUS-102 (back), GUS-104 (back). Dependentes: GUS-103 (listagem), GUS-108 (matrícula), GUS-133, GUS-134 e GUS-136 (front), GUS-151 (aulas), GUS-170
-atualizado: 2026-11-15
+status: GUS-101 implementada no back em 2026-10-27; GUS-102 (vínculo curso x turma) implementada no back em 2026-11-11; GUS-104 (detalhe da turma) implementada no back em 2026-11-15; GUS-108 (matrícula) implementada no back em 2026-11-16; GUS-103, 133, 134, 136, 138, 151, 166 e 170 destravadas
+cards: GUS-101 (back), GUS-102 (back), GUS-104 (back), GUS-108 (back, matrícula). Dependentes: GUS-103 (listagem), GUS-138 (front da matrícula), GUS-166 (chamada de alunos), GUS-133, GUS-134 e GUS-136 (front), GUS-151 (aulas), GUS-170
+atualizado: 2026-11-16
 ---
 
 # E2 — Turmas e matrículas
@@ -106,7 +106,8 @@ Superadmin passa em tudo. A matriz de permissões não mudou nesta feature.
 
 ## Riscos e pendências
 
-- **GUS-108:** trocar o corpo de `EnrollmentCountsService.countActive` por um `count(*)` da tabela de matrícula, o de `countActiveByClass` por um `SELECT class_id, count(*) ... GROUP BY class_id` e o de `listActivePreview` (GUS-104) por um `SELECT id, student_id, enrolled_at ... ORDER BY enrolled_at, id LIMIT n`, mantendo essa ordem; remover o override dos e2e (os de `classes.controller`, `course-classes.controller` e `class-detail`); alinhar `enrollmentsTotal` com o `total` padrão de `GET /classes/:id/enrollments` (se aquela listagem incluir matrículas canceladas por padrão, decidir lá qual dos dois muda); e travar a linha da turma (`FOR UPDATE`) ao matricular. Sem o lock há corrida entre matricular e arquivar, reduzir vagas **ou trocar o curso** da turma.
+- **GUS-108:** feito, ver a seção 19 da ARCHITECTURE (contagens reais, lock da turma na matrícula, overrides removidos, `enrollmentsTotal` = `total` de `GET /classes/:id/enrollments?status=active`).
+- Decisões M1–M20 da GUS-108: ver docs/ARCHITECTURE.md §19.
 - **Card de arquivar curso:** travar a linha do curso com `FOR UPDATE`, como o `CoursesService.update` já faz. É isso que faz o `FOR SHARE` da criação de turma segurar a regra do curso arquivado (P15). O e2e de `classes` arquiva o curso por SQL (`archiveCourse`) até a rota existir.
 - **GUS-103:** criar o método em lote `CoursesService.getCourseSummaries` para a listagem de turmas com `course`; se a listagem ganhar um filtro de arquivadas, replicá-lo em `GET /courses/:id/classes` com o mesmo nome (P16).
 - **GUS-104 (feito):** o `GET /classes/:id` ficou no `ClassesController`, que o módulo registra depois do `CourseClassesController`, para não capturar `summary-by-course`; o teste de `course-classes.controller.spec.ts` e o e2e `class-detail` guardam a ordem. Qualquer rota literal nova sob `/classes/` fica no `CourseClassesController` ou antes do `:id` (a GUS-103 pode criar `GET /classes`, que não conflita). Turma de curso arquivado responde 200 com `course.status: "archived"` (RN-27). O `getClass` é declarado depois das mutações para o `CreateClassDto.status` continuar a nomear o schema compartilhado `ClassStatus` no contrato.
