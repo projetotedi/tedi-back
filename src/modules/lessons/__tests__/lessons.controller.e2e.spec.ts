@@ -2491,13 +2491,16 @@ describe("LessonsController (e2e)", () => {
       expect(await countLessons()).toBe(1);
     });
 
-    it("has no listing yet: GET /lessons is another card", async () => {
+    it("has the listing since GUS-153: GET /lessons answers a page with the lesson that was created (its own tests are in lessons-list.controller.e2e.spec.ts)", async () => {
+      const created = await createLesson();
+
       const res = await request(app.getHttpServer())
         .get("/lessons")
         .set("Cookie", coordinator.cookie)
-        .expect(404);
+        .expect(200);
 
-      expect(res.body.error).toBe("NOT_FOUND");
+      expect(res.body).toMatchObject({ total: 1, page: 1, limit: 20 });
+      expect(res.body.data.map((item: { id: string }) => item.id)).toEqual([created.id]);
     });
 
     it("emits one event per mutation: CREATED, UPDATED, RESCHEDULED, CANCELLED", async () => {

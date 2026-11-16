@@ -29,6 +29,7 @@ import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans
 import { ClassesController } from "@modules/classes/controllers/classes.controller";
 import { CourseClassesController } from "@modules/classes/controllers/course-classes.controller";
 import { EditionsController } from "@modules/classes/controllers/editions.controller";
+import { ClassLessonsController } from "@modules/lessons/controllers/class-lessons.controller";
 import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
@@ -44,9 +45,12 @@ import { CourseLessonPlansService } from "@modules/catalog/services/course-lesso
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlanUsageService } from "@modules/catalog/services/lesson-plan-usage.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
+import { ClassDetailService } from "@modules/classes/services/class-detail.service";
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { CourseClassesService } from "@modules/classes/services/course-classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
+import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
+import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
@@ -74,6 +78,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     EditionsController,
     CourseClassesController,
     LessonsController,
+    ClassLessonsController,
     LessonAssignmentsController,
     AssignmentsController,
     MemberAssignmentsController,
@@ -171,6 +176,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         list: async () => ({}),
         replace: async () => ({}),
         findPosition: async () => null,
+        getSequenceSummaries: async () => [],
       },
     },
     {
@@ -185,7 +191,12 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
         getClassSummary: async () => null,
+        listClassRefs: async () => [],
       },
+    },
+    {
+      provide: ClassDetailService,
+      useValue: { findDetail: async () => ({}) },
     },
     {
       provide: EditionsService,
@@ -199,6 +210,13 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       },
     },
     {
+      provide: LessonListingService,
+      useValue: {
+        list: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listCalendar: async () => [],
+      },
+    },
+    {
       provide: LessonsService,
       useValue: {
         create: async () => ({}),
@@ -207,6 +225,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         cancel: async () => ({}),
         reschedule: async () => ({}),
       },
+    },
+    {
+      provide: LessonGenerationService,
+      useValue: { preview: async () => ({}), generate: async () => ({}) },
     },
     {
       provide: AssignmentsService,

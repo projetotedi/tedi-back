@@ -14,11 +14,11 @@ src/
 │   └── migrations/          migrations geradas pelo CLI — não editar migration já rodada
 ├── shared/                 transversal, sem conhecer domínio
 │   ├── pagination/          pagination.util.ts + __tests__/
-│   ├── search/              search.util.ts (busca textual: normalizeSearchTerm, applyTextSearch, applyDigitsSearch; ver docs/ARCHITECTURE.md seção 12) + __tests__/
+│   ├── search/              search.util.ts (busca textual: normalizeSearchTerm, applyTextSearch, applyTextSearchAllWords, applyDigitsSearch; ver docs/ARCHITECTURE.md seção 12) + __tests__/
 │   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
 │   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
 │   ├── dto/                 api-error.dto.ts, archive.dto.ts (corpo de PATCH .../archive), transforms.ts
-│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn), is-calendar-date.validator.ts, time-of-day.ts (hora HH:mm: isValidTimeOfDay, minutesBetween), is-time-of-day.validator.ts, clock.ts
+│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn, calendarDaysBetween), is-calendar-date.validator.ts, time-of-day.ts (hora HH:mm: isValidTimeOfDay, minutesBetween), is-time-of-day.validator.ts, clock.ts
 │   ├── decorators/          @Roles, @Public, @CurrentUser
 │   ├── permissions/         matriz de permissões, @RequirePermission, PermissionPolicy
 │   ├── enums/               role.enum.ts
