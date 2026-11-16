@@ -625,6 +625,28 @@ describe("coverage of the lessons (e2e)", () => {
       expect((await itemOf(route)).teacher).toBeNull();
     });
 
+    it("does not show a teacher whose assignment was removed: a soft-deleted row is not staff", async () => {
+      const teacher = await assign(ana, "teacher", "confirmed");
+      expect((await itemOf(route)).teacher).toEqual({ id: ana.id, name: "Ana Torres" });
+
+      await dataSource.query(`UPDATE lesson_assignments SET deleted_at = now() WHERE id = $1`, [
+        teacher.id,
+      ]);
+
+      expect((await itemOf(route)).teacher).toBeNull();
+    });
+
+    it("answers teacher null when the person of the confirmed teacher is gone, and the detail still counts the assignment", async () => {
+      await assign(ana, "teacher", "confirmed");
+      await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [ana.id]);
+
+      const item = await itemOf(route);
+
+      // The name cannot be read, so the row shows a dash; the assignment is still there to be counted.
+      expect(item.teacher).toBeNull();
+      expect((await coverageOf()).coverage.teacher.confirmed).toBe(1);
+    });
+
     it("shows the teacher to every profile that reads the lessons: a member, a director and a coordinator", async () => {
       await assign(ana, "teacher", "confirmed");
 
