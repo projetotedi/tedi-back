@@ -17,6 +17,9 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
+import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
+import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
@@ -32,6 +35,7 @@ import { MembersController } from "@modules/people/controllers/members.controlle
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
+import { AssignmentsService } from "@modules/assignments/services/assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
@@ -70,6 +74,9 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     EditionsController,
     CourseClassesController,
     LessonsController,
+    LessonAssignmentsController,
+    AssignmentsController,
+    MemberAssignmentsController,
   ],
   providers: [
     {
@@ -199,6 +206,16 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         update: async () => ({}),
         cancel: async () => ({}),
         reschedule: async () => ({}),
+      },
+    },
+    {
+      provide: AssignmentsService,
+      useValue: {
+        create: async () => ({}),
+        listByLesson: async () => [],
+        confirm: async () => ({}),
+        cancel: async () => ({}),
+        listByMember: async () => [],
       },
     },
     {
