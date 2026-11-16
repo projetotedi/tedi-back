@@ -125,8 +125,8 @@ interface FieldChanges {
  * Every write runs in a transaction and the audit event goes out after the commit, only when
  * something changed. Every answer carries the course of the class, read in the same transaction
  * from the catalog (`CoursesService.getCourseSummary`): the class stores no category and shows the
- * current one of its course. Listing and detail are other cards (GUS-103 and GUS-104); the classes
- * of a course are `CourseClassesService`.
+ * current one of its course. The listing is another card (GUS-103); the sheet of a class is
+ * `ClassDetailService` (GUS-104) and the classes of a course are `CourseClassesService`.
  */
 @Injectable()
 export class ClassesService {
