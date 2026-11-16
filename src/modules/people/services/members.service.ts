@@ -26,6 +26,7 @@ import { ListMembersQueryDto } from "../dto/list-members-query.dto";
 import { MemberListItemResponseDto } from "../dto/member-list-item.response.dto";
 import { MemberRefDto } from "../dto/member-ref.response.dto";
 import { RejectMemberRegistrationDto } from "../dto/reject-member-registration.dto";
+import { UpdateMemberDto } from "../dto/update-member.dto";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
@@ -33,6 +34,7 @@ import { MemberRegistrationStatus } from "../enums/member-registration-status.en
 import { MemberStatus } from "../enums/member-status.enum";
 import { DepartmentsService } from "./departments.service";
 import { buildMemberEvent } from "./member-audit";
+import { applyMemberEdit, MemberChanges } from "./member-changes";
 import { toMemberDetail } from "./member-detail.mapper";
 import {
   toMemberRegistrationListItem,
@@ -150,14 +152,48 @@ export function memberNotFound(): HttpException {
   return new HttpException({ error: "MEMBER_NOT_FOUND", message: "Member not found." }, 404);
 }
 
-function raAlreadyInUse(): HttpException {
-  return new HttpException({ error: "RA_ALREADY_IN_USE", message: "RA already in use." }, 409);
+/**
+ * A 409 of a unique value. With `field` (the edit, whose body names the field), `details` points
+ * at it so the form anchors the error there; the sign-up (a nested `registration`) passes none.
+ */
+function alreadyInUse(error: string, message: string, field?: string): HttpException {
+  const body = { error, message };
+  return new HttpException(
+    field === undefined
+      ? body
+      : { ...body, details: [{ field, message: `${field} is already in use` }] },
+    409,
+  );
 }
 
-function emailAlreadyInUse(): HttpException {
+function raAlreadyInUse(field?: string): HttpException {
+  return alreadyInUse("RA_ALREADY_IN_USE", "RA already in use.", field);
+}
+
+function emailAlreadyInUse(field?: string): HttpException {
+  return alreadyInUse("EMAIL_ALREADY_IN_USE", "Email already in use.", field);
+}
+
+/** Body fields that the 409 of a unique violation points at (see alreadyInUse). */
+interface UniqueFields {
+  ra: string;
+  email: string;
+}
+
+/**
+ * 403 DEPARTMENT_SCOPE: a director cannot move a member to a department outside the own scope (the
+ * director would lose access to the member). `details` points at departmentId.
+ */
+function departmentScope(): HttpException {
   return new HttpException(
-    { error: "EMAIL_ALREADY_IN_USE", message: "Email already in use." },
-    409,
+    {
+      error: "DEPARTMENT_SCOPE",
+      message: "You cannot move a member to a department outside your scope.",
+      details: [
+        { field: "departmentId", message: "departmentId must be a department of your scope" },
+      ],
+    },
+    403,
   );
 }
 
@@ -170,13 +206,16 @@ function departmentNotFound(): HttpException {
 
 /**
  * The one place that builds the 409 MEMBER_INACTIVE: a write that needs an active member answers
- * it for an inactive one (a second deactivation here, the edit of the member record later).
+ * it for an inactive one (a second deactivation, and the edit of the member record, GUS-146).
  */
 export function memberInactive(): HttpException {
   return new HttpException({ error: "MEMBER_INACTIVE", message: "The member is inactive." }, 409);
 }
 
-/** 409 NO_MEMBER_PROFILE: a person with an access role and no member profile is not deactivated. */
+/**
+ * 409 NO_MEMBER_PROFILE: a person with an access role and no member profile is not deactivated
+ * nor edited.
+ */
 function noMemberProfile(): HttpException {
   return new HttpException(
     { error: "NO_MEMBER_PROFILE", message: "This person has no member profile." },
@@ -184,12 +223,15 @@ function noMemberProfile(): HttpException {
   );
 }
 
-/** 409 REGISTRATION_NOT_APPROVED: a pending or rejected registration is not a member that leaves. */
-function registrationNotApproved(): HttpException {
+/**
+ * 409 REGISTRATION_NOT_APPROVED: a pending or rejected registration is not a member that leaves
+ * nor one whose record is edited (it is validated in /member-registrations).
+ */
+function registrationNotApproved(action: "deactivated" | "edited"): HttpException {
   return new HttpException(
     {
       error: "REGISTRATION_NOT_APPROVED",
-      message: "Only members with an approved registration can be deactivated.",
+      message: `Only members with an approved registration can be ${action}.`,
     },
     409,
   );
@@ -251,8 +293,8 @@ function isActiveMember(
 
 /**
  * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011), the
- * member record that reads it back (GUS-144), and the deactivation and reactivation of a member
- * (GUS-147).
+ * member record that reads it back (GUS-144), the deactivation and reactivation of a member
+ * (GUS-147) and the edit of the member record (GUS-146).
  *
  * The registration is born from an access invite (submitFromInvite, called by the invites in
  * the transaction of the accept) as PENDING with no access: Person.role stays null and
@@ -455,7 +497,7 @@ export class MembersService {
       const { person, profile } = await this.loadMemberForUpdate(manager, personId);
       if (profile === null) throw noMemberProfile();
       if (profile.registrationStatus !== MemberRegistrationStatus.APPROVED) {
-        throw registrationNotApproved();
+        throw registrationNotApproved("deactivated");
       }
       if (profile.status === MemberStatus.INACTIVE) throw memberInactive();
       if (profile.joinedAt !== null && dto.exitDate < profile.joinedAt) {
@@ -555,6 +597,90 @@ export class MembersService {
     }
 
     return this.toMemberRecord(result.person, result.profile);
+  }
+
+  /**
+   * Edits the data of a member (GUS-146): the Person fields (name, ra, email, birthDate, phone)
+   * and the member profile ones, in ONE transaction with both rows locked (Person first). Omitted
+   * keeps; null clears only what the DTO lets be null. The access profile, the access and the
+   * participation are not here (PATCH /access/:id/role and /enabled, /members/:id/deactivate).
+   *
+   * Order: 404 MEMBER_NOT_FOUND for a malformed id, before the transaction; then, inside it,
+   * 404 MEMBER_NOT_FOUND (the predicate of the record), 403 FORBIDDEN_SCOPE (a director outside the
+   * department of the APPROVED profile of the target, read from the locked row), 403
+   * DEPARTMENT_SCOPE (a director moving the member to a department outside the own scope), 409
+   * NO_MEMBER_PROFILE, 409 REGISTRATION_NOT_APPROVED, 409 MEMBER_INACTIVE and 400
+   * DEPARTMENT_NOT_FOUND. A RA or e-mail of another person (soft-deleted ones included) is caught by
+   * the unique index on the save: 409 RA_ALREADY_IN_USE / EMAIL_ALREADY_IN_USE with `details` on
+   * the field, and nothing is written.
+   *
+   * After the lookup only `person.id` is used: the id pipe accepts upper case, and the id read
+   * from Postgres is the canonical lower-case one.
+   *
+   * There is no OWN_ACCOUNT here: editing the own data does not change role, access nor
+   * participation. Emits MEMBER_UPDATED after the commit, only when a value changed, with the
+   * allow-listed values and every changed field by name (personal data never has its value there).
+   */
+  async updateMember(
+    id: string,
+    dto: UpdateMemberDto,
+    actor: AuthUser,
+  ): Promise<MemberDetailResponseDto> {
+    if (!isUUID(id)) throw memberNotFound();
+
+    let updated: { person: Person; profile: MemberProfile; changes: MemberChanges };
+    try {
+      updated = await this.dataSource.transaction(async (manager) => {
+        const { person, profile } = await this.loadMemberForUpdate(manager, id);
+        this.permissions.assertCan(actor, Permission.MEMBERS_EDIT, {
+          personId: person.id,
+          departmentIds: departmentScopeOf(profile),
+        });
+        if (
+          dto.departmentId !== undefined &&
+          !this.permissions.can(actor, Permission.MEMBERS_EDIT, {
+            departmentIds: [dto.departmentId],
+          })
+        ) {
+          throw departmentScope();
+        }
+        if (profile === null) throw noMemberProfile();
+        if (profile.registrationStatus !== MemberRegistrationStatus.APPROVED) {
+          throw registrationNotApproved("edited");
+        }
+        if (profile.status === MemberStatus.INACTIVE) throw memberInactive();
+        if (
+          dto.departmentId !== undefined &&
+          dto.departmentId !== profile.departmentId &&
+          !(await this.departments.exists(manager, dto.departmentId))
+        ) {
+          throw departmentNotFound();
+        }
+
+        const edit = applyMemberEdit(person, profile, dto);
+        if (edit.personChanged) await manager.save(Person, person);
+        if (edit.profileChanged) await manager.save(MemberProfile, profile);
+        return { person, profile, changes: edit.changes };
+      });
+    } catch (error) {
+      throw this.mapUniqueViolation(error, { ra: "ra", email: "email" });
+    }
+
+    const { changes } = updated;
+    if (changes.fields.length > 0) {
+      this.emit(
+        buildMemberEvent(
+          AuditableAction.MEMBER_UPDATED,
+          actor.id,
+          updated.person.id,
+          changes.before,
+          { ...changes.after, changedFields: changes.fields },
+          this.clock.now(),
+        ),
+      );
+    }
+
+    return this.toMemberRecord(updated.person, updated.profile);
   }
 
   /**
@@ -1096,19 +1222,23 @@ export class MembersService {
   }
 
   /**
-   * Turns the unique violations of the sign-up into 409, by constraint name (the `detail` of
-   * Postgres carries the duplicated value and must never be logged). Any other error is kept.
+   * Turns the unique violations of the sign-up and of the edit into 409, by constraint name (the
+   * `detail` of Postgres carries the duplicated value and must never be logged). `fields`: the
+   * body fields the 409 points at in `details` (the edit); the sign-up passes none. Any other
+   * error is kept.
    */
-  private mapUniqueViolation(error: unknown): unknown {
+  private mapUniqueViolation(error: unknown, fields?: UniqueFields): unknown {
     if (error instanceof QueryFailedError) {
       const driverError = error.driverError as { code?: string; constraint?: string } | undefined;
       if (driverError?.code === "23505") {
-        if (driverError.constraint === "uq_people_email") return emailAlreadyInUse();
+        if (driverError.constraint === "uq_people_email") {
+          return emailAlreadyInUse(fields?.email);
+        }
         if (
           driverError.constraint === "uq_people_ra" ||
           driverError.constraint === "uq_member_profiles_person_id"
         ) {
-          return raAlreadyInUse();
+          return raAlreadyInUse(fields?.ra);
         }
       }
     }

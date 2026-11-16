@@ -40,6 +40,8 @@ export enum AuditableAction {
   MEMBER_DEACTIVATED = "MEMBER_DEACTIVATED",
   /** An inactive member is active again; the exit is cleared and the access is NOT enabled (PATCH /access/:id/enabled, GUS-147). */
   MEMBER_REACTIVATED = "MEMBER_REACTIVATED",
+  /** Coordination or the director of the department edited the data of a member (GUS-146). Payload carries only the allow-listed values (department, main function, join date) plus changedFields, which names every changed field without its value (RNF-13/14). */
+  MEMBER_UPDATED = "MEMBER_UPDATED",
   /** Coordination created a department (GUS-91). */
   DEPARTMENT_CREATED = "DEPARTMENT_CREATED",
   LESSON_PLAN_CREATED = "LESSON_PLAN_CREATED",
