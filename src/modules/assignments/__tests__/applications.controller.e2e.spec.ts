@@ -1,7 +1,11 @@
 /**
  * E2e spec for the applications of the members — GUS-160 (candidatura e aprovação).
  *
- * Routes: POST /lessons/:id/applications.
+ * CA2: a director approves and the coverage of the lesson goes up; declining frees the place
+ * CA3: a member gets 403 on the routes of the review
+ *
+ * Routes: POST /lessons/:id/applications, GET /applications, PATCH /applications/:id/approve and
+ * PATCH /applications/:id/reject.
  *
  * The clock of the app is fixed at 2026-03-09 12:00 in São Paulo (`Clock` overridden in every
  * module that provides it), so "today" and "the past" do not move with the day the suite runs. The
@@ -24,6 +28,7 @@ import { DataSource } from "typeorm";
 import { AuthModule } from "@modules/auth/auth.module";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { CoursesService } from "@modules/catalog/services/courses.service";
+import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { ClassesModule } from "@modules/classes/classes.module";
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { LessonsModule } from "@modules/lessons/lessons.module";
@@ -40,11 +45,13 @@ import {
 import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { AssignmentsModule } from "../assignments.module";
+import { lessonStaffLockKey } from "../services/applications.service";
 import {
   assignmentBody,
   CLASS_PERIOD,
   insertAssignment,
   insertDepartment,
+  insertLesson,
   insertMemberProfile,
   lessonBody,
 } from "./fixtures/assignments.fixture";
@@ -104,6 +111,11 @@ interface AssignmentBody extends Record<string, unknown> {
   updatedAt: string;
 }
 
+interface CoverageBody {
+  teacher: { confirmed: number; expected: number };
+  monitors: { confirmed: number; expected: number | null };
+}
+
 function fieldsOf(body: { details?: FieldError[] }): string[] {
   return (body.details ?? []).map((detail) => detail.field).sort();
 }
@@ -118,6 +130,7 @@ describe("Applications (e2e)", () => {
   let coursesService: CoursesService;
   let classesService: ClassesService;
   let lessonsService: LessonsService;
+  let lessonPlansService: LessonPlansService;
 
   let director: Actor;
   let coordinator: Actor;
@@ -178,6 +191,7 @@ describe("Applications (e2e)", () => {
     coursesService = module.get(CoursesService);
     classesService = module.get(ClassesService);
     lessonsService = module.get(LessonsService);
+    lessonPlansService = module.get(LessonPlansService);
   });
 
   afterAll(async () => {
@@ -273,6 +287,31 @@ describe("Applications (e2e)", () => {
     return lesson.id;
   }
 
+  /**
+   * A lesson of the class of the scenery that came from a plan, at a position of the sequence (the
+   * 5 of "Aula 5"): inserted through the fixture of the lessons, since POST /lessons only takes a
+   * position with the sequence of the course behind it.
+   */
+  async function createLessonOfPlan(values: {
+    title: string;
+    sequenceOrder: number;
+    date: string;
+    location?: string;
+    expectedMonitors?: number;
+  }): Promise<string> {
+    const plan = await lessonPlansService.create(
+      { title: values.title, objective: null, expectedDurationMinutes: 90, contents: ["Conteúdo"] },
+      director.id,
+    );
+    const lesson = await insertLesson(dataSource, {
+      classId,
+      createdById: director.id,
+      lessonPlanId: plan.id,
+      ...values,
+    });
+    return lesson.id;
+  }
+
   /** Cancels a lesson the way the FOR UPDATE of PATCH /lessons/:id/cancel leaves it. */
   async function cancelLesson(id: string): Promise<void> {
     await dataSource.query(
@@ -298,6 +337,40 @@ describe("Applications (e2e)", () => {
   ): Promise<AssignmentBody> {
     const res = await applyTo(forLessonId, who, { role }).expect(201);
     return res.body as AssignmentBody;
+  }
+
+  /** The member applies with a note, and the application comes back with it. */
+  async function applyWithNote(who: Actor, note: string): Promise<AssignmentBody> {
+    const res = await applyTo(lessonId, who, { role: "monitor", note }).expect(201);
+    return res.body as AssignmentBody;
+  }
+
+  function getPending(actor: Actor, query: Record<string, string> = {}) {
+    return request(app.getHttpServer())
+      .get("/applications")
+      .query(query)
+      .set("Cookie", actor.cookie);
+  }
+
+  function approve(id: string, actor: Actor) {
+    return request(app.getHttpServer())
+      .patch(`/applications/${id}/approve`)
+      .set("Cookie", actor.cookie);
+  }
+
+  function reject(id: string, actor: Actor) {
+    return request(app.getHttpServer())
+      .patch(`/applications/${id}/reject`)
+      .set("Cookie", actor.cookie);
+  }
+
+  /** The coverage of a lesson, as GET /lessons/:id shows it (only confirmed assignments count). */
+  async function coverageOf(forLessonId: string): Promise<CoverageBody> {
+    const res = await request(app.getHttpServer())
+      .get(`/lessons/${forLessonId}`)
+      .set("Cookie", coordinator.cookie)
+      .expect(200);
+    return (res.body as { coverage: CoverageBody }).coverage;
   }
 
   /** A direct assignment of the GUS-158, made by the director. */
@@ -333,6 +406,15 @@ describe("Applications (e2e)", () => {
     return Number(rows[0].total);
   }
 
+  async function countConfirmed(forLessonId: string, role: "teacher" | "monitor"): Promise<number> {
+    const rows: Array<{ total: string }> = await dataSource.query(
+      `SELECT count(*) AS total FROM lesson_assignments
+        WHERE lesson_id = $1 AND role = $2 AND status = 'confirmed'`,
+      [forLessonId, role],
+    );
+    return Number(rows[0].total);
+  }
+
   /** The row as the table has it. */
   async function storedAssignment(id: string): Promise<Record<string, unknown>> {
     const rows: Array<Record<string, unknown>> = await dataSource.query(
@@ -342,6 +424,63 @@ describe("Applications (e2e)", () => {
       [id],
     );
     return rows[0];
+  }
+
+  /**
+   * The text of a statement that is waiting for a lock, or undefined after 3 seconds: a row lock or
+   * an advisory lock (both are wait_event_type Lock). A plain SELECT is never blocked by a row lock
+   * (MVCC), so a statement that waits proves it takes the lock.
+   */
+  async function blockedStatement(): Promise<string | undefined> {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const rows: Array<{ query: string }> = await dataSource.query(
+        `SELECT query FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      if (rows.length > 0) return rows[0].query;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return undefined;
+  }
+
+  /**
+   * Holds the row of a table in a transaction of its own, with the lock that is asked, as a
+   * concurrent write of another module would. `run` runs a statement inside that transaction;
+   * `release` commits it. The caller releases it in a `finally`, so a failed assertion does not
+   * leave the transaction open and the suite stuck.
+   */
+  async function holdRow(table: "lessons" | "people", id: string, lock: string) {
+    const holder = dataSource.createQueryRunner();
+    await holder.connect();
+    await holder.startTransaction();
+    await holder.query(`SELECT id FROM ${table} WHERE id = $1 ${lock}`, [id]);
+
+    return {
+      run: (sql: string, parameters: unknown[]) => holder.query(sql, parameters),
+      release: async () => {
+        await holder.commitTransaction();
+        await holder.release();
+      },
+    };
+  }
+
+  /**
+   * Holds the advisory lock of a key in a transaction of its own, as an approval of the same lesson
+   * in flight does. `run` and `release` as in `holdRow`.
+   */
+  async function holdAdvisory(key: string) {
+    const holder = dataSource.createQueryRunner();
+    await holder.connect();
+    await holder.startTransaction();
+    await holder.query("SELECT pg_advisory_xact_lock(hashtext($1))", [key]);
+
+    return {
+      run: (sql: string, parameters: unknown[]) => holder.query(sql, parameters),
+      release: async () => {
+        await holder.commitTransaction();
+        await holder.release();
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -622,6 +761,627 @@ describe("Applications (e2e)", () => {
 
       expect(res.body.error).toBe("UNAUTHORIZED");
       expect(await countAssignments()).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /applications
+  // ---------------------------------------------------------------------------
+
+  describe("GET /applications (listPendingApplications)", () => {
+    it("groups the pending applications by lesson, the soonest lesson first and the oldest application first, with the class, the position, the coverage and the note", async () => {
+      const lessonFive = await createLessonOfPlan({
+        title: "E-mail do zero",
+        sequenceOrder: 5,
+        date: "2026-03-17",
+        location: "Laboratório 2",
+        expectedMonitors: 3,
+      });
+      await assignDirect(director, { role: "monitor", status: "confirmed" }, lessonFive);
+      const first = await applyTo(lessonFive, ana, { role: "monitor", note: NOTE }).expect(201);
+      const second = await apply(bruno, "teacher", lessonId);
+      const third = await apply(carla, "teacher", lessonFive);
+      const fourth = await apply(diego, "monitor", lessonId);
+
+      const res = await getPending(coordinator).expect(200);
+
+      expect(res.body.total).toBe(4);
+      expect(res.body.lessons).toHaveLength(2);
+      expect(res.body.lessons[0]).toEqual({
+        lesson: {
+          id: lessonId,
+          title: "Teclado, mouse e janelas",
+          date: "2026-03-10",
+          startTime: "14:00",
+          endTime: "15:30",
+          status: "planned",
+          sequenceOrder: null,
+          location: null,
+          class: { id: classId, code: "INFO-A", name: "INFO-A" },
+        },
+        coverage: {
+          teacher: { confirmed: 0, expected: 1 },
+          monitors: { confirmed: 0, expected: 2 },
+        },
+        applications: [
+          expect.objectContaining({
+            id: second.id,
+            person: { id: bruno.id, name: "Bruno Lima" },
+            role: "teacher",
+            status: "pending",
+            source: "application",
+            note: null,
+          }),
+          expect.objectContaining({ id: fourth.id, person: { id: diego.id, name: "Diego Rocha" } }),
+        ],
+      });
+      expect(res.body.lessons[1].lesson).toMatchObject({
+        id: lessonFive,
+        title: "E-mail do zero",
+        sequenceOrder: 5,
+        date: "2026-03-17",
+        location: "Laboratório 2",
+      });
+      expect(res.body.lessons[1].coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 1, expected: 3 },
+      });
+      expect(
+        res.body.lessons[1].applications.map((item: AssignmentBody) => [item.id, item.note]),
+      ).toEqual([
+        [first.body.id, NOTE],
+        [third.id, null],
+      ]);
+      // "Enviada em": when the member sent it.
+      expect(res.body.lessons[1].applications[0].createdAt).toBe(first.body.createdAt);
+    });
+
+    it("counts in total every pending application listed: the number of the button", async () => {
+      const other = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      await apply(ana, "monitor", lessonId);
+      await apply(bruno, "teacher", lessonId);
+      await apply(carla, "monitor", other);
+
+      const res = await getPending(director).expect(200);
+
+      expect(res.body.total).toBe(3);
+      expect(res.body.lessons).toHaveLength(2);
+    });
+
+    it("leaves out direct pending assignments and applications that were approved or declined", async () => {
+      await assignDirect(ana, { role: "monitor", status: "pending" });
+      const approved = await apply(bruno);
+      const declined = await apply(carla);
+      const waiting = await apply(diego);
+      await approve(approved.id, director).expect(200);
+      await reject(declined.id, director).expect(200);
+
+      const res = await getPending(coordinator).expect(200);
+
+      expect(res.body.total).toBe(1);
+      expect(res.body.lessons[0].applications.map((item: AssignmentBody) => item.id)).toEqual([
+        waiting.id,
+      ]);
+    });
+
+    it("lists a pending application of a cancelled lesson and of a past lesson, so it can be declined", async () => {
+      const past = await createLesson({ date: "2026-03-05", expectedMonitors: 2 });
+      // The route refuses a past lesson: this one was sent before the lesson happened.
+      const ofPast = await insertAssignment(dataSource, {
+        lessonId: past,
+        personId: bruno.id,
+        createdById: bruno.id,
+        source: "application",
+      });
+      const ofCancelled = await apply(ana);
+      await cancelLesson(lessonId);
+
+      const res = await getPending(coordinator).expect(200);
+
+      expect(
+        res.body.lessons.map((group: { lesson: { date: string; status: string } }) => [
+          group.lesson.date,
+          group.lesson.status,
+        ]),
+      ).toEqual([
+        ["2026-03-05", "planned"],
+        ["2026-03-10", "cancelled"],
+      ]);
+      await reject(ofPast, coordinator).expect(200);
+      await reject(ofCancelled.id, coordinator).expect(200);
+      expect((await getPending(coordinator).expect(200)).body).toEqual({ total: 0, lessons: [] });
+    });
+
+    it("shows the coverage counting only confirmed assignments: a pending application does not raise it", async () => {
+      await apply(ana, "monitor");
+      await apply(bruno, "teacher");
+      await assignDirect(carla, { role: "monitor", status: "confirmed" });
+
+      const res = await getPending(coordinator).expect(200);
+
+      expect(res.body.lessons[0].coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 1, expected: 2 },
+      });
+    });
+
+    it("answers { total: 0, lessons: [] } with no pending application", async () => {
+      await assignDirect(ana, { role: "monitor", status: "pending" });
+
+      const res = await getPending(coordinator).expect(200);
+
+      expect(res.body).toEqual({ total: 0, lessons: [] });
+    });
+
+    it("accepts ?status=pending and no status, and answers 400 VALIDATION_FAILED for another status", async () => {
+      await apply(ana);
+
+      const withStatus = await getPending(coordinator, { status: "pending" }).expect(200);
+      const without = await getPending(coordinator).expect(200);
+      const other = await getPending(coordinator, { status: "declined" }).expect(400);
+
+      expect(withStatus.body).toEqual(without.body);
+      expect(withStatus.body.total).toBe(1);
+      expect(other.body.error).toBe("VALIDATION_FAILED");
+      expect(fieldsOf(other.body)).toEqual(["status"]);
+    });
+
+    it("lets a coordinator, a superadmin and directors of any department list them, note included", async () => {
+      const directorComms = await createActor("Director Comms", Role.DIRECTOR);
+      await insertMemberProfile(dataSource, {
+        personId: directorComms.id,
+        status: "approved",
+        departmentId: comms,
+      });
+      await applyTo(lessonId, ana, { role: "monitor", note: NOTE }).expect(201);
+
+      for (const actor of [coordinator, superadmin, director, directorComms]) {
+        const res = await getPending(actor).expect(200);
+
+        expect(res.body.total).toBe(1);
+        expect(res.body.lessons[0].applications[0].note).toBe(NOTE);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PATCH /applications/:id/approve
+  // ---------------------------------------------------------------------------
+
+  describe("PATCH /applications/:id/approve (approveApplication)", () => {
+    it("approves a pending application: confirmed, reviewedById and reviewedAt, and the coverage of GET /lessons/:id goes up", async () => {
+      const application = await applyWithNote(ana, NOTE);
+      expect((await coverageOf(lessonId)).monitors).toEqual({ confirmed: 0, expected: 2 });
+
+      const res = await approve(application.id, director).expect(200);
+
+      expect(res.body).toEqual({
+        ...application,
+        status: "confirmed",
+        reviewedById: director.id,
+        reviewedAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      });
+      expect(res.body.note).toBe(NOTE);
+      expect(await storedAssignment(application.id)).toMatchObject({
+        status: "confirmed",
+        source: "application",
+        reviewed_by_id: director.id,
+        reviewed_at: NOW,
+        updated_at: NOW,
+      });
+      expect((await coverageOf(lessonId)).monitors).toEqual({ confirmed: 1, expected: 2 });
+    });
+
+    it("answers 200 without writing when it is already confirmed", async () => {
+      const application = await apply(ana);
+      const first = await approve(application.id, director).expect(200);
+      const events = collectEvents();
+
+      const second = await approve(application.id, coordinator).expect(200);
+
+      expect(second.body).toEqual(first.body);
+      expect(second.body.reviewedById).toBe(director.id);
+      expect(events).toHaveLength(0);
+    });
+
+    it("answers 404 APPLICATION_NOT_FOUND for an unknown id, a malformed id and a direct assignment", async () => {
+      const direct = await assignDirect(ana, { role: "monitor", status: "pending" });
+
+      for (const id of [UNKNOWN_ID, "not-a-uuid", direct.id]) {
+        const res = await approve(id, director).expect(404);
+
+        expect(res.body).toEqual({
+          statusCode: 404,
+          error: "APPLICATION_NOT_FOUND",
+          message: "Application not found.",
+        });
+      }
+      expect((await storedAssignment(direct.id)).status).toBe("pending");
+    });
+
+    it("answers 409 APPLICATION_NOT_PENDING for a declined and for a cancelled application", async () => {
+      const declined = await apply(ana);
+      await reject(declined.id, director).expect(200);
+      const cancelled = await apply(bruno);
+      await cancelAssignment(cancelled.id).expect(200);
+
+      for (const id of [declined.id, cancelled.id]) {
+        const res = await approve(id, director).expect(409);
+
+        expect(res.body).toEqual({
+          statusCode: 409,
+          error: "APPLICATION_NOT_PENDING",
+          message: "Only a pending application can be approved or declined.",
+        });
+      }
+    });
+
+    it("answers 409 LESSON_CANCELLED when the lesson was cancelled while the application waited", async () => {
+      const application = await apply(ana);
+      await cancelLesson(lessonId);
+
+      const res = await approve(application.id, director).expect(409);
+
+      expect(res.body.error).toBe("LESSON_CANCELLED");
+      expect((await storedAssignment(application.id)).status).toBe("pending");
+    });
+
+    it("answers 409 MEMBER_INACTIVE when the member became inactive while it waited", async () => {
+      const application = await apply(ana);
+      await dataSource.query(
+        `UPDATE member_profiles SET status = 'inactive', exit_date = '2026-03-01' WHERE person_id = $1`,
+        [ana.id],
+      );
+
+      const res = await approve(application.id, director).expect(409);
+
+      expect(res.body.error).toBe("MEMBER_INACTIVE");
+      expect((await storedAssignment(application.id)).status).toBe("pending");
+    });
+
+    it("answers 409 ROLE_FULL for a monitor when the monitors are already full", async () => {
+      const application = await apply(ana, "monitor");
+      await assignDirect(bruno, { role: "monitor", status: "confirmed" });
+      await assignDirect(carla, { role: "monitor", status: "confirmed" });
+
+      const res = await approve(application.id, director).expect(409);
+
+      expect(res.body).toEqual({
+        statusCode: 409,
+        error: "ROLE_FULL",
+        message: "The lesson has no open place for this role.",
+      });
+      expect(await countConfirmed(lessonId, "monitor")).toBe(2);
+    });
+
+    it("answers 409 ROLE_FULL for a teacher when another teacher is confirmed", async () => {
+      const application = await apply(ana, "teacher");
+      await assignDirect(bruno, { role: "teacher", status: "confirmed" });
+
+      const res = await approve(application.id, director).expect(409);
+
+      expect(res.body.error).toBe("ROLE_FULL");
+      expect(await countConfirmed(lessonId, "teacher")).toBe(1);
+    });
+
+    it("approves an application of a lesson that already happened", async () => {
+      const past = await createLesson({ date: "2026-03-05", expectedMonitors: 2 });
+      const application = await insertAssignment(dataSource, {
+        lessonId: past,
+        personId: ana.id,
+        createdById: ana.id,
+        source: "application",
+      });
+
+      const res = await approve(application, director).expect(200);
+
+      expect(res.body.status).toBe("confirmed");
+    });
+
+    it("lets a director approve an application of a member of another department: assignments.review is all", async () => {
+      const directorComms = await createActor("Director Comms", Role.DIRECTOR);
+      await insertMemberProfile(dataSource, {
+        personId: directorComms.id,
+        status: "approved",
+        departmentId: comms,
+      });
+      // Ana is in Tecnologia.
+      const application = await apply(ana);
+
+      const res = await approve(application.id, directorComms).expect(200);
+
+      expect(res.body.reviewedById).toBe(directorComms.id);
+    });
+
+    it("never confirms more monitors than expected when two applications are approved at the same time: one 200 and one 409 ROLE_FULL", async () => {
+      // Two monitors expected and one already confirmed: one place left for two applications.
+      await assignDirect(carla, { role: "monitor", status: "confirmed" });
+      const fromAna = await apply(ana, "monitor");
+      const fromBruno = await apply(bruno, "monitor");
+
+      const [one, other] = await Promise.all([
+        approve(fromAna.id, director),
+        approve(fromBruno.id, coordinator),
+      ]);
+
+      expect([one.status, other.status].sort()).toEqual([200, 409]);
+      const refused = one.status === 409 ? one : other;
+      expect(refused.body.error).toBe("ROLE_FULL");
+      expect(await countConfirmed(lessonId, "monitor")).toBe(2);
+      const statuses = [
+        (await storedAssignment(fromAna.id)).status,
+        (await storedAssignment(fromBruno.id)).status,
+      ].sort();
+      expect(statuses).toEqual(["confirmed", "pending"]);
+    });
+
+    it("keeps one confirmed teacher when two teacher applications are approved at the same time: 200 and 409 ROLE_FULL", async () => {
+      const fromAna = await apply(ana, "teacher");
+      const fromBruno = await apply(bruno, "teacher");
+
+      const [one, other] = await Promise.all([
+        approve(fromAna.id, director),
+        approve(fromBruno.id, coordinator),
+      ]);
+
+      expect([one.status, other.status].sort()).toEqual([200, 409]);
+      const refused = one.status === 409 ? one : other;
+      expect(refused.body.error).toBe("ROLE_FULL");
+      expect(await countConfirmed(lessonId, "teacher")).toBe(1);
+    });
+
+    it("waits on the advisory lock of the lesson and counts again after it: a monitor confirmed meanwhile makes it 409 ROLE_FULL", async () => {
+      // One of two places taken; Bruno waits, pending, for a direct confirmation.
+      await assignDirect(carla, { role: "monitor", status: "confirmed" });
+      const waiting = await assignDirect(bruno, { role: "monitor", status: "pending" });
+      const application = await apply(ana, "monitor");
+
+      const holder = await holdAdvisory(lessonStaffLockKey(lessonId));
+      const pending = approve(application.id, director).then((res) => res);
+
+      try {
+        expect(await blockedStatement()).toMatch(/pg_advisory_xact_lock/);
+        // It has not been decided while the place can still change under it.
+        expect((await storedAssignment(application.id)).status).toBe("pending");
+        await holder.run(
+          `UPDATE lesson_assignments
+              SET status = 'confirmed', reviewed_by_id = $2, reviewed_at = now()
+            WHERE id = $1`,
+          [waiting.id, coordinator.id],
+        );
+      } finally {
+        await holder.release();
+      }
+
+      const res = await pending;
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("ROLE_FULL");
+      expect((await storedAssignment(application.id)).status).toBe("pending");
+      expect(await countConfirmed(lessonId, "monitor")).toBe(2);
+    });
+
+    it("waits for a cancellation of the lesson that is in flight, and then answers 409 LESSON_CANCELLED", async () => {
+      const application = await apply(ana);
+      const cancellation = await holdRow("lessons", lessonId, "FOR UPDATE");
+      const pending = approve(application.id, director).then((res) => res);
+
+      try {
+        expect(await blockedStatement()).toMatch(/"Lesson"/);
+        await cancellation.run(
+          `UPDATE lessons SET status = 'cancelled', cancelled_at = now(), cancelled_by_id = $2 WHERE id = $1`,
+          [lessonId, director.id],
+        );
+      } finally {
+        await cancellation.release();
+      }
+
+      const res = await pending;
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("LESSON_CANCELLED");
+      expect((await storedAssignment(application.id)).status).toBe("pending");
+    });
+
+    it("decides once when it is approved and declined at the same time: one 200 and one 409 APPLICATION_NOT_PENDING, and the row says who won", async () => {
+      const application = await apply(ana);
+
+      const [approval, decline] = await Promise.all([
+        approve(application.id, director),
+        reject(application.id, coordinator),
+      ]);
+
+      expect([approval.status, decline.status].sort()).toEqual([200, 409]);
+      const refused = approval.status === 409 ? approval : decline;
+      expect(refused.body.error).toBe("APPLICATION_NOT_PENDING");
+      const stored = await storedAssignment(application.id);
+      expect(stored.status).toBe(approval.status === 200 ? "confirmed" : "declined");
+      expect(stored.reviewed_by_id).toBe(approval.status === 200 ? director.id : coordinator.id);
+    });
+
+    it("emits LESSON_ASSIGNMENT_APPROVED once, after the commit, without the note, and nothing for the no-op or a refusal", async () => {
+      const application = await applyWithNote(ana, NOTE);
+      const full = await apply(bruno, "teacher");
+      await assignDirect(carla, { role: "teacher", status: "confirmed" });
+      const events = collectEvents();
+
+      await approve(application.id, director).expect(200);
+      await approve(application.id, director).expect(200);
+      await approve(full.id, director).expect(409);
+      await approve(UNKNOWN_ID, director).expect(404);
+      await approve(application.id, bruno).expect(403);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        actorId: director.id,
+        action: AuditableAction.LESSON_ASSIGNMENT_APPROVED,
+        targetType: "lesson_assignment",
+        targetId: application.id,
+        before: { status: "pending" },
+        after: {
+          status: "confirmed",
+          reviewedAt: NOW,
+          lessonId,
+          personId: ana.id,
+          role: "monitor",
+        },
+        occurredAt: NOW,
+      });
+      expect(JSON.stringify(events[0])).not.toContain(NOTE);
+    });
+
+    it("leaves PATCH /assignments/:id/confirm as it was: it confirms a pending application over the expected monitors, without ROLE_FULL", async () => {
+      const application = await apply(ana, "monitor");
+      await assignDirect(bruno, { role: "monitor", status: "confirmed" });
+      await assignDirect(carla, { role: "monitor", status: "confirmed" });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/assignments/${application.id}/confirm`)
+        .set("Cookie", director.cookie)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ status: "confirmed", source: "application" });
+      expect(await countConfirmed(lessonId, "monitor")).toBe(3);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PATCH /applications/:id/reject
+  // ---------------------------------------------------------------------------
+
+  describe("PATCH /applications/:id/reject (rejectApplication)", () => {
+    it("declines a pending application: declined, reviewedById and reviewedAt, and the member can apply again", async () => {
+      const application = await applyWithNote(ana, NOTE);
+
+      const res = await reject(application.id, coordinator).expect(200);
+
+      expect(res.body).toEqual({
+        ...application,
+        status: "declined",
+        reviewedById: coordinator.id,
+        reviewedAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      });
+      expect(await storedAssignment(application.id)).toMatchObject({
+        status: "declined",
+        reviewed_by_id: coordinator.id,
+        reviewed_at: NOW,
+        cancelled_by_id: null,
+        cancelled_at: null,
+      });
+      const again = await apply(ana, "teacher");
+      expect(again.id).not.toBe(application.id);
+    });
+
+    it("answers 200 without writing when it is already declined", async () => {
+      const application = await apply(ana);
+      const first = await reject(application.id, coordinator).expect(200);
+      const events = collectEvents();
+
+      const second = await reject(application.id, director).expect(200);
+
+      expect(second.body).toEqual(first.body);
+      expect(second.body.reviewedById).toBe(coordinator.id);
+      expect(events).toHaveLength(0);
+    });
+
+    it("answers 404 APPLICATION_NOT_FOUND for an unknown id, a malformed id and a direct assignment", async () => {
+      const direct = await assignDirect(ana, { role: "monitor", status: "pending" });
+
+      for (const id of [UNKNOWN_ID, "not-a-uuid", direct.id]) {
+        const res = await reject(id, coordinator).expect(404);
+
+        expect(res.body.error).toBe("APPLICATION_NOT_FOUND");
+      }
+      expect((await storedAssignment(direct.id)).status).toBe("pending");
+    });
+
+    it("answers 409 APPLICATION_NOT_PENDING for a confirmed and for a cancelled application", async () => {
+      const approved = await apply(ana);
+      await approve(approved.id, director).expect(200);
+      const cancelled = await apply(bruno);
+      await cancelAssignment(cancelled.id).expect(200);
+
+      for (const id of [approved.id, cancelled.id]) {
+        const res = await reject(id, coordinator).expect(409);
+
+        expect(res.body.error).toBe("APPLICATION_NOT_PENDING");
+      }
+      expect((await storedAssignment(approved.id)).status).toBe("confirmed");
+    });
+
+    it("declines an application of a cancelled lesson", async () => {
+      const application = await apply(ana);
+      await cancelLesson(lessonId);
+
+      const res = await reject(application.id, coordinator).expect(200);
+
+      expect(res.body.status).toBe("declined");
+    });
+
+    it("emits LESSON_ASSIGNMENT_DECLINED once, after the commit, without the note, and nothing for the no-op", async () => {
+      const application = await applyWithNote(ana, NOTE);
+      const events = collectEvents();
+
+      await reject(application.id, coordinator).expect(200);
+      await reject(application.id, coordinator).expect(200);
+      await reject(UNKNOWN_ID, coordinator).expect(404);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        actorId: coordinator.id,
+        action: AuditableAction.LESSON_ASSIGNMENT_DECLINED,
+        targetType: "lesson_assignment",
+        targetId: application.id,
+        before: { status: "pending" },
+        after: {
+          status: "declined",
+          reviewedAt: NOW,
+          lessonId,
+          personId: ana.id,
+          role: "monitor",
+        },
+        occurredAt: NOW,
+      });
+      expect(JSON.stringify(events[0])).not.toContain(NOTE);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Acceptance criteria of the card
+  // ---------------------------------------------------------------------------
+
+  describe("acceptance criteria", () => {
+    it("CA2: a director approves and the coverage of the lesson goes up; declining frees the place", async () => {
+      const onePlace = await createLesson({ date: "2026-03-17", expectedMonitors: 1 });
+      const first = await apply(ana, "monitor", onePlace);
+
+      // Declining frees the place of the member: she can apply to the same lesson again.
+      await reject(first.id, director).expect(200);
+      const second = await apply(ana, "monitor", onePlace);
+      expect(await coverageOf(onePlace)).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 0, expected: 1 },
+      });
+
+      await approve(second.id, director).expect(200);
+
+      expect(await coverageOf(onePlace)).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 1, expected: 1 },
+      });
+    });
+
+    it("CA3: answers 403 FORBIDDEN to a member on GET /applications, approve and reject", async () => {
+      const application = await apply(ana);
+
+      const list = await getPending(bruno).expect(403);
+      const approval = await approve(application.id, bruno).expect(403);
+      const decline = await reject(application.id, ana).expect(403);
+
+      for (const res of [list, approval, decline]) {
+        expect(res.body).toMatchObject({ statusCode: 403, error: "FORBIDDEN" });
+      }
+      expect((await storedAssignment(application.id)).status).toBe("pending");
     });
   });
 });

@@ -150,3 +150,29 @@ export function lessonInPast(): HttpException {
     409,
   );
 }
+
+/**
+ * 404 for `/applications/:id`, shared by the pipe of the id of the route and by the review: an
+ * unknown or malformed id, and a direct assignment too, since the resource of the URL is the
+ * application and a direct assignment is not one (docs/ARCHITECTURE.md section 10.3).
+ */
+export function applicationNotFound(): HttpException {
+  return new HttpException(
+    { error: "APPLICATION_NOT_FOUND", message: "Application not found." },
+    404,
+  );
+}
+
+/**
+ * 409: only a pending application is approved or declined. A declined or cancelled one is final,
+ * and an approved one leaves through `PATCH /assignments/:id/cancel`.
+ */
+export function applicationNotPending(): HttpException {
+  return new HttpException(
+    {
+      error: "APPLICATION_NOT_PENDING",
+      message: "Only a pending application can be approved or declined.",
+    },
+    409,
+  );
+}

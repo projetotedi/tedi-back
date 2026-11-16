@@ -6,6 +6,7 @@ import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { Role } from "@shared/enums/role.enum";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
+import { ApplicationsController } from "../controllers/applications.controller";
 import { AssignmentsController } from "../controllers/assignments.controller";
 import { LessonApplicationsController } from "../controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "../controllers/lesson-assignments.controller";
@@ -30,7 +31,8 @@ type Controller =
   | typeof LessonAssignmentsController
   | typeof AssignmentsController
   | typeof MemberAssignmentsController
-  | typeof LessonApplicationsController;
+  | typeof LessonApplicationsController
+  | typeof ApplicationsController;
 
 /** Every controller of the module: the three of the GUS-158 and the ones of the applications. */
 const CONTROLLERS = [
@@ -38,6 +40,7 @@ const CONTROLLERS = [
   AssignmentsController,
   MemberAssignmentsController,
   LessonApplicationsController,
+  ApplicationsController,
 ] as const;
 
 function handlerOf(controller: Controller, name: string): () => void {
@@ -61,6 +64,9 @@ describe("the controllers of the assignments", () => {
     [AssignmentsController, "cancelAssignment", Permission.ASSIGNMENTS_CREATE],
     [MemberAssignmentsController, "listMemberAssignments", Permission.MEMBERS_VIEW],
     [LessonApplicationsController, "applyToLesson", Permission.ASSIGNMENTS_MANAGE_OWN],
+    [ApplicationsController, "listPendingApplications", Permission.ASSIGNMENTS_REVIEW],
+    [ApplicationsController, "approveApplication", Permission.ASSIGNMENTS_REVIEW],
+    [ApplicationsController, "rejectApplication", Permission.ASSIGNMENTS_REVIEW],
   ] as const)("protects %s.%s with %s and no @Roles", (controller, name, permission) => {
     const handler = handlerOf(controller, name);
 
@@ -111,6 +117,27 @@ describe("the controllers of the assignments", () => {
       path: "/",
       base: "lessons/:id/applications",
     },
+    {
+      controller: ApplicationsController,
+      name: "listPendingApplications",
+      method: RequestMethod.GET,
+      path: "/",
+      base: "applications",
+    },
+    {
+      controller: ApplicationsController,
+      name: "approveApplication",
+      method: RequestMethod.PATCH,
+      path: ":id/approve",
+      base: "applications",
+    },
+    {
+      controller: ApplicationsController,
+      name: "rejectApplication",
+      method: RequestMethod.PATCH,
+      path: ":id/reject",
+      base: "applications",
+    },
   ] as const)("routes $name on $method $base/$path", ({ controller, name, method, path, base }) => {
     const handler = handlerOf(controller, name);
 
@@ -119,7 +146,7 @@ describe("the controllers of the assignments", () => {
     expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(base);
   });
 
-  it("has exactly the six routes of the two cards, and none to delete an assignment: it is cancelled and stays", () => {
+  it("has exactly the nine routes of the two cards, and none to delete an assignment: it is cancelled and stays", () => {
     const routes = CONTROLLERS.flatMap((controller: Controller) =>
       Object.getOwnPropertyNames(controller.prototype)
         .filter((name) => name !== "constructor")
@@ -131,11 +158,14 @@ describe("the controllers of the assignments", () => {
 
     expect(routes.map((route) => route.name).sort()).toEqual([
       "applyToLesson",
+      "approveApplication",
       "cancelAssignment",
       "confirmAssignment",
       "createAssignment",
       "listLessonAssignments",
       "listMemberAssignments",
+      "listPendingApplications",
+      "rejectApplication",
     ]);
     expect(routes.map((route) => route.method)).not.toContain(RequestMethod.DELETE);
   });
@@ -148,6 +178,8 @@ describe("the controllers of the assignments", () => {
       [AssignmentsController, "cancelAssignment"],
       [MemberAssignmentsController, "listMemberAssignments"],
       [LessonApplicationsController, "applyToLesson"],
+      [ApplicationsController, "approveApplication"],
+      [ApplicationsController, "rejectApplication"],
     ] as const) {
       expect(pipesOfId(controller, name)).toHaveLength(1);
     }
@@ -224,13 +256,39 @@ describe("the controllers of the assignments", () => {
     });
 
     describe("the applications (GUS-160)", () => {
-      const applications = { apply: jest.fn() };
+      const pending = { total: 0, lessons: [] };
+      const applications = {
+        apply: jest.fn(),
+        listPending: jest.fn(),
+        approve: jest.fn(),
+        reject: jest.fn(),
+      };
       const lessonApplications = new LessonApplicationsController(
         applications as unknown as ApplicationsService,
       );
+      const review = new ApplicationsController(applications as unknown as ApplicationsService);
 
       beforeEach(() => {
         applications.apply.mockResolvedValue(assignment);
+        applications.listPending.mockResolvedValue(pending);
+        applications.approve.mockResolvedValue(assignment);
+        applications.reject.mockResolvedValue(assignment);
+      });
+
+      it("delegates listPendingApplications with the query and the whole actor (for the note)", async () => {
+        const query = { status: AssignmentStatus.PENDING } as const;
+
+        await expect(review.listPendingApplications(query, ACTOR)).resolves.toBe(pending);
+
+        expect(applications.listPending).toHaveBeenCalledWith(query, ACTOR);
+      });
+
+      it("delegates approveApplication and rejectApplication with the id and the actor id", async () => {
+        await expect(review.approveApplication(ASSIGNMENT_ID, ACTOR)).resolves.toBe(assignment);
+        await expect(review.rejectApplication(ASSIGNMENT_ID, ACTOR)).resolves.toBe(assignment);
+
+        expect(applications.approve).toHaveBeenCalledWith(ASSIGNMENT_ID, ACTOR.id);
+        expect(applications.reject).toHaveBeenCalledWith(ASSIGNMENT_ID, ACTOR.id);
       });
 
       it("delegates applyToLesson with the lesson, the body and the whole actor", async () => {

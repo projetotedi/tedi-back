@@ -230,6 +230,30 @@
         },
         "type": "object"
       },
+      "AssignmentClassRefDto": {
+        "properties": {
+          "code": {
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the class or, when it has none, its code: never null.",
+            "example": "Informática Básica, turma A",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ],
+        "type": "object"
+      },
       "AssignmentLessonRefDto": {
         "properties": {
           "date": {
@@ -273,6 +297,69 @@
           "startTime",
           "endTime",
           "status"
+        ],
+        "type": "object"
+      },
+      "AssignmentLessonResponseDto": {
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/AssignmentClassRefDto"
+          },
+          "date": {
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "location": {
+            "example": "Laboratório 2",
+            "nullable": true,
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "The position of the plan of the lesson in the sequence of the course (the 3 of \"Aula 3\"). Null for a lesson on its own.",
+            "example": 3,
+            "nullable": true,
+            "type": "integer"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5): the same type as the lesson itself.",
+            "example": "planned"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "startTime",
+          "endTime",
+          "status",
+          "sequenceOrder",
+          "location",
+          "class"
         ],
         "type": "object"
       },
@@ -4907,6 +4994,55 @@
         ],
         "type": "object"
       },
+      "PendingApplicationGroupResponseDto": {
+        "properties": {
+          "applications": {
+            "description": "The pending applications of the lesson, the oldest first: each with the member, the role, the note and createdAt (when it was sent).",
+            "items": {
+              "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+            },
+            "type": "array"
+          },
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "The coverage of the lesson, the same as in the lesson itself: only confirmed assignments count, so the pending applications do not raise it."
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonResponseDto"
+          }
+        },
+        "required": [
+          "lesson",
+          "coverage",
+          "applications"
+        ],
+        "type": "object"
+      },
+      "PendingApplicationsResponseDto": {
+        "properties": {
+          "lessons": {
+            "description": "One group per lesson with a pending application, the soonest lesson first (by date, start time and id); a past or cancelled lesson is listed too, so its applications can be declined.",
+            "items": {
+              "$ref": "#/components/schemas/PendingApplicationGroupResponseDto"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "How many applications are listed, whatever the lessons they are in: the N of the button Candidaturas pendentes (N).",
+            "example": 3,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "lessons"
+        ],
+        "type": "object"
+      },
       "PermissionsDto": {
         "properties": {
           "access.manage": {
@@ -6540,6 +6676,275 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/applications": {
+      "get": {
+        "operationId": "listPendingApplications",
+        "parameters": [
+          {
+            "description": "Which applications are listed. Only pending, the default; any other value is 400 VALIDATION_FAILED.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "pending"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingApplicationsResponseDto"
+                }
+              }
+            },
+            "description": "The pending applications grouped by lesson, the soonest lesson first, with the coverage of each lesson and the note of each application; total is how many applications are listed (the N of the button). Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/applications/{id}/approve": {
+      "patch": {
+        "operationId": "approveApplication",
+        "parameters": [
+          {
+            "description": "Id of the application (an assignment with source application).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The application, now a confirmed assignment, with reviewedById and reviewedAt. Approving one that is already confirmed changes nothing and answers the same."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_PENDING | LESSON_CANCELLED | MEMBER_INACTIVE | ROLE_FULL"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/applications/{id}/reject": {
+      "patch": {
+        "operationId": "rejectApplication",
+        "parameters": [
+          {
+            "description": "Id of the application (an assignment with source application).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The application, now declined, with reviewedById and reviewedAt. The place of the member in the lesson is free again. Declining one that is already declined changes nothing and answers the same."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_PENDING"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },

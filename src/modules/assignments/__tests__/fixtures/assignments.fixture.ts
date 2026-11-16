@@ -7,8 +7,14 @@ import { DataSource } from "typeorm";
  * for a test to reuse (the owner module exports the function, docs/ARCHITECTURE.md section 5).
  */
 
-// The period of the class of the scenery and the body of a lesson inside it, from the lessons.
-export { CLASS_PERIOD, lessonBody } from "@modules/lessons/__tests__/fixtures/lessons.fixture";
+// The period of the class of the scenery and the body of a lesson inside it, from the lessons, and
+// the insert of a lesson with a position in the sequence (GUS-160: "Aula 5"), which POST /lessons
+// only takes with the course sequence behind it.
+export {
+  CLASS_PERIOD,
+  insertLesson,
+  lessonBody,
+} from "@modules/lessons/__tests__/fixtures/lessons.fixture";
 
 // A department, and the member profile that gives a director (or a member) one, from the people.
 export {

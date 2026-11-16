@@ -17,6 +17,7 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { ApplicationsController } from "@modules/assignments/controllers/applications.controller";
 import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
 import { LessonApplicationsController } from "@modules/assignments/controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
@@ -93,6 +94,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     LessonAssignmentsController,
     LessonApplicationsController,
     AssignmentsController,
+    ApplicationsController,
     MemberAssignmentsController,
     MyHoursController,
     MemberHoursController,
@@ -262,7 +264,12 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     },
     {
       provide: ApplicationsService,
-      useValue: { apply: async () => ({}) },
+      useValue: {
+        apply: async () => ({}),
+        listPending: async () => ({ total: 0, lessons: [] }),
+        approve: async () => ({}),
+        reject: async () => ({}),
+      },
     },
     {
       provide: HoursService,

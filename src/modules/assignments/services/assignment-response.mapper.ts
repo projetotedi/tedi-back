@@ -14,8 +14,9 @@ import { LessonAssignment } from "../entities/lesson-assignment.entity";
 export interface AssignmentVisibility {
   /**
    * Whether the `note` is shown. The note is free text and can hold personal data (RNF-13), so only
-   * who can manage assignments (`assignments.create`) reads it; everybody else gets `note: null`,
-   * whether the assignment has a note or not.
+   * who can manage assignments (`assignments.create`) reads it, and in the queue of the applications
+   * who reviews them (`assignments.review`, GUS-160); everybody else gets `note: null`, whether the
+   * assignment has a note or not.
    */
   canSeeNote: boolean;
 }

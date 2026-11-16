@@ -5,6 +5,7 @@ import { flattenValidationErrors } from "@shared/filters/http-exception.filter";
 import { ApplyToLessonDto } from "../dto/apply-to-lesson.dto";
 import { ASSIGNMENT_NOTE_MAX_LENGTH } from "../dto/assignment-limits";
 import { CreateAssignmentDto } from "../dto/create-assignment.dto";
+import { ListApplicationsQueryDto } from "../dto/list-applications-query.dto";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 
@@ -236,5 +237,24 @@ describe("ApplyToLessonDto (GUS-160)", () => {
     expect(dto).not.toHaveProperty("personId");
     expect(dto).not.toHaveProperty("status");
     expect(dto).not.toHaveProperty("source");
+  });
+});
+
+describe("ListApplicationsQueryDto (GUS-160)", () => {
+  it("accepts no status and pending, rejects declined and anything else", async () => {
+    for (const query of [{}, { status: "pending" }]) {
+      const errors = await validate(plainToInstance(ListApplicationsQueryDto, query), {
+        whitelist: true,
+      });
+
+      expect(errors).toHaveLength(0);
+    }
+    for (const status of ["declined", "confirmed", "cancelled", "PENDING", "", "x"]) {
+      const errors = await validate(plainToInstance(ListApplicationsQueryDto, { status }), {
+        whitelist: true,
+      });
+
+      expect(fieldsOf(errors)).toEqual(["status"]);
+    }
   });
 });
