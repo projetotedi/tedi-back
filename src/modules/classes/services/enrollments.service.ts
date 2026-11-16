@@ -56,6 +56,36 @@ interface LiveEnrollmentRow {
   status: EnrollmentStatus;
 }
 
+/** The status of an enrollment before a change: what the event and `changedFields` compare. */
+interface StatusBefore {
+  status: EnrollmentStatus;
+  statusChangedAt: string;
+  statusReason: string | null;
+}
+
+/**
+ * The students of the body that already have a live enrollment in the class, in the order of the
+ * body, with that enrollment and its status (`skipped`, M6).
+ */
+function skippedOf(
+  ids: readonly string[],
+  liveByStudent: ReadonlyMap<string, LiveEnrollmentRow>,
+): EnrollmentSkippedResponseDto[] {
+  return ids.flatMap((studentId) => {
+    const row = liveByStudent.get(studentId);
+    return row === undefined
+      ? []
+      : [
+          {
+            studentId,
+            reason: EnrollmentSkipReason.ALREADY_ENROLLED,
+            enrollmentId: row.id,
+            status: row.status,
+          },
+        ];
+  });
+}
+
 /** The ids of the body at the positions where `predicate` holds, as `studentIds.<i>`. */
 function bodyFields(ids: readonly string[], predicate: (id: string) => boolean): string[] {
   return ids.flatMap((id, index) => (predicate(id) ? [`studentIds.${String(index)}`] : []));
@@ -118,7 +148,6 @@ export class EnrollmentsService {
     if (repeated.length > 0) throw duplicateStudent(repeated);
 
     const now = this.clock.now();
-    const today = todayInAppTimeZone(now);
 
     const result = await this.runInTransaction(async (manager) => {
       const schoolClass = await this.lockClass(manager, requestedClassId);
@@ -139,19 +168,7 @@ export class EnrollmentsService {
         (id) => !liveByStudent.has(id) && (studentsById.get(id)?.archivedAt ?? null) !== null,
       );
       if (archived.length > 0) throw studentArchived(archived);
-      const skipped = ids.flatMap((studentId): EnrollmentSkippedResponseDto[] => {
-        const row = liveByStudent.get(studentId);
-        return row === undefined
-          ? []
-          : [
-              {
-                studentId,
-                reason: EnrollmentSkipReason.ALREADY_ENROLLED,
-                enrollmentId: row.id,
-                status: row.status,
-              },
-            ];
-      });
+      const skipped = skippedOf(ids, liveByStudent);
       const toEnroll = ids.filter((id) => !liveByStudent.has(id));
       if (toEnroll.length === 0) {
         return { enrolled: [], skipped, warnings: [], studentsById };
@@ -162,48 +179,17 @@ export class EnrollmentsService {
       if (toEnroll.length > remaining) throw classFull(remaining, toEnroll.length, "studentIds");
 
       const warnings = await this.prerequisiteWarnings(manager, schoolClass.courseId, toEnroll);
-      // In the order of the body: the ids (UUID v7 of @BeforeInsert) come out ascending, so the
-      // preview of the class (enrolledAt, then id) keeps that order too.
-      const enrolled = await manager.save(
-        toEnroll.map((studentId) =>
-          manager.create(Enrollment, {
-            classId: schoolClass.id,
-            studentId,
-            status: EnrollmentStatus.ACTIVE,
-            enrolledAt: now,
-            statusChangedAt: today,
-            statusReason: null,
-            createdById: actorId,
-            createdAt: now,
-            updatedAt: now,
-          }),
-        ),
+      const enrolled = await this.createEnrollments(
+        manager,
+        schoolClass.id,
+        toEnroll,
+        actorId,
+        now,
       );
       return { enrolled, skipped, warnings, studentsById };
     });
 
-    for (const enrollment of result.enrolled) {
-      this.eventEmitter.emit(
-        AUDITABLE_ACTION_EVENT,
-        buildEnrollmentAuditEvent(
-          AuditableAction.ENROLLMENT_CREATED,
-          actorId,
-          enrollment.id,
-          null,
-          {
-            classId: enrollment.classId,
-            studentId: enrollment.studentId,
-            status: enrollment.status,
-            enrolledAt: enrollment.enrolledAt,
-            statusChangedAt: enrollment.statusChangedAt,
-            missingPrerequisiteIds: result.warnings
-              .filter((warning) => warning.studentId === enrollment.studentId)
-              .map((warning) => warning.courseId),
-          },
-          now,
-        ),
-      );
-    }
+    this.emitCreated(result.enrolled, result.warnings, actorId, now);
 
     return {
       enrolled: result.enrolled.map((enrollment) =>
@@ -267,49 +253,14 @@ export class EnrollmentsService {
       if (dto.effectiveDate < todayInAppTimeZone(enrollment.enrolledAt)) {
         throw effectiveDateBeforeEnrollment();
       }
-      if (toActive) {
-        if (CLOSED_STATUSES.has(schoolClass.status)) throw classClosed();
-        if (student.archivedAt !== null) throw studentArchived();
-        const active = await this.counts.countActive(manager, schoolClass.id);
-        if (active + 1 > schoolClass.capacity) {
-          throw classFull(Math.max(0, schoolClass.capacity - active), 1, "status");
-        }
-      }
+      if (toActive) await this.assertCanReactivate(manager, schoolClass, student);
 
-      const before = {
-        status: enrollment.status,
-        statusChangedAt: enrollment.statusChangedAt,
-        statusReason: enrollment.statusReason,
-      };
-      enrollment.status = dto.status;
-      enrollment.statusChangedAt = dto.effectiveDate;
-      enrollment.statusReason = dto.reason ?? null;
-      // The instant of the change is the one of the clock, not the CURRENT_TIMESTAMP of the table.
-      enrollment.updatedAt = now;
-      await manager.save(enrollment);
-
+      const before = await this.writeStatusChange(manager, enrollment, dto, now);
       return { enrollment, student, before };
     });
 
     if (result.before !== null) {
-      const { enrollment, before } = result;
-      const changedFields = [
-        "status",
-        ...(before.statusChangedAt !== enrollment.statusChangedAt ? ["statusChangedAt"] : []),
-        ...(before.statusReason !== enrollment.statusReason ? ["statusReason"] : []),
-      ];
-      this.eventEmitter.emit(
-        AUDITABLE_ACTION_EVENT,
-        buildEnrollmentAuditEvent(
-          AuditableAction.ENROLLMENT_STATUS_CHANGED,
-          actorId,
-          enrollment.id,
-          { status: before.status, statusChangedAt: before.statusChangedAt },
-          // changedFields names the reason when it changed, never its value (RNF-13).
-          { status: enrollment.status, statusChangedAt: enrollment.statusChangedAt, changedFields },
-          now,
-        ),
-      );
+      this.emitStatusChanged(result.enrollment, result.before, actorId, now);
     }
 
     return toEnrollmentResponse(result.enrollment, result.student);
@@ -363,6 +314,138 @@ export class EnrollmentsService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Writes the new enrollments, active, with `enrolledAt`, `createdAt` and `updatedAt` = `now` and
+   * `statusChangedAt` = that day in America/Sao_Paulo. In the order of the body: the ids (UUID v7 of
+   * @BeforeInsert) come out ascending, so the preview of the class (enrolledAt, then id) keeps that
+   * order too.
+   */
+  private createEnrollments(
+    manager: EntityManager,
+    classId: string,
+    studentIds: readonly string[],
+    actorId: string,
+    now: Date,
+  ): Promise<Enrollment[]> {
+    const today = todayInAppTimeZone(now);
+    return manager.save(
+      studentIds.map((studentId) =>
+        manager.create(Enrollment, {
+          classId,
+          studentId,
+          status: EnrollmentStatus.ACTIVE,
+          enrolledAt: now,
+          statusChangedAt: today,
+          statusReason: null,
+          createdById: actorId,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ),
+    );
+  }
+
+  /** One ENROLLMENT_CREATED per enrollment made, after the commit, with its missing prerequisites. */
+  private emitCreated(
+    enrolled: readonly Enrollment[],
+    warnings: readonly EnrollmentWarning[],
+    actorId: string,
+    now: Date,
+  ): void {
+    for (const enrollment of enrolled) {
+      this.eventEmitter.emit(
+        AUDITABLE_ACTION_EVENT,
+        buildEnrollmentAuditEvent(
+          AuditableAction.ENROLLMENT_CREATED,
+          actorId,
+          enrollment.id,
+          null,
+          {
+            classId: enrollment.classId,
+            studentId: enrollment.studentId,
+            status: enrollment.status,
+            enrolledAt: enrollment.enrolledAt,
+            statusChangedAt: enrollment.statusChangedAt,
+            missingPrerequisiteIds: warnings
+              .filter((warning) => warning.studentId === enrollment.studentId)
+              .map((warning) => warning.courseId),
+          },
+          now,
+        ),
+      );
+    }
+  }
+
+  /**
+   * Going back to active takes a seat: the class must be open (409 CLASS_CLOSED), the student not
+   * archived (409 STUDENT_ARCHIVED) and a seat left (409 CLASS_FULL on `status`), in this order.
+   * Runs under the lock of the class, with the profile read FOR SHARE.
+   */
+  private async assertCanReactivate(
+    manager: EntityManager,
+    schoolClass: SchoolClass,
+    student: StudentSummary,
+  ): Promise<void> {
+    if (CLOSED_STATUSES.has(schoolClass.status)) throw classClosed();
+    if (student.archivedAt !== null) throw studentArchived();
+    const active = await this.counts.countActive(manager, schoolClass.id);
+    if (active + 1 > schoolClass.capacity) {
+      throw classFull(Math.max(0, schoolClass.capacity - active), 1, "status");
+    }
+  }
+
+  /**
+   * Writes the new status from `effectiveDate`, with the reason of the body (none clears the one
+   * before), and answers the status it had. `updatedAt` is the instant of the clock, not the
+   * CURRENT_TIMESTAMP of the table.
+   */
+  private async writeStatusChange(
+    manager: EntityManager,
+    enrollment: Enrollment,
+    dto: UpdateEnrollmentStatusDto,
+    now: Date,
+  ): Promise<StatusBefore> {
+    const before = {
+      status: enrollment.status,
+      statusChangedAt: enrollment.statusChangedAt,
+      statusReason: enrollment.statusReason,
+    };
+    enrollment.status = dto.status;
+    enrollment.statusChangedAt = dto.effectiveDate;
+    enrollment.statusReason = dto.reason ?? null;
+    enrollment.updatedAt = now;
+    await manager.save(enrollment);
+    return before;
+  }
+
+  /**
+   * ENROLLMENT_STATUS_CHANGED after the commit: status and statusChangedAt before and after, and
+   * `changedFields`, which names the reason when it changed, never its value (RNF-13).
+   */
+  private emitStatusChanged(
+    enrollment: Enrollment,
+    before: StatusBefore,
+    actorId: string,
+    now: Date,
+  ): void {
+    const changedFields = [
+      "status",
+      ...(before.statusChangedAt !== enrollment.statusChangedAt ? ["statusChangedAt"] : []),
+      ...(before.statusReason !== enrollment.statusReason ? ["statusReason"] : []),
+    ];
+    this.eventEmitter.emit(
+      AUDITABLE_ACTION_EVENT,
+      buildEnrollmentAuditEvent(
+        AuditableAction.ENROLLMENT_STATUS_CHANGED,
+        actorId,
+        enrollment.id,
+        { status: before.status, statusChangedAt: before.statusChangedAt },
+        { status: enrollment.status, statusChangedAt: enrollment.statusChangedAt, changedFields },
+        now,
+      ),
+    );
+  }
 
   /**
    * Runs the work in a transaction and turns the constraint violations that mean a business error
