@@ -56,7 +56,8 @@ export interface MemberAccessFacts {
  * lessons, GUS-158): who she is, whether she can receive it today and her department. The shape is
  * the contract of `getMemberSummary`: the Person and the member profile never leave this module.
  *  - active: she has an access role, her access is enabled and, if she has a member profile, it is
- *    approved (`isActiveMember`). A pending or rejected registration is a member, but not active.
+ *    approved and active (`isActiveMember`). A pending or rejected registration is a member, but
+ *    not active; neither is an inactivated member (GUS-147).
  *  - departmentIds: the department of the APPROVED profile, or [] (the same rule as
  *    `findAccessFacts`): what the `department` scope of the member record is checked against.
  */
@@ -206,20 +207,24 @@ function departmentScopeOf(
 
 /**
  * Whether a member can be given work today: she has an access role, her access is enabled and, if
- * she has a member profile, it is approved. A person without a profile (the seeded admin, the
- * coordinators, the accounts that predate GUS-91) is not subject to the validation.
+ * she has a member profile, it is approved and the member has not left the project (GUS-147). A
+ * person without a profile (the seeded admin, the coordinators, the accounts that predate GUS-91)
+ * is not subject to the validation.
  *
- * It is the ONE place that says "active member". Inactivating a member (GUS-147, with the exit
- * date) changes this predicate and nothing else: whoever asks `getMemberSummary` follows it.
+ * It is the ONE place that says "active member": whoever asks `getMemberSummary` follows it. The
+ * deactivation already disables the access, but PATCH /access/:id/enabled can enable it again
+ * while the member is still inactive; the status keeps her inactive here.
  */
 function isActiveMember(
   person: Pick<Person, "role" | "accessEnabled">,
-  profile: Pick<MemberProfile, "registrationStatus"> | null,
+  profile: Pick<MemberProfile, "registrationStatus" | "status"> | null,
 ): boolean {
   return (
     person.role !== null &&
     person.accessEnabled &&
-    (profile === null || profile.registrationStatus === MemberRegistrationStatus.APPROVED)
+    (profile === null ||
+      (profile.registrationStatus === MemberRegistrationStatus.APPROVED &&
+        profile.status === MemberStatus.ACTIVE))
   );
 }
 

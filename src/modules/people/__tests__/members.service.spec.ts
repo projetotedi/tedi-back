@@ -655,7 +655,7 @@ describe("MembersService", () => {
       expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
     });
 
-    it("marks active only with role, access enabled and no profile or an approved one", async () => {
+    it("marks active only with role, access enabled and no profile or an approved and active one", async () => {
       const approved = { registrationStatus: MemberRegistrationStatus.APPROVED };
       const cases: Array<[string, Partial<Person>, Partial<MemberProfile> | null, boolean]> = [
         [
@@ -701,6 +701,24 @@ describe("MembersService", () => {
           { role: null, accessEnabled: true },
           approved,
           false,
+        ],
+        [
+          "an inactivated member (the deactivation disabled the access)",
+          { role: Role.MEMBER, accessEnabled: false },
+          { ...approved, status: MemberStatus.INACTIVE },
+          false,
+        ],
+        [
+          "an inactivated member whose access was enabled again in /access",
+          { role: Role.MEMBER, accessEnabled: true },
+          { ...approved, status: MemberStatus.INACTIVE },
+          false,
+        ],
+        [
+          "a reactivated member with the access enabled",
+          { role: Role.MEMBER, accessEnabled: true },
+          { ...approved, status: MemberStatus.ACTIVE },
+          true,
         ],
       ];
 
