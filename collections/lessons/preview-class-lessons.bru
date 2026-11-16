@@ -1,0 +1,44 @@
+meta {
+  name: preview-class-lessons
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/classes/:id/lessons/preview
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000003
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "weekday": "tuesday",
+    "startTime": "09:00",
+    "endTime": "11:00",
+    "firstDate": "2026-04-07",
+    "location": "Laboratório 2 — Bloco B"
+  }
+}
+
+docs {
+  Prévia da geração das aulas de uma turma a partir da sequência de planos de aula do curso dela (F4.2): mostra o que generateClassLessons criaria com o mesmo corpo, sem criar nada. Não grava aula, não trava linha e não emite evento.
+  Requer cookie tedi_session e a permissão lessons.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Corpo, o mesmo de generateClassLessons: weekday (monday a sunday, em inglês e minúsculo), startTime e endTime (HH:mm, 24 horas; o fim precisa ser depois do início) e firstDate (AAAA-MM-DD). location é opcional (null ou "" significa "não informado"). A turma é a do id da URL. O corpo não leva título nem objetivo (vêm do plano, RN-18) nem alunos e monitores esperados (se preenchem em cada aula depois): o que sobrar é descartado.
+  Uma aula por plano ativo da sequência do curso, na ordem dela (RN-17), uma por semana. A primeira cai no primeiro weekday a partir de firstDate: a própria firstDate quando ela já é aquele dia da semana, senão o próximo (uma segunda-feira com weekday tuesday começa na terça seguinte, nunca na anterior). Cada uma das próximas cai uma semana depois da anterior.
+  Plano arquivado não origina aula (RN-27): é pulado, não abre buraco nas datas e aparece em skippedLessonPlans. Os outros mantêm a posição real na sequência (sequenceOrder 1, 3 e 4 se o 2 estiver arquivado). Se todos os planos estiverem arquivados, ou a sequência estiver vazia, 409 COURSE_WITHOUT_SEQUENCE.
+  Retorna 200 ClassLessonsPreviewResponseDto: classId, classStartDate e classEndDate (o aviso "A turma termina em 24/04/2026" lê estes), weekday, startTime, endTime, durationMinutes (fim menos início: quanto cada aula vai durar), location, lessonCount, outsideClassPeriodCount, items e skippedLessonPlans. Cada item traz sequenceOrder, lessonPlanId, title, date, expectedDurationMinutes (a duração que o plano espera, a que o Figma mostra) e outsideClassPeriod.
+  Aula fora do período da turma (antes do primeiro dia ou depois do último, extremos dentro, RN-21) NÃO é erro aqui: aparece com outsideClassPeriod true, e outsideClassPeriodCount diz quantas são. Com qualquer uma delas, generateClassLessons responde 409 LESSONS_OUTSIDE_CLASS_PERIOD: é preciso estender o período da turma (PATCH /classes/:id) ou mudar firstDate.
+  A prévia é "o que o generate faria": responde pelos mesmos erros dele, na mesma ordem, menos o do período. Turma que já tem as aulas da sequência (aula com sequenceOrder, cancelada inclusive) responde 409 LESSONS_ALREADY_GENERATED.
+  Ordem dos erros: 401, 403 FORBIDDEN, 404 CLASS_NOT_FOUND (id mal formado, pelo pipe) e 400 VALIDATION_FAILED (antes de ler qualquer coisa), 400 INVALID_TIME_RANGE (details[].field = "endTime"), 404 CLASS_NOT_FOUND (turma inexistente), 409 CLASS_ARCHIVED, 409 LESSONS_ALREADY_GENERATED, 409 COURSE_WITHOUT_SEQUENCE.
+  Curso arquivado e turma concluída ou cancelada (status) não bloqueiam; turma arquivada é somente leitura (RN-27).
+  Erros possíveis: 400 VALIDATION_FAILED, 400 INVALID_TIME_RANGE, 401, 403 FORBIDDEN, 404 CLASS_NOT_FOUND, 409 CLASS_ARCHIVED, 409 LESSONS_ALREADY_GENERATED, 409 COURSE_WITHOUT_SEQUENCE.
+}

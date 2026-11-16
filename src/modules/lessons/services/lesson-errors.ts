@@ -96,3 +96,72 @@ export function lessonPlanNotInCourseSequence(): HttpException {
     400,
   );
 }
+
+/**
+ * 404 for `/classes/:id/lessons/...` (GUS-154): the class is the resource of the URL here, so an
+ * unknown id is a class that does not exist, and a malformed one is too (the pipe of the route
+ * answers the same). The same text as the 404 CLASS_NOT_FOUND of `/classes/:id`, kept local to the
+ * module like `classArchived`: `lessons` does not import the helpers of `classes`.
+ */
+export function classNotFoundInPath(): HttpException {
+  return new HttpException({ error: "CLASS_NOT_FOUND", message: "Class not found." }, 404);
+}
+
+/**
+ * 409: the class already has the lessons of the sequence of its course, so generating them again
+ * would duplicate them (GUS-154). A lesson with a `sequenceOrder` is what marks "came from the
+ * sequence", cancelled ones included: an extra lesson, without it, does not count. Whoever wants
+ * different lessons edits, reschedules or cancels the ones that exist.
+ */
+export function lessonsAlreadyGenerated(): HttpException {
+  return new HttpException(
+    {
+      error: "LESSONS_ALREADY_GENERATED",
+      message: "The lessons of this class were already generated from the course sequence.",
+    },
+    409,
+  );
+}
+
+/**
+ * 409: the course of the class has no lesson plan to generate lessons from, because its sequence is
+ * empty or every plan in it is archived (GUS-154, RN-27). Fixed in the catalog, not in the body.
+ */
+export function courseWithoutSequence(): HttpException {
+  return new HttpException(
+    {
+      error: "COURSE_WITHOUT_SEQUENCE",
+      message: "The course of this class has no active lesson plan in its sequence.",
+    },
+    409,
+  );
+}
+
+/**
+ * 409 when the series would put lessons outside the period of the class (RN-21, GUS-154): the
+ * system does not write a lesson outside it, and the preview shows which ones. 409 and not the 400
+ * of a single lesson (`lessonOutsideClassPeriod`) because the body is fine by itself: it clashes
+ * with the period the class has, which the coordination fixes by extending the class or moving the
+ * series. `outside` are the items of the series that the caller found outside the period; the
+ * `details` point at `firstDate`, the field that moves the whole series, and name the positions in
+ * the sequence (`sequenceOrder`) of those lessons.
+ */
+export function lessonsOutsideClassPeriod(
+  outside: readonly { sequenceOrder: number; date: string }[],
+): HttpException {
+  const positions = outside.map((lesson) => lesson.sequenceOrder).join(", ");
+
+  return new HttpException(
+    {
+      error: "LESSONS_OUTSIDE_CLASS_PERIOD",
+      message: "Some lessons would fall outside the period of the class.",
+      details: [
+        {
+          field: "firstDate",
+          message: `lessons ${positions} fall outside the period of the class`,
+        },
+      ],
+    },
+    409,
+  );
+}

@@ -517,6 +517,142 @@
         ],
         "type": "object"
       },
+      "ClassLessonPreviewItemResponseDto": {
+        "properties": {
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD, one week after the lesson before it.",
+            "example": "2026-04-07",
+            "format": "date",
+            "type": "string"
+          },
+          "expectedDurationMinutes": {
+            "description": "The duration the lesson plan expects, in minutes. The lesson itself gets the time of the body (startTime to endTime), which is the top-level durationMinutes.",
+            "example": 90,
+            "type": "integer"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000011",
+            "format": "uuid",
+            "type": "string"
+          },
+          "outsideClassPeriod": {
+            "description": "True when `date` is before the first day or after the last day of the class (RN-21). The preview only marks it: generating with any such lesson answers 409 LESSONS_OUTSIDE_CLASS_PERIOD.",
+            "example": false,
+            "type": "boolean"
+          },
+          "sequenceOrder": {
+            "description": "Position of the plan in the sequence of the course: the `sequenceOrder` its lesson would carry. It keeps the real position, so it can skip a number when an archived plan is left out (see skippedLessonPlans).",
+            "example": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "description": "The title the lesson would copy from the plan (RN-18).",
+            "example": "Conhecendo o computador",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequenceOrder",
+          "lessonPlanId",
+          "title",
+          "date",
+          "expectedDurationMinutes",
+          "outsideClassPeriod"
+        ],
+        "type": "object"
+      },
+      "ClassLessonsPreviewResponseDto": {
+        "properties": {
+          "classEndDate": {
+            "description": "Last day of the class: no lesson can be after it. The warning of the lessons outside the period reads it.",
+            "example": "2026-04-24",
+            "format": "date",
+            "type": "string"
+          },
+          "classId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "classStartDate": {
+            "description": "First day of the class: no lesson can be before it.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "durationMinutes": {
+            "description": "From startTime to endTime, in minutes: how long each lesson would be. Calculated, not typed.",
+            "example": 120,
+            "type": "integer"
+          },
+          "endTime": {
+            "example": "11:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "items": {
+            "description": "One per active lesson plan of the sequence of the course, in the order of the sequence: the first on the first weekday on or after firstDate and each next one a week later. Never empty (a course without an active plan answers 409 COURSE_WITHOUT_SEQUENCE).",
+            "items": {
+              "$ref": "#/components/schemas/ClassLessonPreviewItemResponseDto"
+            },
+            "type": "array"
+          },
+          "lessonCount": {
+            "description": "How many lessons would be created: the number of items.",
+            "example": 4,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "location": {
+            "description": "The place every lesson would have. Null when not informed.",
+            "example": "Laboratório 2 — Bloco B",
+            "nullable": true,
+            "type": "string"
+          },
+          "outsideClassPeriodCount": {
+            "description": "How many items are outsideClassPeriod. Above 0, generating answers 409 LESSONS_OUTSIDE_CLASS_PERIOD: the class must be extended (or the series moved) first.",
+            "example": 1,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skippedLessonPlans": {
+            "description": "The archived plans of the sequence, which originate no lesson (RN-27). The days stay consecutive: a skipped plan leaves no gap. Empty when none is archived.",
+            "items": {
+              "$ref": "#/components/schemas/SkippedLessonPlanResponseDto"
+            },
+            "type": "array"
+          },
+          "startTime": {
+            "example": "09:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "weekday": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Weekday"
+              }
+            ],
+            "example": "tuesday"
+          }
+        },
+        "required": [
+          "classId",
+          "classStartDate",
+          "classEndDate",
+          "weekday",
+          "startTime",
+          "endTime",
+          "durationMinutes",
+          "location",
+          "lessonCount",
+          "outsideClassPeriodCount",
+          "items",
+          "skippedLessonPlans"
+        ],
+        "type": "object"
+      },
       "ClassResponseDto": {
         "properties": {
           "archiveReason": {
@@ -1570,6 +1706,72 @@
         "required": [
           "name",
           "phone"
+        ],
+        "type": "object"
+      },
+      "GenerateClassLessonsDto": {
+        "properties": {
+          "endTime": {
+            "description": "End of every lesson, HH:mm in 24 hours. It must be after startTime (else 400 INVALID_TIME_RANGE): a lesson does not cross midnight.",
+            "example": "11:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "firstDate": {
+            "description": "Where the series starts, YYYY-MM-DD. The first lesson is on the first weekday on or after this date: this very date when it already is that weekday, otherwise the next one (a monday with weekday tuesday starts the next day). Each next lesson is a week after the one before.",
+            "example": "2026-04-07",
+            "format": "date",
+            "type": "string"
+          },
+          "location": {
+            "description": "Place of every lesson. Null or blank means not informed. A lesson can have its place changed afterwards.",
+            "example": "Laboratório 2 — Bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "startTime": {
+            "description": "Start of every lesson, HH:mm in 24 hours.",
+            "example": "09:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "weekday": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Weekday"
+              }
+            ],
+            "description": "The day of the week of the lessons: one lesson a week, always on this day. Lower case English name.",
+            "example": "tuesday"
+          }
+        },
+        "required": [
+          "weekday",
+          "startTime",
+          "endTime",
+          "firstDate"
+        ],
+        "type": "object"
+      },
+      "GeneratedClassLessonsResponseDto": {
+        "properties": {
+          "classId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessons": {
+            "description": "The lessons created, planned, in the order of the sequence (so by date). Each one is the same LessonResponseDto the other routes of the module answer.",
+            "items": {
+              "$ref": "#/components/schemas/LessonResponseDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "classId",
+          "lessons"
         ],
         "type": "object"
       },
@@ -3709,6 +3911,38 @@
         ],
         "type": "string"
       },
+      "SkippedLessonPlanResponseDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "When the plan was archived.",
+            "example": "2026-03-20T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000012",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "Position of the plan in the sequence of the course.",
+            "example": 2,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequenceOrder",
+          "lessonPlanId",
+          "title",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
       "StudentDetailDto": {
         "properties": {
           "accessibilityNeed": {
@@ -4329,6 +4563,19 @@
           }
         },
         "type": "object"
+      },
+      "Weekday": {
+        "description": "The day of the week of the lessons: one lesson a week, always on this day. Lower case English name.",
+        "enum": [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday"
+        ],
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -5591,6 +5838,210 @@
         },
         "tags": [
           "classes"
+        ]
+      }
+    },
+    "/classes/{id}/lessons/generate": {
+      "post": {
+        "operationId": "generateClassLessons",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateClassLessonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedClassLessonsResponseDto"
+                }
+              }
+            },
+            "description": "The lessons created, in the order of the sequence, all or none. Each one is planned and copies the title and the objective of its lesson plan (RN-18)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | LESSONS_ALREADY_GENERATED | COURSE_WITHOUT_SEQUENCE | LESSONS_OUTSIDE_CLASS_PERIOD"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/classes/{id}/lessons/preview": {
+      "post": {
+        "operationId": "previewClassLessons",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateClassLessonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassLessonsPreviewResponseDto"
+                }
+              }
+            },
+            "description": "What generateClassLessons would create with the same body, without creating it: one lesson per active lesson plan of the sequence of the course, in order, with its day. A lesson outside the period of the class is marked (outsideClassPeriod), not refused. Writes nothing and emits no event."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | LESSONS_ALREADY_GENERATED | COURSE_WITHOUT_SEQUENCE"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
         ]
       }
     },

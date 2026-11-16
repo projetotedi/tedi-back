@@ -20,6 +20,7 @@ import { CourseLessonPlansService, findDuplicateId } from "../services/course-le
 
 const NOW = new Date("2026-10-02T01:30:00.000Z");
 const CREATED_AT = new Date("2026-09-01T12:00:00.000Z");
+const ARCHIVED_AT = new Date("2026-09-20T12:00:00.000Z");
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
 const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000009";
@@ -891,6 +892,167 @@ describe("CourseLessonPlansService", () => {
       expect(manager.delete).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
       expect(manager.findOne.mock.calls[0][1]).not.toHaveProperty("lock");
+    });
+  });
+
+  describe("getSequenceSummaries()", () => {
+    const asManager = (target: unknown): EntityManager => target as EntityManager;
+
+    it("returns the plans in the order of the sequence, with objective, duration, archivedAt and position", async () => {
+      state.links = [buildLink(FIRST_ID, 1), buildLink(SECOND_ID, 2), buildLink(THIRD_ID, 3)];
+      // The plans come from the database in no particular order: the sequence is the one of the links.
+      state.plans = [
+        buildPlan(THIRD_ID, {
+          title: "Senhas e privacidade",
+          objective: null,
+          expectedDurationMinutes: 45,
+          archive: { archivedAt: ARCHIVED_AT },
+        }),
+        buildPlan(FIRST_ID, {
+          title: "Conhecendo o computador",
+          objective: "Reconhecer as partes do computador.",
+          expectedDurationMinutes: 90,
+        }),
+        buildPlan(SECOND_ID, {
+          title: "Teclado, mouse e janelas",
+          objective: "Usar o teclado e o mouse.",
+          expectedDurationMinutes: 60,
+        }),
+      ];
+
+      const summaries = await service.getSequenceSummaries(COURSE_ID);
+
+      expect(summaries).toEqual([
+        {
+          id: FIRST_ID,
+          title: "Conhecendo o computador",
+          objective: "Reconhecer as partes do computador.",
+          expectedDurationMinutes: 90,
+          archivedAt: null,
+          position: 1,
+        },
+        {
+          id: SECOND_ID,
+          title: "Teclado, mouse e janelas",
+          objective: "Usar o teclado e o mouse.",
+          expectedDurationMinutes: 60,
+          archivedAt: null,
+          position: 2,
+        },
+        {
+          id: THIRD_ID,
+          title: "Senhas e privacidade",
+          objective: null,
+          expectedDurationMinutes: 45,
+          archivedAt: ARCHIVED_AT,
+          position: 3,
+        },
+      ]);
+      // The sequence is read in order of position, and the plans in one query for all of them.
+      expect(manager.find).toHaveBeenCalledTimes(2);
+      expect(manager.find).toHaveBeenNthCalledWith(1, CourseLessonPlan, {
+        where: { courseId: COURSE_ID },
+        order: { position: "ASC" },
+      });
+      expect(lockedPlanIds()).toEqual([FIRST_ID, SECOND_ID, THIRD_ID]);
+    });
+
+    it("returns [] for a malformed id without querying", async () => {
+      for (const malformed of ["not-a-uuid", "", "123", `${COURSE_ID}x`]) {
+        await expect(service.getSequenceSummaries(malformed)).resolves.toEqual([]);
+      }
+
+      // A malformed id never reaches the database.
+      expect(manager.find).not.toHaveBeenCalled();
+    });
+
+    it("returns [] for a course without plans, and does not look the plans up", async () => {
+      state.links = [];
+
+      await expect(service.getSequenceSummaries(COURSE_ID)).resolves.toEqual([]);
+
+      expect(manager.find).toHaveBeenCalledTimes(1);
+      expect(manager.find).toHaveBeenCalledWith(CourseLessonPlan, expect.anything());
+    });
+
+    it("keeps the real position of the plans and leaves out the link of a plan that was removed", async () => {
+      state.links = [buildLink(FIRST_ID, 1), buildLink(SECOND_ID, 2), buildLink(THIRD_ID, 3)];
+      // The second plan is soft deleted: `find` does not return it, and the sequence has a gap.
+      state.plans = [buildPlan(FIRST_ID), buildPlan(THIRD_ID)];
+
+      const summaries = await service.getSequenceSummaries(COURSE_ID);
+
+      expect(summaries.map((summary) => [summary.id, summary.position])).toEqual([
+        [FIRST_ID, 1],
+        [THIRD_ID, 3],
+      ]);
+    });
+
+    it("locks the plans FOR SHARE only when asked, and never the links", async () => {
+      state.links = [buildLink(FIRST_ID, 1), buildLink(SECOND_ID, 2)];
+      const inTransaction = asManager(manager);
+
+      await service.getSequenceSummaries(COURSE_ID, inTransaction, { forShare: true });
+
+      const [linksLookup, plansLookup] = manager.find.mock.calls;
+      expect(linksLookup[0]).toBe(CourseLessonPlan);
+      expect(linksLookup[1]).not.toHaveProperty("lock");
+      expect(plansLookup[0]).toBe(LessonPlan);
+      expect(plansLookup[1]).toMatchObject({ lock: { mode: "pessimistic_read" } });
+
+      for (const options of [undefined, {}, { forShare: false }]) {
+        manager.find.mockClear();
+
+        await service.getSequenceSummaries(COURSE_ID, inTransaction, options);
+
+        expect(manager.find).toHaveBeenCalledTimes(2);
+        for (const call of manager.find.mock.calls) {
+          expect(call[1]).not.toHaveProperty("lock");
+        }
+      }
+    });
+
+    it("throws when forShare comes without a manager: the lock only lives inside a transaction", async () => {
+      await expect(
+        service.getSequenceSummaries(COURSE_ID, undefined, { forShare: true }),
+      ).rejects.toThrow("forShare needs the manager of a transaction");
+      // The bug of the caller is told even for an id that would have answered [].
+      await expect(
+        service.getSequenceSummaries("not-a-uuid", undefined, { forShare: true }),
+      ).rejects.toThrow("forShare needs the manager of a transaction");
+
+      expect(manager.find).not.toHaveBeenCalled();
+    });
+
+    it("reads through the manager of the caller when it is given, and from the data source otherwise", async () => {
+      const inTransaction = {
+        find: jest
+          .fn()
+          .mockResolvedValueOnce([buildLink(FIRST_ID, 1)])
+          .mockResolvedValueOnce([buildPlan(FIRST_ID)]),
+      };
+
+      const summaries = await service.getSequenceSummaries(COURSE_ID, asManager(inTransaction));
+
+      expect(summaries.map((summary) => summary.id)).toEqual([FIRST_ID]);
+      expect(inTransaction.find).toHaveBeenCalledTimes(2);
+      expect(manager.find).not.toHaveBeenCalled();
+
+      state.links = [buildLink(SECOND_ID, 1)];
+      await service.getSequenceSummaries(COURSE_ID);
+
+      expect(manager.find).toHaveBeenCalledTimes(2);
+    });
+
+    it("takes no transaction and emits no event", async () => {
+      state.links = [buildLink(FIRST_ID, 1)];
+
+      await service.getSequenceSummaries(COURSE_ID, asManager(manager), { forShare: true });
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(manager.delete).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 });
