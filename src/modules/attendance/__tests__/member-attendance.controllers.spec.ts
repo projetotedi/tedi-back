@@ -1,6 +1,6 @@
 import "reflect-metadata";
-import { RequestMethod } from "@nestjs/common";
-import { METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
+import { HttpException, PipeTransform, RequestMethod } from "@nestjs/common";
+import { METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from "@nestjs/common/constants";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { Role } from "@shared/enums/role.enum";
@@ -23,7 +23,34 @@ function handlerOf(controller: object, name: string): () => void {
   return (controller as Record<string, () => void>)[name];
 }
 
+/** The pipe that reads the id of the route: a malformed id is a 404 of the resource of the URL. */
+function pipeOfId(controller: object, name: string): PipeTransform {
+  const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, controller, name) as Record<
+    string,
+    { data: string; pipes: PipeTransform[] }
+  >;
+  const pipe = Object.values(args).find((argument) => argument.data === "id")?.pipes[0];
+  if (pipe === undefined) throw new Error(`${name} has no pipe on its id.`);
+  return pipe;
+}
+
 describe("the controllers of the attendance", () => {
+  it("answers a malformed id with the 404 of the resource of the URL", async () => {
+    const metadata = { type: "param" as const, data: "id" };
+    for (const [controller, name, code] of [
+      [LessonMemberAttendanceController, "listMemberAttendance", "LESSON_NOT_FOUND"],
+      [LessonMemberAttendanceController, "confirmMemberAttendance", "LESSON_NOT_FOUND"],
+      [MemberAttendanceController, "getMemberAttendanceHistory", "MEMBER_NOT_FOUND"],
+    ] as const) {
+      const failure = await Promise.resolve(
+        pipeOfId(controller, name).transform("not-a-uuid", metadata),
+      ).catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(HttpException);
+      expect(failure).toMatchObject({ status: 404, response: { error: code } });
+    }
+  });
+
   it("requires lessons.view on listMemberAttendance and attendance.confirmMember on confirmMemberAttendance", () => {
     const prototype = LessonMemberAttendanceController.prototype;
     expect(Reflect.getMetadata(PATH_METADATA, LessonMemberAttendanceController)).toBe(

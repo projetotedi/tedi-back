@@ -671,6 +671,16 @@ describe("MemberAttendanceService", () => {
       for (const event of emitted().slice(2)) expect(event.occurredAt).toBe(NOW);
     });
 
+    it("fails the transaction instead of emitting when a first signature does not come back from the insert", async () => {
+      manager.save.mockResolvedValue([]);
+
+      await expect(
+        service.confirm(LESSON.id, { entries: [entry(MONITOR_ASSIGNMENT, ABSENT)] }, COORDINATOR),
+      ).rejects.toThrow(`The attendance of ${MONITOR_ASSIGNMENT.id} was not inserted.`);
+      expect(order).not.toContain("commit");
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
     it("answers the attendance of the lesson read after the commit", async () => {
       attendanceRepository.find.mockImplementation(async () => {
         order.push("read-after");

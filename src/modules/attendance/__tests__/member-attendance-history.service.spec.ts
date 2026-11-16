@@ -164,6 +164,16 @@ describe("MemberAttendanceHistoryService", () => {
       confirmedAt: new Date("2026-03-17T18:30:00.000Z"),
     });
     expect(history.totals).toEqual({ present: 2, absent: 1 });
+
+    // Two lessons at the same day and time: the id of the row decides, ascending.
+    const twin = lessonOf("01999a3e-7c1b-7000-8000-0000000000f5", { date: "2026-03-17" });
+    repository.find.mockResolvedValue([
+      rowOf("01999a3e-7c1b-7000-8000-0000000000d9", MARCH_17, MemberAttendanceStatus.ABSENT),
+      rowOf("01999a3e-7c1b-7000-8000-0000000000d8", twin, MemberAttendanceStatus.PRESENT),
+    ]);
+    lessons.findLessonSummaries.mockResolvedValue([MARCH_17, twin]);
+    const tied = await service.getByMember(MEMBER_ID, COORDINATOR);
+    expect(tied.items.map((item) => item.lesson.id)).toEqual([twin.id, MARCH_17.id]);
   });
 
   it("leaves the cancelled lessons out of the items and of the totals", async () => {
