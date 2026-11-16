@@ -10,7 +10,7 @@ export class MyAssignmentsTotalsDto {
     type: "integer",
     example: 3,
     description:
-      "Lessons of the period where the member is pending or confirmed (Próximas aulas): always confirmed plus pending.",
+      "Lessons of the period where the member is pending or confirmed (Próximas aulas): always confirmed plus pending. It counts the whole period, including days before today when `from` is in the past; without `from` the period starts today.",
   })
   upcoming!: number;
 
