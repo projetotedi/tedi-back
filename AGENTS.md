@@ -73,7 +73,7 @@ Use Yarn.
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
 - **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
-- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `hours/__tests__/attendance-creates-hours.e2e.spec.ts`).
+- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `hours/__tests__/lesson-cancelled-reverses-hours.e2e.spec.ts`).
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
 - Cada teste e2e limpa as tabelas que tocou.
 
