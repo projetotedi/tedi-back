@@ -77,7 +77,7 @@ export class ClassesController {
   @ApiConflictResponse({
     type: ApiErrorDto,
     description:
-      "CLASS_ARCHIVED | COURSE_CHANGE_NOT_ALLOWED | COURSE_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)",
+      "CLASS_ARCHIVED | COURSE_CHANGE_NOT_ALLOWED | COURSE_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED",
   })
   updateClass(
     @Param("id", CLASS_ID) id: string,
@@ -96,7 +96,7 @@ export class ClassesController {
   @ApiNotFoundResponse(CLASS_NOT_FOUND_RESPONSE)
   @ApiConflictResponse({
     type: ApiErrorDto,
-    description: "CLASS_HAS_ACTIVE_ENROLLMENTS (from GUS-108, when enrollments exist)",
+    description: "CLASS_HAS_ACTIVE_ENROLLMENTS",
   })
   archiveClass(
     @Param("id", CLASS_ID) id: string,

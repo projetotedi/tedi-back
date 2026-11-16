@@ -34,7 +34,7 @@ export class CourseClassItemResponseDto {
     type: "integer",
     minimum: 0,
     example: 12,
-    description: "Active enrollments of the class. Always 0 until the enrollments exist (GUS-108).",
+    description: "Active enrollments of the class.",
   })
   enrolledCount!: number;
 

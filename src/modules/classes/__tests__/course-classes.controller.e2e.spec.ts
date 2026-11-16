@@ -17,12 +17,16 @@ import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { ClassesModule } from "../classes.module";
 import { ClassStatus } from "../enums/class-status.enum";
+import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
 import {
   archiveCourse,
   insertClass,
   insertCourse,
   insertEdition,
+  insertEnrollment,
+  insertEnrollments,
+  insertStudent,
 } from "./fixtures/classes.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
@@ -103,9 +107,9 @@ describe("CourseClassesController (e2e)", () => {
   let edition1: string;
   let edition2: string;
 
-  // The enrollments do not exist yet: the counts are replaced here, so `enrolledCount` is proven
-  // to come from them. GUS-108 removes the override and uses real enrollments.
-  const enrollmentCounts = { countActive: jest.fn(), countActiveByClass: jest.fn() };
+  // `enrolledCount` comes from real enrollments (GUS-108); the spy only records the calls of the
+  // real provider.
+  let countActiveByClass: jest.SpyInstance;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -124,10 +128,7 @@ describe("CourseClassesController (e2e)", () => {
         CatalogModule,
         ClassesModule,
       ],
-    })
-      .overrideProvider(EnrollmentCountsService)
-      .useValue(enrollmentCounts)
-      .compile();
+    }).compile();
 
     app = module.createNestApplication();
     app.use(cookieParser());
@@ -144,14 +145,15 @@ describe("CourseClassesController (e2e)", () => {
     await app.close();
   });
 
+  afterEach(() => {
+    countActiveByClass.mockRestore();
+  });
+
   beforeEach(async () => {
     await dataSource.query(
-      "TRUNCATE TABLE classes, editions, course_prerequisites, courses, people RESTART IDENTITY CASCADE",
+      "TRUNCATE TABLE enrollments, classes, editions, course_prerequisites, courses, student_profiles, people RESTART IDENTITY CASCADE",
     );
-    enrollmentCounts.countActive.mockReset();
-    enrollmentCounts.countActive.mockResolvedValue(0);
-    enrollmentCounts.countActiveByClass.mockReset();
-    enrollmentCounts.countActiveByClass.mockResolvedValue(new Map());
+    countActiveByClass = jest.spyOn(module.get(EnrollmentCountsService), "countActiveByClass");
 
     director = await createActor("Director", Role.DIRECTOR);
     member = await createActor("Member", Role.MEMBER);
@@ -494,25 +496,36 @@ describe("CourseClassesController (e2e)", () => {
     it("fills enrolledCount from the enrollment counts in one call", async () => {
       const infoA = await addClass(basic, edition1, "INFO-A");
       const infoB = await addClass(basic, edition1, "INFO-B");
-      await addClass(basic, edition1, "INFO-C");
-      enrollmentCounts.countActiveByClass.mockResolvedValue(
-        new Map([
-          [infoA, 7],
-          [infoB, 15],
-        ]),
-      );
+      const infoC = await addClass(basic, edition1, "INFO-C");
+      // INFO-A: 3 active, plus 1 dropped and 1 removed that do not count. INFO-B: none. INFO-C: 1.
+      await insertEnrollments(dataSource, { classId: infoA, createdById: director.id, count: 3 });
+      await insertEnrollments(dataSource, {
+        classId: infoA,
+        createdById: director.id,
+        count: 1,
+        status: EnrollmentStatus.DROPPED,
+        namePrefix: "Dropped",
+      });
+      await insertEnrollment(dataSource, {
+        classId: infoA,
+        studentId: await insertStudent(dataSource, { name: "Removed", createdById: director.id }),
+        createdById: director.id,
+        deletedAt: new Date("2026-03-10T12:00:00.000Z"),
+      });
+      await insertEnrollments(dataSource, { classId: infoC, createdById: director.id, count: 1 });
 
       const res = await getClasses(director, basic).expect(200);
 
       // One call for the whole page, and the ids are the ones of the page, in its order.
-      expect(enrollmentCounts.countActiveByClass).toHaveBeenCalledTimes(1);
-      const [, askedIds] = enrollmentCounts.countActiveByClass.mock.calls[0] as [unknown, string[]];
+      expect(countActiveByClass).toHaveBeenCalledTimes(1);
+      const [, askedIds] = countActiveByClass.mock.calls[0] as [unknown, string[]];
       expect(askedIds).toEqual((res.body as ClassPage).data.map((item) => item.id));
       expect(askedIds).toHaveLength(3);
+      expect(askedIds).toContain(infoB);
       expect((res.body as ClassPage).data.map((item) => [item.code, item.enrolledCount])).toEqual([
-        ["INFO-A", 7],
-        ["INFO-B", 15],
-        ["INFO-C", 0],
+        ["INFO-A", 3],
+        ["INFO-B", 0],
+        ["INFO-C", 1],
       ]);
     });
 
@@ -522,7 +535,7 @@ describe("CourseClassesController (e2e)", () => {
 
       await getClasses(director, basic, "?page=2&limit=1").expect(200);
 
-      const [, askedIds] = enrollmentCounts.countActiveByClass.mock.calls[0] as [unknown, string[]];
+      const [, askedIds] = countActiveByClass.mock.calls[0] as [unknown, string[]];
       expect(askedIds).toEqual([infoB]);
     });
 
@@ -541,7 +554,7 @@ describe("CourseClassesController (e2e)", () => {
       const res = await getClasses(director, smartphones).expect(200);
 
       expect(res.body).toEqual({ data: [], total: 0, page: 1, limit: 20 });
-      expect(enrollmentCounts.countActiveByClass).not.toHaveBeenCalled();
+      expect(countActiveByClass).not.toHaveBeenCalled();
     });
 
     it("takes 20 per page by default and up to 100", async () => {

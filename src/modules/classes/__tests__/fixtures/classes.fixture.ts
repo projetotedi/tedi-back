@@ -1,5 +1,11 @@
 import { DataSource } from "typeorm";
+import { insertStudent } from "@modules/people/__tests__/fixtures/students.fixture";
 import { ClassStatus } from "../../enums/class-status.enum";
+import { EnrollmentStatus } from "../../enums/enrollment-status.enum";
+
+// The students of an enrollment come from the fixture of people: reexported so the e2e of this
+// module import their scenery from one place.
+export { insertStudent };
 
 /**
  * Fixtures of the classes module for its e2e. They use raw SQL on purpose: a row that is only the
@@ -91,4 +97,83 @@ export async function insertClass(
     ],
   );
   return rows[0].id;
+}
+
+/**
+ * INSERT INTO enrollments ... RETURNING id. Active, enrolled now and not removed unless told.
+ *
+ * `statusChangedAt` defaults to the day of `enrolledAt` in America/Sao_Paulo, derived in SQL: a fixed
+ * date could fall before the day of the enrollment and break `ck_enrollments_status_changed_at`.
+ * `deletedAt` makes it a removed enrollment, which frees the pair (class, student).
+ */
+export async function insertEnrollment(
+  dataSource: DataSource,
+  input: {
+    classId: string;
+    studentId: string;
+    createdById: string;
+    status?: EnrollmentStatus;
+    enrolledAt?: Date;
+    statusChangedAt?: string;
+    deletedAt?: Date;
+    statusReason?: string;
+  },
+): Promise<string> {
+  const rows: Array<{ id: string }> = await dataSource.query(
+    `INSERT INTO enrollments (id, class_id, student_id, status, enrolled_at, status_changed_at,
+                             status_reason, created_by_id, deleted_at)
+     VALUES (gen_random_uuid(), $1, $2, $3::enrollments_status_enum,
+             COALESCE($4::timestamptz, now()),
+             COALESCE($5::date, (COALESCE($4::timestamptz, now()) AT TIME ZONE 'America/Sao_Paulo')::date),
+             $6, $7, $8::timestamptz)
+     RETURNING id`,
+    [
+      input.classId,
+      input.studentId,
+      input.status ?? EnrollmentStatus.ACTIVE,
+      input.enrolledAt ?? null,
+      input.statusChangedAt ?? null,
+      input.statusReason ?? null,
+      input.createdById,
+      input.deletedAt ?? null,
+    ],
+  );
+  return rows[0].id;
+}
+
+/** The instant of the first enrollment of `insertEnrollments`; the next ones come 1 second apart. */
+export const FIRST_ENROLLED_AT = new Date("2026-03-03T13:00:00.000Z");
+
+/**
+ * `count` new students (named "<namePrefix> 01", "<namePrefix> 02"...) enrolled in the class, with
+ * `enrolledAt` strictly increasing (FIRST_ENROLLED_AT plus i seconds): the id of an enrollment made
+ * here is random (gen_random_uuid), so the order of the preview (`enrolledAt`, then the id) must
+ * never need the id to break a tie. Answers the ids of the students, in the order of enrollment.
+ */
+export async function insertEnrollments(
+  dataSource: DataSource,
+  input: {
+    classId: string;
+    createdById: string;
+    count: number;
+    status?: EnrollmentStatus;
+    namePrefix?: string;
+  },
+): Promise<string[]> {
+  const studentIds: string[] = [];
+  for (let index = 0; index < input.count; index++) {
+    const studentId = await insertStudent(dataSource, {
+      name: `${input.namePrefix ?? "Student"} ${String(index + 1).padStart(2, "0")}`,
+      createdById: input.createdById,
+    });
+    await insertEnrollment(dataSource, {
+      classId: input.classId,
+      studentId,
+      createdById: input.createdById,
+      status: input.status,
+      enrolledAt: new Date(FIRST_ENROLLED_AT.getTime() + index * 1000),
+    });
+    studentIds.push(studentId);
+  }
+  return studentIds;
 }

@@ -23,8 +23,9 @@ import {
 import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { ClassesModule } from "../classes.module";
+import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
-import { archiveCourse, insertClass } from "./fixtures/classes.fixture";
+import { archiveCourse, insertClass, insertEnrollments } from "./fixtures/classes.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
 const dbConnection = dbUrl
@@ -92,9 +93,9 @@ describe("ClassesController (e2e)", () => {
   let member: Actor;
   let courseId: string;
 
-  // The enrollments do not exist yet: the count is replaced here, so the two rules that depend on
-  // it (archive and seats) are proven. GUS-108 removes the override and uses real enrollments.
-  const enrollmentCounts = { countActive: jest.fn() };
+  // The rules that depend on the active enrollments (archive, seats, change of course) run on real
+  // enrollments (GUS-108); the spy only records the calls of the real provider.
+  let countActive: jest.SpyInstance;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -113,10 +114,7 @@ describe("ClassesController (e2e)", () => {
         CatalogModule,
         ClassesModule,
       ],
-    })
-      .overrideProvider(EnrollmentCountsService)
-      .useValue(enrollmentCounts)
-      .compile();
+    }).compile();
 
     app = module.createNestApplication();
     app.use(cookieParser());
@@ -140,10 +138,9 @@ describe("ClassesController (e2e)", () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      "TRUNCATE TABLE classes, editions, course_prerequisites, courses, people RESTART IDENTITY CASCADE",
+      "TRUNCATE TABLE enrollments, classes, editions, course_prerequisites, courses, student_profiles, people RESTART IDENTITY CASCADE",
     );
-    enrollmentCounts.countActive.mockReset();
-    enrollmentCounts.countActive.mockResolvedValue(0);
+    countActive = jest.spyOn(module.get(EnrollmentCountsService), "countActive");
 
     director = await createActor("Director", Role.DIRECTOR);
     coordinator = await createActor("Coordinator", Role.COORDINATOR);
@@ -153,7 +150,21 @@ describe("ClassesController (e2e)", () => {
 
   afterEach(() => {
     eventEmitter.removeAllListeners(AUDITABLE_ACTION_EVENT);
+    countActive.mockRestore();
   });
+
+  /** `count` real students with an active enrollment in the class (by SQL: scenery, not the rule). */
+  function enroll(classId: string, count: number): Promise<string[]> {
+    return insertEnrollments(dataSource, { classId, createdById: director.id, count });
+  }
+
+  /** Every active enrollment of the class becomes dropped, by SQL: the class counts 0 again. */
+  async function dropAll(classId: string): Promise<void> {
+    await dataSource.query(
+      `UPDATE enrollments SET status = 'dropped' WHERE class_id = $1 AND status = 'active'`,
+      [classId],
+    );
+  }
 
   async function createActor(name: string, role: Role): Promise<Actor> {
     const person = await peopleService.save({ name, role, accessEnabled: true });
@@ -1080,7 +1091,7 @@ describe("ClassesController (e2e)", () => {
 
     it("rolls the new edition back when the rest of the edit is refused", async () => {
       const created = await createClass();
-      enrollmentCounts.countActive.mockResolvedValue(10);
+      await enroll(created.id, 10);
 
       const res = await patchClass(created.id, director, {
         editionName: "2026.7",
@@ -1101,7 +1112,7 @@ describe("ClassesController (e2e)", () => {
         const intermediate = await createCourse("Informática Intermediária", "intermediate");
 
         // With one enrollment the course stays, whatever else is sent.
-        enrollmentCounts.countActive.mockResolvedValue(1);
+        await enroll(created.id, 1);
         const refused = await patchClass(created.id, director, {
           courseId: intermediate,
           capacity: 20,
@@ -1112,11 +1123,11 @@ describe("ClassesController (e2e)", () => {
           message:
             "The course of a class can only change while it is planned and has no active enrollments.",
         });
-        expect(enrollmentCounts.countActive).toHaveBeenCalledWith(expect.anything(), created.id);
+        expect(countActive).toHaveBeenCalledWith(expect.anything(), created.id);
         expect(await storedClass(created.id)).toMatchObject({ course_id: courseId, capacity: 15 });
 
-        // Without enrollment it moves, and the answer is the class with the course of the new one.
-        enrollmentCounts.countActive.mockResolvedValue(0);
+        // Without an active enrollment it moves, and the answer is the class with the new course.
+        await dropAll(created.id);
         const moved = await patchClass(created.id, director, { courseId: intermediate }).expect(
           200,
         );
@@ -1214,7 +1225,7 @@ describe("ClassesController (e2e)", () => {
 
       it("treats the same courseId as no change, even for a class in progress: 200, nothing written, no event", async () => {
         const created = await createClass(body({ status: "in_progress" }));
-        enrollmentCounts.countActive.mockResolvedValue(3);
+        await enroll(created.id, 3);
         const events = collectEvents();
 
         // The front sends the whole form back, the course included.
@@ -1290,7 +1301,6 @@ describe("ClassesController (e2e)", () => {
 
         // And the course comes before the code and the seats.
         await createClass(body({ code: "INFO-B" }));
-        enrollmentCounts.countActive.mockResolvedValue(0);
         const beforeCode = await patchClass(created.id, director, {
           courseId: smartphones,
           code: "INFO-B",
@@ -1394,7 +1404,7 @@ describe("ClassesController (e2e)", () => {
 
     it("returns 409 CAPACITY_BELOW_ENROLLED when the seats fall below the active enrollments, and 200 for as many seats as enrolled", async () => {
       const created = await createClass();
-      enrollmentCounts.countActive.mockResolvedValue(10);
+      await enroll(created.id, 10);
 
       const refused = await patchClass(created.id, director, { capacity: 5 }).expect(409);
 
@@ -1402,7 +1412,7 @@ describe("ClassesController (e2e)", () => {
       expect(refused.body.message).toBe(
         "The capacity cannot be lower than the number of active enrollments.",
       );
-      expect(enrollmentCounts.countActive).toHaveBeenCalledWith(expect.anything(), created.id);
+      expect(countActive).toHaveBeenCalledWith(expect.anything(), created.id);
       expect(await storedClass(created.id)).toMatchObject({ capacity: 15 });
 
       const accepted = await patchClass(created.id, director, { capacity: 10 }).expect(200);
@@ -1412,7 +1422,7 @@ describe("ClassesController (e2e)", () => {
     it("answers the errors of an edit in the order archived, period, code, seats", async () => {
       await createClass();
       const created = await createClass(body({ code: "INFO-B" }));
-      enrollmentCounts.countActive.mockResolvedValue(10);
+      await enroll(created.id, 10);
 
       const period = await patchClass(created.id, director, {
         endDate: "2026-03-02",
@@ -1429,7 +1439,7 @@ describe("ClassesController (e2e)", () => {
       const seats = await patchClass(created.id, director, { capacity: 5 }).expect(409);
       expect(seats.body.error).toBe("CAPACITY_BELOW_ENROLLED");
 
-      enrollmentCounts.countActive.mockResolvedValue(0);
+      await dropAll(created.id);
       await archiveClass(created.id, director).expect(200);
       const archived = await patchClass(created.id, director, {
         endDate: "2026-03-02",
@@ -1657,7 +1667,7 @@ describe("ClassesController (e2e)", () => {
   describe("PATCH /classes/:id/archive (archiveClass) and /unarchive (unarchiveClass)", () => {
     it("returns 409 CLASS_HAS_ACTIVE_ENROLLMENTS when the class has active enrollments, and leaves it active", async () => {
       const created = await createClass();
-      enrollmentCounts.countActive.mockResolvedValue(1);
+      await enroll(created.id, 1);
       const events = collectEvents();
 
       const res = await archiveClass(created.id, director, { reason: "Turma encerrada." }).expect(
@@ -1666,13 +1676,33 @@ describe("ClassesController (e2e)", () => {
 
       expect(res.body.error).toBe("CLASS_HAS_ACTIVE_ENROLLMENTS");
       expect(res.body.message).toBe("A class with active enrollments cannot be archived.");
-      expect(enrollmentCounts.countActive).toHaveBeenCalledWith(expect.anything(), created.id);
+      expect(countActive).toHaveBeenCalledWith(expect.anything(), created.id);
       expect(await storedClass(created.id)).toMatchObject({
         archived_at: null,
         archived_by_id: null,
         archive_reason: null,
       });
       expect(events).toHaveLength(0);
+    });
+
+    it("an active enrollment counts and a dropped one does not: archive refused with one active, accepted after it is dropped", async () => {
+      const created = await createClass();
+      await enroll(created.id, 1);
+      // A dropped and a removed enrollment never count.
+      await insertEnrollments(dataSource, {
+        classId: created.id,
+        createdById: director.id,
+        count: 1,
+        status: EnrollmentStatus.DROPPED,
+        namePrefix: "Dropped",
+      });
+
+      const refused = await archiveClass(created.id, director).expect(409);
+      expect(refused.body.error).toBe("CLASS_HAS_ACTIVE_ENROLLMENTS");
+
+      await dropAll(created.id);
+      const archived = await archiveClass(created.id, director).expect(200);
+      expect(archived.body.archivedAt).not.toBeNull();
     });
 
     it("archives a class without active enrollments: it leaves the default filter, stays in the table and by id, and the edit answers 409", async () => {
@@ -1782,14 +1812,14 @@ describe("ClassesController (e2e)", () => {
       const first = await archiveClass(created.id, coordinator, { reason: "Primeira." }).expect(
         200,
       );
-      enrollmentCounts.countActive.mockClear();
+      countActive.mockClear();
       const second = await archiveClass(created.id, director, { reason: "Segunda." }).expect(200);
 
       expect(second.body.archivedAt).toBe(first.body.archivedAt);
       expect(second.body.archivedById).toBe(coordinator.id);
       expect(second.body.archiveReason).toBe("Primeira.");
       // An archived class is not counted again: the second call is a no-op.
-      expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
+      expect(countActive).not.toHaveBeenCalled();
       expect(events).toHaveLength(1);
       expect(events[0].action).toBe(AuditableAction.CLASS_ARCHIVED);
     });
@@ -1797,7 +1827,8 @@ describe("ClassesController (e2e)", () => {
     it("archives an archived class even while it has enrollments: a no-op, not a refusal", async () => {
       const created = await createClass();
       await archiveClass(created.id, director).expect(200);
-      enrollmentCounts.countActive.mockResolvedValue(3);
+      // By SQL on purpose: the enrollment refuses an archived class, so the state is forced.
+      await enroll(created.id, 3);
 
       await archiveClass(created.id, director).expect(200);
     });
@@ -1916,7 +1947,7 @@ describe("ClassesController (e2e)", () => {
     it("does not emit when the archive is refused", async () => {
       const created = await createClass();
       const events = collectEvents();
-      enrollmentCounts.countActive.mockResolvedValue(2);
+      await enroll(created.id, 2);
 
       await archiveClass(created.id, director).expect(409);
       await archiveClass(created.id, member).expect(403);

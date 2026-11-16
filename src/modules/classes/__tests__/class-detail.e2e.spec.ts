@@ -25,7 +25,14 @@ import {
   ActiveEnrollmentPreviewRow,
   EnrollmentCountsService,
 } from "../services/enrollment-counts.service";
-import { archiveCourse, insertClass, insertEdition } from "./fixtures/classes.fixture";
+import {
+  archiveCourse,
+  insertClass,
+  insertEdition,
+  insertEnrollment,
+  insertEnrollments,
+  insertStudent,
+} from "./fixtures/classes.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
 const dbConnection = dbUrl
@@ -104,13 +111,10 @@ describe("GET /classes/:id (e2e)", () => {
   /** INFO-A of Informática Básica in 2026.1, with 15 seats: the class of the card. */
   let classId: string;
 
-  // The enrollments do not exist yet: the counts and the preview are replaced here, so the sheet is
-  // proven to read them. GUS-108 removes the override and uses real enrollments.
-  const enrollmentCounts = {
-    countActive: jest.fn(),
-    countActiveByClass: jest.fn(),
-    listActivePreview: jest.fn(),
-  };
+  // The sheet reads real enrollments (GUS-108); the spies only record the calls of the real
+  // provider.
+  let countActive: jest.SpyInstance;
+  let listActivePreview: jest.SpyInstance;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -130,10 +134,7 @@ describe("GET /classes/:id (e2e)", () => {
         CatalogModule,
         ClassesModule,
       ],
-    })
-      .overrideProvider(EnrollmentCountsService)
-      .useValue(enrollmentCounts)
-      .compile();
+    }).compile();
 
     app = module.createNestApplication();
     app.use(cookieParser());
@@ -153,18 +154,20 @@ describe("GET /classes/:id (e2e)", () => {
     await app.close();
   });
 
+  afterEach(() => {
+    countActive.mockRestore();
+    listActivePreview.mockRestore();
+  });
+
   beforeEach(async () => {
     await dataSource.query(
-      `TRUNCATE TABLE classes, editions, course_lesson_plans, course_prerequisites, courses,
-                      lesson_plan_contents, lesson_plans, people
+      `TRUNCATE TABLE enrollments, classes, editions, course_lesson_plans, course_prerequisites,
+                      courses, lesson_plan_contents, lesson_plans, student_profiles, people
        RESTART IDENTITY CASCADE`,
     );
-    enrollmentCounts.countActive.mockReset();
-    enrollmentCounts.countActive.mockResolvedValue(0);
-    enrollmentCounts.countActiveByClass.mockReset();
-    enrollmentCounts.countActiveByClass.mockResolvedValue(new Map());
-    enrollmentCounts.listActivePreview.mockReset();
-    enrollmentCounts.listActivePreview.mockResolvedValue([]);
+    const counts = module.get(EnrollmentCountsService);
+    countActive = jest.spyOn(counts, "countActive");
+    listActivePreview = jest.spyOn(counts, "listActivePreview");
 
     director = await createActor("Director", Role.DIRECTOR);
     member = await createActor("Member", Role.MEMBER);
@@ -215,13 +218,25 @@ describe("GET /classes/:id (e2e)", () => {
     return ids;
   }
 
-  /** An enrolled student of the preview: a person that exists, and the row that points to it. */
+  /** A student with an active enrollment in `inClassId`, enrolled at `enrolledAt` (by SQL). */
   async function createStudentRow(
     name: string,
     enrolledAt: string,
+    inClassId = classId,
   ): Promise<ActiveEnrollmentPreviewRow> {
-    const person = await peopleService.save({ name });
-    return { enrollmentId: randomUUID(), studentId: person.id, enrolledAt: new Date(enrolledAt) };
+    const studentId = await insertStudent(dataSource, { name, createdById: director.id });
+    const enrollmentId = await insertEnrollment(dataSource, {
+      classId: inClassId,
+      studentId,
+      createdById: director.id,
+      enrolledAt: new Date(enrolledAt),
+    });
+    return { enrollmentId, studentId, enrolledAt: new Date(enrolledAt) };
+  }
+
+  /** `count` students with an active enrollment in the class, enrolled one second apart. */
+  function enroll(count: number, inClassId = classId): Promise<string[]> {
+    return insertEnrollments(dataSource, { classId: inClassId, createdById: director.id, count });
   }
 
   function getClass(actor: Actor | null, id: string) {
@@ -231,7 +246,7 @@ describe("GET /classes/:id (e2e)", () => {
 
   describe("the sheet of the class", () => {
     it("answers the whole sheet of INFO-A in one call", async () => {
-      enrollmentCounts.countActive.mockResolvedValue(12);
+      const students = await enroll(12);
 
       const res = await getClass(director, classId).expect(200);
       const body = res.body as ClassDetailBody;
@@ -256,7 +271,10 @@ describe("GET /classes/:id (e2e)", () => {
       expect(body.edition.name).toBe("2026.1");
       expect(body.createdBy).toEqual({ id: director.id, name: "Director" });
       expect(body.enrollmentsTotal).toBe(12);
-      expect(body.enrollmentsPreview).toEqual([]);
+      // The 5 earliest, in the order enrolledAt, then id.
+      expect(body.enrollmentsPreview.map((item) => item.student)).toEqual(
+        students.slice(0, 5).map((id, index) => ({ id, name: `Student 0${String(index + 1)}` })),
+      );
       expect(body).toMatchObject({
         id: classId,
         code: "INFO-A",
@@ -290,16 +308,16 @@ describe("GET /classes/:id (e2e)", () => {
     });
 
     it("asks the enrollments of the class that was found, with the preview limited to 5", async () => {
-      await getClass(director, classId).expect(200);
+      await enroll(7);
 
-      expect(enrollmentCounts.countActive).toHaveBeenCalledTimes(1);
-      expect(enrollmentCounts.countActive).toHaveBeenCalledWith(expect.anything(), classId);
-      expect(enrollmentCounts.listActivePreview).toHaveBeenCalledTimes(1);
-      expect(enrollmentCounts.listActivePreview).toHaveBeenCalledWith(
-        expect.anything(),
-        classId,
-        5,
-      );
+      const res = await getClass(director, classId).expect(200);
+
+      expect((res.body as ClassDetailBody).enrollmentsPreview).toHaveLength(5);
+      expect((res.body as ClassDetailBody).enrollmentsTotal).toBe(7);
+      expect(countActive).toHaveBeenCalledTimes(1);
+      expect(countActive).toHaveBeenCalledWith(expect.anything(), classId);
+      expect(listActivePreview).toHaveBeenCalledTimes(1);
+      expect(listActivePreview).toHaveBeenCalledWith(expect.anything(), classId, 5);
     });
 
     it("answers the data of a class that has a name, a place and another status", async () => {
@@ -369,8 +387,8 @@ describe("GET /classes/:id (e2e)", () => {
         await createStudentRow("Davi Rocha", "2026-02-19T10:00:00.000Z"),
         await createStudentRow("Elisa Prado", "2026-02-20T10:00:00.000Z"),
       ];
-      enrollmentCounts.listActivePreview.mockResolvedValue(rows);
-      enrollmentCounts.countActive.mockResolvedValue(12);
+      // 7 more, enrolled later (from 2026-03-03): they count, and stay out of the preview.
+      await enroll(7);
 
       const res = await getClass(director, classId).expect(200);
       const body = res.body as ClassDetailBody;
@@ -391,31 +409,26 @@ describe("GET /classes/:id (e2e)", () => {
       // The preview is shorter than the class: the total is not the length of the preview.
       expect(body.enrollmentsTotal).toBe(12);
       expect(body.summary.enrolledCount).toBe(12);
-      expect(enrollmentCounts.listActivePreview).toHaveBeenCalledWith(
-        expect.anything(),
-        classId,
-        5,
-      );
+      expect(listActivePreview).toHaveBeenCalledWith(expect.anything(), classId, 5);
     });
 
     it("leaves out a student of the preview that is not a person anymore, and keeps the total", async () => {
-      const kept = await createStudentRow("Ana Souza", "2026-02-16T10:00:00.000Z");
+      // The case of an id that is not a person at all cannot happen with the foreign key: the unit
+      // test of ClassDetailService covers it.
+      await createStudentRow("Ana Souza", "2026-02-16T10:00:00.000Z");
       const removed = await createStudentRow("Bruno Lima", "2026-02-17T10:00:00.000Z");
+      await createStudentRow("Carla Dias", "2026-02-18T10:00:00.000Z");
       await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [
         removed.studentId,
       ]);
-      const unknown: ActiveEnrollmentPreviewRow = {
-        enrollmentId: randomUUID(),
-        studentId: randomUUID(),
-        enrolledAt: new Date("2026-02-18T10:00:00.000Z"),
-      };
-      enrollmentCounts.listActivePreview.mockResolvedValue([kept, removed, unknown]);
-      enrollmentCounts.countActive.mockResolvedValue(3);
 
       const res = await getClass(director, classId).expect(200);
       const body = res.body as ClassDetailBody;
 
-      expect(body.enrollmentsPreview.map((item) => item.student.name)).toEqual(["Ana Souza"]);
+      expect(body.enrollmentsPreview.map((item) => item.student.name)).toEqual([
+        "Ana Souza",
+        "Carla Dias",
+      ]);
       expect(body.enrollmentsTotal).toBe(3);
     });
 
@@ -444,15 +457,17 @@ describe("GET /classes/:id (e2e)", () => {
         capacity: 3,
       });
 
-      enrollmentCounts.countActive.mockResolvedValue(1);
+      await enroll(1, small);
       const third = await getClass(director, small).expect(200);
       expect((third.body as ClassDetailBody).summary.occupancyRate).toBe(0.33);
 
-      enrollmentCounts.countActive.mockResolvedValue(2);
+      await createStudentRow("Second", "2026-03-04T10:00:00.000Z", small);
       const twoThirds = await getClass(director, small).expect(200);
       expect((twoThirds.body as ClassDetailBody).summary.occupancyRate).toBe(0.67);
 
-      enrollmentCounts.countActive.mockResolvedValue(4);
+      // Over the capacity by SQL on purpose: the enrollment refuses it, so the state is forced.
+      await createStudentRow("Third", "2026-03-05T10:00:00.000Z", small);
+      await createStudentRow("Fourth", "2026-03-06T10:00:00.000Z", small);
       const over = await getClass(director, small).expect(200);
       expect((over.body as ClassDetailBody).summary.occupancyRate).toBe(1.33);
     });
@@ -523,12 +538,8 @@ describe("GET /classes/:id (e2e)", () => {
 
       expect((res.body as ClassDetailBody).id).toBe(classId);
       // The reads after the lookup use the id of the database, not the one that was asked.
-      expect(enrollmentCounts.countActive).toHaveBeenCalledWith(expect.anything(), classId);
-      expect(enrollmentCounts.listActivePreview).toHaveBeenCalledWith(
-        expect.anything(),
-        classId,
-        5,
-      );
+      expect(countActive).toHaveBeenCalledWith(expect.anything(), classId);
+      expect(listActivePreview).toHaveBeenCalledWith(expect.anything(), classId, 5);
     });
   });
 
@@ -541,8 +552,8 @@ describe("GET /classes/:id (e2e)", () => {
         error: "CLASS_NOT_FOUND",
         message: "Class not found.",
       });
-      expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
-      expect(enrollmentCounts.listActivePreview).not.toHaveBeenCalled();
+      expect(countActive).not.toHaveBeenCalled();
+      expect(listActivePreview).not.toHaveBeenCalled();
     });
 
     it("answers 404 CLASS_NOT_FOUND for a malformed id", async () => {
@@ -588,7 +599,7 @@ describe("GET /classes/:id (e2e)", () => {
 
   describe("who can read it", () => {
     it("lets a member read it", async () => {
-      enrollmentCounts.countActive.mockResolvedValue(12);
+      await enroll(12);
 
       const res = await getClass(member, classId).expect(200);
 

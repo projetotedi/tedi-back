@@ -364,8 +364,8 @@ export class ClassesService {
    * readable by id and becomes read-only. Archiving an archived class is a no-op that answers 200
    * and keeps the first archive (no write, no event, and the enrollments are not even counted).
    *
-   * A class with active enrollments cannot be archived: 409 CLASS_HAS_ACTIVE_ENROLLMENTS. Until
-   * GUS-108 there is no enrollment, so the count is 0 (see EnrollmentCountsService).
+   * A class with active enrollments cannot be archived: 409 CLASS_HAS_ACTIVE_ENROLLMENTS. The count
+   * runs under the lock of the class, the same lock an enrollment takes (section 19).
    *
    * `archivedAt` and `updatedAt` are the same instant, read once from the clock. Emits
    * CLASS_ARCHIVED after the commit, only when the class was archived now.

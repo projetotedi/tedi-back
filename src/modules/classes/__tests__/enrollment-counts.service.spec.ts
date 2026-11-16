@@ -1,56 +1,87 @@
 import "reflect-metadata";
 import { EntityManager } from "typeorm";
+import { StudentEnrollmentsRegistry } from "@modules/people/services/student-enrollments.registry";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
 
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
 const OTHER_CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c2";
+const STUDENT_ID = "01999a3e-7c1b-7000-8000-000000000001";
+const ENROLLMENT_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
 
 describe("EnrollmentCountsService", () => {
-  const manager = { query: jest.fn(), getRepository: jest.fn(), createQueryBuilder: jest.fn() };
-  const service = new EnrollmentCountsService();
+  const query = jest.fn();
+  const manager = { query } as unknown as EntityManager;
+  const registry = new StudentEnrollmentsRegistry();
+  const service = new EnrollmentCountsService(registry);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => jest.resetAllMocks());
 
-  it("countActive is 0 until GUS-108", async () => {
-    await expect(service.countActive(manager as unknown as EntityManager, CLASS_ID)).resolves.toBe(
-      0,
-    );
+  it("registers itself in the StudentEnrollmentsRegistry when the module starts", async () => {
+    const fresh = new StudentEnrollmentsRegistry();
+    const counts = new EnrollmentCountsService(fresh);
+    query.mockResolvedValue([{ total: 2 }]);
+
+    await expect(fresh.countActiveEnrollments(manager, STUDENT_ID)).resolves.toBe(0);
+    counts.onModuleInit();
+    await expect(fresh.countActiveEnrollments(manager, STUDENT_ID)).resolves.toBe(2);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("WHERE student_id = $1"), [
+      STUDENT_ID,
+      "active",
+    ]);
   });
 
-  it("countActiveByClass answers an empty map until GUS-108, so every class reads as 0", async () => {
-    const counts = await service.countActiveByClass(manager as unknown as EntityManager, [
-      CLASS_ID,
-      OTHER_CLASS_ID,
+  it("answers an empty map without querying for no class ids", async () => {
+    await expect(service.countActiveByClass(manager, [])).resolves.toEqual(new Map());
+
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("counts with the manager it is given and never asks for a lock", async () => {
+    query.mockResolvedValueOnce([{ total: 12 }]);
+    await expect(service.countActive(manager, CLASS_ID)).resolves.toBe(12);
+
+    query.mockResolvedValueOnce([
+      { classId: CLASS_ID, total: 3 },
+      { classId: OTHER_CLASS_ID, total: 1 },
+    ]);
+    await expect(service.countActiveByClass(manager, [CLASS_ID, OTHER_CLASS_ID])).resolves.toEqual(
+      new Map([
+        [CLASS_ID, 3],
+        [OTHER_CLASS_ID, 1],
+      ]),
+    );
+
+    const enrolledAt = new Date("2026-03-03T13:00:00.000Z");
+    query.mockResolvedValueOnce([
+      { enrollmentId: ENROLLMENT_ID, studentId: STUDENT_ID, enrolledAt },
+    ]);
+    await expect(service.listActivePreview(manager, CLASS_ID, 5)).resolves.toEqual([
+      { enrollmentId: ENROLLMENT_ID, studentId: STUDENT_ID, enrolledAt },
     ]);
 
-    expect(counts).toBeInstanceOf(Map);
-    expect(counts.size).toBe(0);
-    expect(counts.get(CLASS_ID) ?? 0).toBe(0);
-    expect(counts.get(OTHER_CLASS_ID) ?? 0).toBe(0);
-  });
+    query.mockResolvedValueOnce([{ total: 0 }]);
+    await expect(service.countActiveEnrollments(manager, STUDENT_ID)).resolves.toBe(0);
 
-  it("answers an empty map for no classes at all", async () => {
-    const counts = await service.countActiveByClass(manager as unknown as EntityManager, []);
-
-    expect(counts.size).toBe(0);
-  });
-
-  it("listActivePreview answers [] until GUS-108, whatever the limit", async () => {
-    await expect(
-      service.listActivePreview(manager as unknown as EntityManager, CLASS_ID, 5),
-    ).resolves.toEqual([]);
-    await expect(
-      service.listActivePreview(manager as unknown as EntityManager, OTHER_CLASS_ID, 1),
-    ).resolves.toEqual([]);
-  });
-
-  it("does not touch the database while there is no enrollment table", async () => {
-    await service.countActive(manager as unknown as EntityManager, CLASS_ID);
-    await service.countActiveByClass(manager as unknown as EntityManager, [CLASS_ID]);
-    await service.listActivePreview(manager as unknown as EntityManager, CLASS_ID, 5);
-
-    expect(manager.query).not.toHaveBeenCalled();
-    expect(manager.getRepository).not.toHaveBeenCalled();
-    expect(manager.createQueryBuilder).not.toHaveBeenCalled();
+    const calls = query.mock.calls.map(([sql, parameters]: [string, unknown[]]) => ({
+      sql,
+      parameters,
+    }));
+    expect(calls.map((call) => call.parameters)).toEqual([
+      [CLASS_ID, "active"],
+      [[CLASS_ID, OTHER_CLASS_ID], "active"],
+      [CLASS_ID, "active", 5],
+      [STUDENT_ID, "active"],
+    ]);
+    for (const { sql } of calls) {
+      // Only live, active enrollments count; the lock is the caller's.
+      expect(sql).toContain("status = $2");
+      expect(sql).toContain("deleted_at IS NULL");
+      expect(sql).not.toMatch(/FOR (UPDATE|SHARE|NO KEY|KEY)/);
+    }
+    expect(calls[1].sql).toContain("class_id = ANY($1::uuid[])");
+    expect(calls[1].sql).toContain("GROUP BY class_id");
+    // The preview keeps its order on every call: enrolledAt, then the id.
+    expect(calls[2].sql).toContain("ORDER BY enrolled_at, id");
+    expect(calls[2].sql).toContain("LIMIT $3");
   });
 });

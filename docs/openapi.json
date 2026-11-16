@@ -697,7 +697,7 @@
             "type": "integer"
           },
           "enrolledCount": {
-            "description": "Active enrollments. 0 until enrollments exist (GUS-108).",
+            "description": "Active enrollments.",
             "example": 12,
             "minimum": 0,
             "type": "integer"
@@ -1102,7 +1102,7 @@
             "type": "string"
           },
           "enrolledCount": {
-            "description": "Active enrollments of the class. Always 0 until the enrollments exist (GUS-108).",
+            "description": "Active enrollments of the class.",
             "example": 12,
             "minimum": 0,
             "type": "integer"
@@ -8218,7 +8218,7 @@
                 }
               }
             },
-            "description": "CLASS_ARCHIVED | COURSE_CHANGE_NOT_ALLOWED | COURSE_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED (the last one from GUS-108, when enrollments exist)"
+            "description": "CLASS_ARCHIVED | COURSE_CHANGE_NOT_ALLOWED | COURSE_ARCHIVED | CLASS_CODE_TAKEN | CAPACITY_BELOW_ENROLLED"
           },
           "500": {
             "content": {
@@ -8320,7 +8320,7 @@
                 }
               }
             },
-            "description": "CLASS_HAS_ACTIVE_ENROLLMENTS (from GUS-108, when enrollments exist)"
+            "description": "CLASS_HAS_ACTIVE_ENROLLMENTS"
           },
           "500": {
             "content": {

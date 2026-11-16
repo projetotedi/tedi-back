@@ -8,6 +8,7 @@ import { CourseClassesController } from "./controllers/course-classes.controller
 import { EditionsController } from "./controllers/editions.controller";
 import { SchoolClass } from "./entities/class.entity";
 import { Edition } from "./entities/edition.entity";
+import { Enrollment } from "./entities/enrollment.entity";
 import { ClassDetailService } from "./services/class-detail.service";
 import { ClassesService } from "./services/classes.service";
 import { CourseClassesService } from "./services/course-classes.service";
@@ -20,9 +21,13 @@ import { EnrollmentCountsService } from "./services/enrollment-counts.service";
   // a class and gives the `course` that every answer shows. Since GUS-104 it also gives
   // CourseLessonPlansService.readSequence, for the workload of the course on the sheet of the class.
   // PeopleModule has its first consumer in GUS-104 too: PeopleService.findRefsByIds, for who
-  // created the class and the students of the preview. GUS-108 adds StudentsService, for the
-  // enrollments.
-  imports: [TypeOrmModule.forFeature([SchoolClass, Edition]), CatalogModule, PeopleModule],
+  // created the class and the students of the preview. GUS-108 registers EnrollmentCountsService as
+  // the reader of the port StudentEnrollmentsRegistry (the archive of a student asks it).
+  imports: [
+    TypeOrmModule.forFeature([SchoolClass, Edition, Enrollment]),
+    CatalogModule,
+    PeopleModule,
+  ],
   // CourseClassesController comes first on purpose: it holds GET /classes/summary-by-course, and
   // routes are registered in this order. The detail GET /classes/:id (GUS-104) lives in
   // ClassesController and would otherwise answer for "summary-by-course" as if it were an id.
