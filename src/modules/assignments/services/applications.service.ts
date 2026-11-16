@@ -44,7 +44,7 @@ import {
 } from "./assignment-errors";
 import { toAssignmentLesson, toLessonAssignmentResponse } from "./assignment-response.mapper";
 import { LessonStaffCounterService } from "./lesson-staff-counter.service";
-import { hasOpenPlace } from "./role-vacancy";
+import { hasOpenPlace, isClosedForApplications } from "./role-vacancy";
 
 /**
  * The advisory lock of the confirmed staff of one lesson, taken by the approval of an application:
@@ -114,8 +114,8 @@ export class ApplicationsService {
    * the body has no `personId`.
    *
    * Errors, in the order they are answered: 400 VALIDATION_FAILED (the DTO), 404 LESSON_NOT_FOUND,
-   * 409 LESSON_CANCELLED, 409 LESSON_IN_PAST (a lesson before today in America/Sao_Paulo; today is
-   * still taken), 409 MEMBER_INACTIVE (she is not an active member, or no longer a member), 409
+   * 409 LESSON_CANCELLED, 409 LESSON_IN_PAST (a lesson before today in America/Sao_Paulo, or already
+   * done: `isClosedForApplications`; today is still taken while it is not done), 409 MEMBER_INACTIVE (she is not an active member, or no longer a member), 409
    * ALREADY_APPLIED (she already holds a place in the lesson, as either role and from either source:
    * she learns that she is in, not that it is full) and 409 ROLE_FULL (no open place for the role).
    *
@@ -137,8 +137,7 @@ export class ApplicationsService {
       const lesson = await this.lessons.getLessonSummary(lessonId, manager, { forShare: true });
       if (lesson === null) throw lessonNotFound();
       if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
-      // "YYYY-MM-DD" strings compare in the order of the calendar.
-      if (lesson.date < today) throw lessonInPast();
+      if (isClosedForApplications(lesson, today)) throw lessonInPast();
 
       const member = await this.members.getMemberSummary(actor.id, manager, { forShare: true });
       // A person that is not an active member (or no longer a member at all) cannot take work.

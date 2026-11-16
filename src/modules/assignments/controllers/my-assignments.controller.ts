@@ -49,7 +49,7 @@ export class MyAssignmentsController {
     type: OpenLessonResponseDto,
     isArray: true,
     description:
-      "The lessons of the period, from today on, that have an open place for some role and where the member holds no place, with the coverage and the open roles of each, soonest first. Not paginated.",
+      "The lessons of the period, from today on and not done, that have an open place for some role and where the member holds no place, with the coverage and the open roles of each, soonest first. Not paginated.",
   })
   @ApiBadRequestResponse(PERIOD_ERRORS_RESPONSE)
   listOpenLessons(

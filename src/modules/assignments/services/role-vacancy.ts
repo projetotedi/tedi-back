@@ -9,6 +9,21 @@ import { AssignmentRole } from "../enums/assignment-role.enum";
 /** What the rule reads of a lesson: a `LessonSummary` and a `LessonAgendaRef` both have it. */
 type VacancyLesson = Pick<LessonSummary, "status" | "expectedMonitors">;
 
+/**
+ * Whether a lesson no longer takes applications (GUS-160, C14): it is before `today` (a
+ * "YYYY-MM-DD" in America/Sao_Paulo), or it is already `done`, which means it happened, even when it
+ * is today or was marked done ahead of time. A lesson of today is still taken while it is not done.
+ * The ONE rule that applying (409 LESSON_IN_PAST) and the lessons with an open place follow, so a
+ * lesson listed as open is never refused as past. Approving and declining do not look at it (A12).
+ */
+export function isClosedForApplications(
+  lesson: Pick<LessonSummary, "date" | "status">,
+  today: string,
+): boolean {
+  // "YYYY-MM-DD" strings compare in the order of the calendar.
+  return lesson.date < today || lesson.status === LessonStatus.DONE;
+}
+
 /** The order the open roles are listed in: the teacher first, as the coverage reads. */
 const ROLES_IN_ORDER: readonly AssignmentRole[] = [AssignmentRole.TEACHER, AssignmentRole.MONITOR];
 

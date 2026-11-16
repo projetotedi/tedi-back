@@ -16,7 +16,7 @@ import { ACTIVE_ASSIGNMENT_STATUSES, AssignmentStatus } from "../enums/assignmen
 import { toMyAssignmentResponse, toOpenLessonResponse } from "./assignment-response.mapper";
 import { LessonStaffCounterService } from "./lesson-staff-counter.service";
 import { resolveMyLessonsPeriod } from "./my-lessons-period";
-import { openRolesOf } from "./role-vacancy";
+import { isClosedForApplications, openRolesOf } from "./role-vacancy";
 
 /** The statuses that hold the place of the member in a lesson: the predicate of the active index. */
 const PLACE_HOLDING_STATUSES: ReadonlySet<AssignmentStatus> = new Set(ACTIVE_ASSIGNMENT_STATUSES);
@@ -96,8 +96,8 @@ export class MyAssignmentsService {
 
   /**
    * The lessons with an open place for the member ("Aulas com vaga para você"): the lessons of the
-   * period from today on (a past lesson never has a place for an application, even when `from` is
-   * before today), where she holds no place (a declined application or a cancelled assignment does
+   * period that still take applications (`isClosedForApplications`: from today on and not done, even
+   * when `from` is before today), where she holds no place (a declined application or a cancelled assignment does
    * not keep the lesson out) and that have an open place for some role (`openRolesOf`, the rule
    * `applyToLesson` checks). Each with its coverage and its open roles, the soonest lesson first.
    * Not paginated: its length is `totals.openLessons` of "Minhas aulas" for the same period.
@@ -147,7 +147,8 @@ export class MyAssignmentsService {
 
   /**
    * The ONE definition of "a lesson with an open place for you", shared by the list and by the total
-   * of "Minhas aulas": the lessons from `today` on where the member holds no place, with the
+   * of "Minhas aulas": the lessons that still take applications (the rule `applyToLesson` checks
+   * with LESSON_IN_PAST) where the member holds no place, with the
    * confirmed staff counted ONCE for all of them, kept when `openRolesOf` is not empty. With no
    * candidate left it counts nothing.
    */
@@ -156,7 +157,9 @@ export class MyAssignmentsService {
     latest: ReadonlyMap<string, LessonAssignment>,
     today: string,
   ): Promise<StaffedLesson[]> {
-    const candidates = agenda.filter((ref) => ref.date >= today && !holdsPlace(latest.get(ref.id)));
+    const candidates = agenda.filter(
+      (ref) => !isClosedForApplications(ref, today) && !holdsPlace(latest.get(ref.id)),
+    );
     if (candidates.length === 0) return [];
 
     const staff = await this.staffCounter.countConfirmedStaff(candidates.map((ref) => ref.id));

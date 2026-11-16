@@ -312,6 +312,23 @@ describe("MyAssignmentsService", () => {
       expect(result.map((item) => item.lesson.id)).toEqual([lessonId(2)]);
     });
 
+    it("leaves out a lesson already marked done, of today and of a later day, as applyToLesson refuses it", async () => {
+      state.agenda = [
+        buildRef(1, { date: "2026-03-09", status: LessonStatus.DONE }),
+        buildRef(2, { date: "2026-03-09", status: LessonStatus.CONFIRMED }),
+        buildRef(3, { date: "2026-03-17", status: LessonStatus.DONE }),
+        buildRef(4, { date: "2026-03-17" }),
+      ];
+
+      const open = await service.listOpen(MEMBER, {});
+      const mine = await service.listMine(MEMBER, {});
+
+      expect(open.map((item) => item.lesson.id)).toEqual([lessonId(2), lessonId(4)]);
+      expect(mine.totals.openLessons).toBe(2);
+      // The staff is not even counted for the lessons that are closed.
+      expect(staffCounter.countConfirmedStaff).toHaveBeenCalledWith([lessonId(2), lessonId(4)]);
+    });
+
     it("keeps a lesson where the actor was declined", async () => {
       state.agenda = [buildRef(1), buildRef(2)];
       state.rows = [

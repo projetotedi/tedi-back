@@ -30,7 +30,7 @@ describe("the errors of the applications (GUS-160)", () => {
       409,
       {
         error: "LESSON_IN_PAST",
-        message: "Applications are only taken for lessons from today on.",
+        message: "Applications are only taken for lessons that have not happened yet.",
       },
     ],
     [

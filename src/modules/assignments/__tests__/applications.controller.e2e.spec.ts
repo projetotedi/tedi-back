@@ -319,6 +319,11 @@ describe("Applications (e2e)", () => {
     return lesson.id;
   }
 
+  /** Marks a lesson done, as `PATCH /lessons/:id` with status done leaves it (no rule of transition). */
+  async function markDone(id: string): Promise<void> {
+    await dataSource.query(`UPDATE lessons SET status = 'done' WHERE id = $1`, [id]);
+  }
+
   /**
    * A lesson of the class of the scenery that came from a plan, at a position of the sequence (the
    * 5 of "Aula 5"): inserted through the fixture of the lessons, since POST /lessons only takes a
@@ -661,9 +666,28 @@ describe("Applications (e2e)", () => {
       expect(res.body).toEqual({
         statusCode: 409,
         error: "LESSON_IN_PAST",
-        message: "Applications are only taken for lessons from today on.",
+        message: "Applications are only taken for lessons that have not happened yet.",
       });
       await applyTo(today, ana, { role: "monitor" }).expect(201);
+    });
+
+    it("answers 409 LESSON_IN_PAST for a lesson of today already marked done, and for a later one marked done, and leaves both out of /me/open-lessons", async () => {
+      const doneToday = await createLesson({ date: TODAY, expectedMonitors: 2 });
+      const doneLater = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
+      await markDone(doneToday);
+      await markDone(doneLater);
+
+      for (const forLessonId of [doneToday, doneLater]) {
+        const res = await applyTo(forLessonId, ana, { role: "monitor" }).expect(409);
+
+        expect(res.body.error).toBe("LESSON_IN_PAST");
+      }
+      expect(await countAssignments()).toBe(0);
+
+      const open = (await getOpen(ana).expect(200)).body as OpenLessonBody[];
+      const mine = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
+      expect(open.map((item) => item.lesson.id)).toEqual([lessonId]);
+      expect(mine.totals.openLessons).toBe(1);
     });
 
     it("answers 409 MEMBER_INACTIVE for a member whose profile is inactive but whose access was enabled again", async () => {

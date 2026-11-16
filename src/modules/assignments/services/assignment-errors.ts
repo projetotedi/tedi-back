@@ -140,12 +140,16 @@ export function roleFull(): HttpException {
   );
 }
 
-/** 409: a member applies to a lesson from today on, in America/Sao_Paulo (GUS-160). */
+/**
+ * 409: the lesson already happened, as far as an application goes (GUS-160): it is before today in
+ * America/Sao_Paulo, or it is marked done, even today or ahead of time (`isClosedForApplications`).
+ * Applications are only taken for lessons that have not happened yet.
+ */
 export function lessonInPast(): HttpException {
   return new HttpException(
     {
       error: "LESSON_IN_PAST",
-      message: "Applications are only taken for lessons from today on.",
+      message: "Applications are only taken for lessons that have not happened yet.",
     },
     409,
   );

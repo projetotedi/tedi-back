@@ -449,6 +449,28 @@ describe("ApplicationsService", () => {
       expect(clock.now).toHaveBeenCalledTimes(2);
     });
 
+    it("throws 409 LESSON_IN_PAST for a lesson already marked done, of today and of a later day, before looking at the member", async () => {
+      for (const date of ["2026-03-09", "2026-03-17"]) {
+        state.lesson = buildLesson({ date, status: LessonStatus.DONE });
+
+        const failure = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "LESSON_IN_PAST",
+          message: "Applications are only taken for lessons that have not happened yet.",
+        });
+      }
+      expect(members.getMemberSummary).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+
+      // Today, while it is not done, is still taken.
+      state.lesson = buildLesson({ date: "2026-03-09", status: LessonStatus.CONFIRMED });
+      await expect(service.apply(LESSON_ID, monitor, MEMBER)).resolves.toMatchObject({
+        status: AssignmentStatus.PENDING,
+      });
+    });
+
     it("throws 409 MEMBER_INACTIVE for a member that is not active and for a person that is no longer a member", async () => {
       state.member = buildMember({ active: false });
       const inactive = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));

@@ -1,6 +1,6 @@
 import { LessonStatus } from "@modules/lessons/services/lessons.service";
 import { AssignmentRole } from "../enums/assignment-role.enum";
-import { hasOpenPlace, openRolesOf } from "../services/role-vacancy";
+import { hasOpenPlace, isClosedForApplications, openRolesOf } from "../services/role-vacancy";
 
 function lesson(expectedMonitors: number | null, status = LessonStatus.PLANNED) {
   return { status, expectedMonitors };
@@ -63,6 +63,20 @@ describe("role-vacancy", () => {
       hasOpenPlace("director" as AssignmentRole, lesson(2), { teachers: 0, monitors: 0 }),
     ).toThrow("Unknown assignment role: director.");
   });
+
+  it.each([
+    ["a planned lesson of yesterday", "2026-03-08", LessonStatus.PLANNED, true],
+    ["a planned lesson of today", "2026-03-09", LessonStatus.PLANNED, false],
+    ["a confirmed lesson of today", "2026-03-09", LessonStatus.CONFIRMED, false],
+    ["a lesson of today already marked done", "2026-03-09", LessonStatus.DONE, true],
+    ["a later lesson marked done ahead of time", "2026-03-17", LessonStatus.DONE, true],
+    ["a later planned lesson", "2026-03-17", LessonStatus.PLANNED, false],
+  ])(
+    "closes a lesson for applications when it is before today or done: %s",
+    (_case, date, status, closed) => {
+      expect(isClosedForApplications({ date, status }, "2026-03-09")).toBe(closed);
+    },
+  );
 
   it("lists the open roles in a fixed order: teacher, then monitor", () => {
     expect(openRolesOf(lesson(3), { teachers: 0, monitors: 2 })).toEqual([
