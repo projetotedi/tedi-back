@@ -1556,6 +1556,21 @@
         ],
         "type": "object"
       },
+      "LessonCoverageDto": {
+        "properties": {
+          "monitors": {
+            "$ref": "#/components/schemas/LessonMonitorCoverageDto"
+          },
+          "teacher": {
+            "$ref": "#/components/schemas/LessonTeacherCoverageDto"
+          }
+        },
+        "required": [
+          "teacher",
+          "monitors"
+        ],
+        "type": "object"
+      },
       "LessonEditionRefDto": {
         "properties": {
           "id": {
@@ -1572,6 +1587,26 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "LessonMonitorCoverageDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Monitors confirmed for the lesson. A pending assignment is not counted.",
+            "example": 2,
+            "type": "integer"
+          },
+          "expected": {
+            "description": "The expectedMonitors of the lesson. Null when it was not informed: nothing is expected then.",
+            "example": 2,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confirmed",
+          "expected"
         ],
         "type": "object"
       },
@@ -1954,6 +1989,11 @@
       },
       "LessonResponseDto": {
         "properties": {
+          "belowExpectedMonitors": {
+            "description": "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
+            "example": false,
+            "type": "boolean"
+          },
           "cancelReason": {
             "description": "Why the lesson was cancelled. Set exactly when the status is cancelled.",
             "example": null,
@@ -1984,6 +2024,14 @@
               }
             ],
             "description": "The course the class offers."
+          },
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet."
           },
           "createdAt": {
             "example": "2026-10-01T13:00:00.000Z",
@@ -2137,6 +2185,8 @@
           "location",
           "expectedStudents",
           "expectedMonitors",
+          "coverage",
+          "belowExpectedMonitors",
           "subject",
           "postNotes",
           "status",
@@ -2161,6 +2211,25 @@
           "cancelled"
         ],
         "type": "string"
+      },
+      "LessonTeacherCoverageDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Teachers confirmed for the lesson: 0 or 1, since a lesson has at most one confirmed teacher. A pending assignment is not counted.",
+            "example": 1,
+            "type": "integer"
+          },
+          "expected": {
+            "description": "Always 1: a lesson has one teacher.",
+            "example": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confirmed",
+          "expected"
+        ],
+        "type": "object"
       },
       "LoginDto": {
         "properties": {

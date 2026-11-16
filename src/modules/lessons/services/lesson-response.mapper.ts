@@ -4,6 +4,7 @@ import { LessonPlanSummary } from "@modules/catalog/services/lesson-plans.servic
 import { minutesBetween } from "@shared/dates/time-of-day";
 import { LessonResponseDto } from "../dto/lesson.response.dto";
 import { Lesson } from "../entities/lesson.entity";
+import { ConfirmedStaffCount, toLessonCoverage } from "./lesson-coverage";
 
 /** What the answer shows next to the lesson, read through the services the other modules export. */
 export interface LessonRefs {
@@ -11,14 +12,17 @@ export interface LessonRefs {
   course: CourseSummary;
   /** Null for a lesson created on its own. */
   lessonPlan: LessonPlanSummary | null;
+  /** The confirmed teachers and monitors of the lesson (F5.4); zeros when nobody is assigned. */
+  staff: ConfirmedStaffCount;
 }
 
 /**
  * The answer of every route: the lesson with its class, course, edition and lesson plan. The
- * duration is not a column, it is the difference of the two times, calculated here (RF-039).
+ * duration is not a column, it is the difference of the two times, calculated here (RF-039), and
+ * so is the coverage: the confirmed staff against what the lesson expects (F5.4).
  */
 export function toLessonResponse(lesson: Lesson, refs: LessonRefs): LessonResponseDto {
-  const { schoolClass, course, lessonPlan } = refs;
+  const { schoolClass, course, lessonPlan, staff } = refs;
 
   return {
     id: lesson.id,
@@ -47,6 +51,7 @@ export function toLessonResponse(lesson: Lesson, refs: LessonRefs): LessonRespon
     location: lesson.location ?? null,
     expectedStudents: lesson.expectedStudents ?? null,
     expectedMonitors: lesson.expectedMonitors ?? null,
+    ...toLessonCoverage(lesson, staff),
     subject: lesson.subject ?? null,
     postNotes: lesson.postNotes ?? null,
     status: lesson.status,
