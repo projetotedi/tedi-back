@@ -111,6 +111,37 @@ export interface ClassSummary {
   archivedAt: Date | null;
 }
 
+/**
+ * What another module needs to show a class on a row of its own list (the lessons, GUS-153): who
+ * the class is, the course it belongs to, whether it is archived and the color slot it gets in the
+ * calendar. The shape is the contract of `listClassRefs`: the entity never leaves this module.
+ */
+export interface ClassRef {
+  id: string;
+  code: string;
+  name: string | null;
+  courseId: string;
+  /** Null while the class is active; the instant of the archive otherwise (RN-27). */
+  archivedAt: Date | null;
+  /**
+   * Position of the class among ALL the classes by creation (`created_at`, then `id`), from 1.
+   * Archived and soft-deleted classes count too, so it never moves: not when another class is
+   * archived, not with the filter the list was asked for, and a new class only takes the next one.
+   * It is what a color can be derived from, to stay the same for a class over time.
+   */
+  creationRank: number;
+}
+
+/** What `listClassRefs` filters by. Every field is optional and they combine with AND. */
+export interface ClassRefFilter {
+  /** Only this class. An id that is not a UUID matches no class. */
+  classId?: string;
+  /** Only the classes of this course. An id that is not a UUID matches no class. */
+  courseId?: string;
+  /** Archived classes are left out unless this is true (RN-27). Defaults to false. */
+  includeArchived?: boolean;
+}
+
 interface FieldChanges {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
@@ -127,6 +158,8 @@ interface FieldChanges {
  * from the catalog (`CoursesService.getCourseSummary`): the class stores no category and shows the
  * current one of its course. The listing is another card (GUS-103); the sheet of a class is
  * `ClassDetailService` (GUS-104) and the classes of a course are `CourseClassesService`.
+ * `getClassSummary` and `listClassRefs` are the reads that other modules make of a class (the
+ * lessons, GUS-151 and GUS-153): they are not that listing.
  */
 @Injectable()
 export class ClassesService {
@@ -462,6 +495,49 @@ export class ClassesService {
       // The embedded columns are missing on an entity that was just inserted, not loaded.
       archivedAt: schoolClass.archive?.archivedAt ?? null,
     };
+  }
+
+  /**
+   * The classes that match the filter, as references for another module to put on its own rows
+   * (the lessons, GUS-153), in one query, ordered by `creationRank`. The classes that were
+   * soft-deleted never show. Without `includeArchived` the archived ones are left out too (RN-27);
+   * asking for a `classId` is how a caller reaches one that is archived.
+   *
+   * An empty list is a normal answer: the filter matched nothing. A `classId` or a `courseId` that
+   * is not a UUID matches nothing and never reaches the database (it would arrive as invalid uuid
+   * text, 22P02, and become a 500), the same way `getClassSummary` treats a malformed id. Whoever
+   * calls decides what an empty list means: the lessons answer 200 with an empty page.
+   *
+   * `creationRank` is counted over every row of `classes` BEFORE the filters apply: the rows are
+   * numbered in a subquery and only then filtered, so asking for one course or one class gives each
+   * class the same rank it has in the full list. The cost is a scan of the table; there are dozens
+   * of classes a semester (RNF-40/41), and Postgres cannot push a filter below a window function
+   * without changing the numbers.
+   *
+   * It writes nothing, locks nothing and emits no event.
+   */
+  async listClassRefs(filter: ClassRefFilter = {}): Promise<ClassRef[]> {
+    const { classId, courseId, includeArchived = false } = filter;
+    if (classId !== undefined && !isUUID(classId)) return [];
+    if (courseId !== undefined && !isUUID(courseId)) return [];
+
+    return this.dataSource.query(
+      `SELECT ranked.id,
+              ranked.code,
+              ranked.name,
+              ranked.course_id AS "courseId",
+              ranked.archived_at AS "archivedAt",
+              ranked."creationRank"
+         FROM (SELECT id, code, name, course_id, archived_at, deleted_at,
+                      ROW_NUMBER() OVER (ORDER BY created_at, id)::int AS "creationRank"
+                 FROM classes) ranked
+        WHERE ranked.deleted_at IS NULL
+          AND ($1::uuid IS NULL OR ranked.id = $1::uuid)
+          AND ($2::uuid IS NULL OR ranked.course_id = $2::uuid)
+          AND ($3::boolean OR ranked.archived_at IS NULL)
+        ORDER BY ranked."creationRank"`,
+      [classId ?? null, courseId ?? null, includeArchived],
+    );
   }
 
   /**

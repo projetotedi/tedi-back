@@ -3,12 +3,15 @@ import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { flattenValidationErrors } from "@shared/filters/http-exception.filter";
 import { CancelLessonDto } from "../dto/cancel-lesson.dto";
+import { LessonsCalendarQueryDto } from "../dto/calendar-query.dto";
 import { CreateLessonDto } from "../dto/create-lesson.dto";
+import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
 import { RescheduleLessonDto } from "../dto/reschedule-lesson.dto";
 import { UpdateLessonDto } from "../dto/update-lesson.dto";
 import { LessonStatus } from "../enums/lesson-status.enum";
 
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
+const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000001";
 const PLAN_ID = "01999a3e-7c1b-7000-8000-000000000011";
 
 const VALID_BODY = {
@@ -49,6 +52,19 @@ async function checkCancel(body: Record<string, unknown>) {
 
 async function checkReschedule(body: Record<string, unknown>) {
   const dto = plainToInstance(RescheduleLessonDto, body);
+  const errors = await validate(dto, { whitelist: true });
+  return { dto, errors, fields: fieldsOf(errors) };
+}
+
+/** The way the ValidationPipe of the app reads a query string: plain strings, whitelisted. */
+async function checkList(query: Record<string, unknown>) {
+  const dto = plainToInstance(ListLessonsQueryDto, query);
+  const errors = await validate(dto, { whitelist: true });
+  return { dto, errors, fields: fieldsOf(errors) };
+}
+
+async function checkCalendar(query: Record<string, unknown>) {
+  const dto = plainToInstance(LessonsCalendarQueryDto, query);
   const errors = await validate(dto, { whitelist: true });
   return { dto, errors, fields: fieldsOf(errors) };
 }
@@ -749,5 +765,225 @@ describe("RescheduleLessonDto", () => {
     for (const field of ["classId", "status", "originalDate", "title"]) {
       expect(dto).not.toHaveProperty(field);
     }
+  });
+});
+
+describe("ListLessonsQueryDto", () => {
+  it("accepts an empty query: every parameter is optional", async () => {
+    const { dto, errors } = await checkList({});
+
+    expect(errors).toHaveLength(0);
+    expect(dto.page).toBeUndefined();
+    expect(dto.limit).toBeUndefined();
+    expect(dto.search).toBeUndefined();
+    expect(dto.classId).toBeUndefined();
+    expect(dto.courseId).toBeUndefined();
+    expect(dto.lessonPlanId).toBeUndefined();
+    expect(dto.status).toBeUndefined();
+    expect(dto.from).toBeUndefined();
+    expect(dto.to).toBeUndefined();
+  });
+
+  it("accepts every parameter, reading the page and the limit as numbers", async () => {
+    const { dto, errors } = await checkList({
+      page: "2",
+      limit: "50",
+      search: "senhas privacidade",
+      classId: CLASS_ID,
+      courseId: COURSE_ID,
+      lessonPlanId: PLAN_ID,
+      status: "planned",
+      from: "2026-03-01",
+      to: "2026-04-11",
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.page).toBe(2);
+    expect(dto.limit).toBe(50);
+    expect(dto.search).toBe("senhas privacidade");
+    expect(dto.classId).toBe(CLASS_ID);
+    expect(dto.courseId).toBe(COURSE_ID);
+    expect(dto.lessonPlanId).toBe(PLAN_ID);
+    expect(dto.status).toBe(LessonStatus.PLANNED);
+    expect(dto.from).toBe("2026-03-01");
+    expect(dto.to).toBe("2026-04-11");
+  });
+
+  describe("page and limit", () => {
+    it("rejects a page below 1 and a page that is not an integer", async () => {
+      expect((await checkList({ page: "0" })).fields).toEqual(["page"]);
+      expect((await checkList({ page: "-1" })).fields).toEqual(["page"]);
+      expect((await checkList({ page: "1.5" })).fields).toEqual(["page"]);
+      expect((await checkList({ page: "abc" })).fields).toEqual(["page"]);
+    });
+
+    it("rejects a limit below 1, above 100 or that is not an integer, and accepts 1 and 100", async () => {
+      expect((await checkList({ limit: "0" })).fields).toEqual(["limit"]);
+      expect((await checkList({ limit: "101" })).fields).toEqual(["limit"]);
+      expect((await checkList({ limit: "2.5" })).fields).toEqual(["limit"]);
+      expect((await checkList({ limit: "abc" })).fields).toEqual(["limit"]);
+      expect((await checkList({ limit: "1" })).errors).toEqual([]);
+      expect((await checkList({ limit: "100" })).errors).toEqual([]);
+    });
+  });
+
+  describe("search", () => {
+    it("accepts a text of 100 characters and rejects one of 101", async () => {
+      expect((await checkList({ search: "s".repeat(100) })).errors).toEqual([]);
+      expect((await checkList({ search: "s".repeat(101) })).fields).toEqual(["search"]);
+    });
+
+    it("accepts an empty text, which searches nothing", async () => {
+      expect((await checkList({ search: "" })).errors).toEqual([]);
+    });
+
+    it("rejects what is not a text, such as a repeated parameter that arrives as a list", async () => {
+      expect((await checkList({ search: ["a", "b"] })).fields).toEqual(["search"]);
+      expect((await checkList({ search: { a: "b" } })).fields).toEqual(["search"]);
+    });
+  });
+
+  describe("classId, courseId and lessonPlanId", () => {
+    it.each(["classId", "courseId", "lessonPlanId"])(
+      "rejects a %s that is not a uuid",
+      async (field) => {
+        for (const invalid of ["not-a-uuid", "123", "", `${CLASS_ID}x`]) {
+          expect((await checkList({ [field]: invalid })).fields).toEqual([field]);
+        }
+        expect((await checkList({ [field]: [CLASS_ID, PLAN_ID] })).fields).toEqual([field]);
+      },
+    );
+
+    it.each(["classId", "courseId", "lessonPlanId"])(
+      "accepts a %s in upper case",
+      async (field) => {
+        expect((await checkList({ [field]: CLASS_ID.toUpperCase() })).errors).toEqual([]);
+      },
+    );
+  });
+
+  describe("status", () => {
+    it.each(Object.values(LessonStatus))("accepts %s", async (status) => {
+      const { dto, errors } = await checkList({ status });
+
+      expect(errors).toHaveLength(0);
+      expect(dto.status).toBe(status);
+    });
+
+    it("rejects a status that does not exist, a list of statuses and a blank value", async () => {
+      expect((await checkList({ status: "x" })).fields).toEqual(["status"]);
+      expect((await checkList({ status: "PLANNED" })).fields).toEqual(["status"]);
+      expect((await checkList({ status: "" })).fields).toEqual(["status"]);
+      // One value only: two statuses arrive as a list, and a list is not a status.
+      expect((await checkList({ status: ["planned", "done"] })).fields).toEqual(["status"]);
+    });
+  });
+
+  describe("from and to", () => {
+    it("accepts one of them alone", async () => {
+      expect((await checkList({ from: "2026-03-01" })).errors).toEqual([]);
+      expect((await checkList({ to: "2026-04-11" })).errors).toEqual([]);
+    });
+
+    it("rejects a day that does not exist or is not YYYY-MM-DD", async () => {
+      for (const invalid of ["2026-3-1", "2026-02-30", "01/03/2026", "2026-03-01T00:00:00Z", ""]) {
+        expect((await checkList({ from: invalid })).fields).toEqual(["from"]);
+        expect((await checkList({ to: invalid })).fields).toEqual(["to"]);
+      }
+    });
+
+    it("does not compare the two days: from after to is the rule of the service (INVALID_DATE_RANGE)", async () => {
+      const { errors } = await checkList({ from: "2026-04-11", to: "2026-03-01" });
+
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  it("drops what it does not declare", async () => {
+    const { dto, errors } = await checkList({ page: "1", ownerId: CLASS_ID, sort: "date" });
+
+    expect(errors).toHaveLength(0);
+    expect(dto).not.toHaveProperty("ownerId");
+    expect(dto).not.toHaveProperty("sort");
+  });
+});
+
+describe("LessonsCalendarQueryDto", () => {
+  const PERIOD = { from: "2026-03-01", to: "2026-04-11" };
+
+  it("requires from and to", async () => {
+    expect((await checkCalendar({})).fields).toEqual(["from", "to"]);
+    expect((await checkCalendar({ from: "2026-03-01" })).fields).toEqual(["to"]);
+    expect((await checkCalendar({ to: "2026-04-11" })).fields).toEqual(["from"]);
+    expect((await checkCalendar({ search: "senhas", status: "planned" })).fields).toEqual([
+      "from",
+      "to",
+    ]);
+  });
+
+  it("accepts the period alone: every filter is optional", async () => {
+    const { dto, errors } = await checkCalendar(PERIOD);
+
+    expect(errors).toHaveLength(0);
+    expect(dto.from).toBe("2026-03-01");
+    expect(dto.to).toBe("2026-04-11");
+    expect(dto.search).toBeUndefined();
+    expect(dto.classId).toBeUndefined();
+    expect(dto.courseId).toBeUndefined();
+    expect(dto.lessonPlanId).toBeUndefined();
+    expect(dto.status).toBeUndefined();
+  });
+
+  it("accepts the same filters as the list", async () => {
+    const { dto, errors } = await checkCalendar({
+      ...PERIOD,
+      search: "senhas privacidade",
+      classId: CLASS_ID,
+      courseId: COURSE_ID,
+      lessonPlanId: PLAN_ID,
+      status: "cancelled",
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.search).toBe("senhas privacidade");
+    expect(dto.classId).toBe(CLASS_ID);
+    expect(dto.courseId).toBe(COURSE_ID);
+    expect(dto.lessonPlanId).toBe(PLAN_ID);
+    expect(dto.status).toBe(LessonStatus.CANCELLED);
+  });
+
+  it("validates the filters as the list does", async () => {
+    expect((await checkCalendar({ ...PERIOD, search: "s".repeat(101) })).fields).toEqual([
+      "search",
+    ]);
+    expect((await checkCalendar({ ...PERIOD, status: "x" })).fields).toEqual(["status"]);
+    expect((await checkCalendar({ ...PERIOD, classId: "not-a-uuid" })).fields).toEqual(["classId"]);
+    expect((await checkCalendar({ ...PERIOD, courseId: "not-a-uuid" })).fields).toEqual([
+      "courseId",
+    ]);
+    expect((await checkCalendar({ ...PERIOD, lessonPlanId: "not-a-uuid" })).fields).toEqual([
+      "lessonPlanId",
+    ]);
+  });
+
+  it("rejects a day that does not exist or is not YYYY-MM-DD", async () => {
+    for (const invalid of ["2026-3-1", "2026-02-30", "01/03/2026", "2026-03-01T00:00:00Z", ""]) {
+      expect((await checkCalendar({ ...PERIOD, from: invalid })).fields).toEqual(["from"]);
+      expect((await checkCalendar({ ...PERIOD, to: invalid })).fields).toEqual(["to"]);
+    }
+  });
+
+  it("drops page and limit: the calendar answers the whole period, there is nothing to page", async () => {
+    const { dto, errors } = await checkCalendar({ ...PERIOD, page: "2", limit: "5" });
+
+    expect(errors).toHaveLength(0);
+    expect(dto).not.toHaveProperty("page");
+    expect(dto).not.toHaveProperty("limit");
+  });
+
+  it("does not compare the two days nor count them: both are rules of the service", async () => {
+    // INVALID_DATE_RANGE and DATE_RANGE_TOO_LONG are business errors, answered with their code.
+    expect((await checkCalendar({ from: "2026-04-11", to: "2026-03-01" })).errors).toEqual([]);
+    expect((await checkCalendar({ from: "2026-01-01", to: "2026-12-31" })).errors).toEqual([]);
   });
 });

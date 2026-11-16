@@ -137,6 +137,7 @@ describe("ClassesService", () => {
   // `manager` is what a read that opens no transaction goes through (getClassSummary).
   const dataSource = {
     transaction: jest.fn(),
+    query: jest.fn(),
     manager: { findOne: jest.fn(), findOneOrFail: jest.fn() },
   };
   const eventEmitter = { emit: jest.fn() };
@@ -1793,6 +1794,105 @@ describe("ClassesService", () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listClassRefs()", () => {
+    const OTHER_CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c2";
+    const REF = {
+      id: CLASS_ID,
+      code: "INFO-A",
+      name: null,
+      courseId: COURSE_ID,
+      archivedAt: null,
+      creationRank: 1,
+    };
+
+    it("answers an empty list, without querying, for a classId that is not a UUID", async () => {
+      for (const malformed of ["not-a-uuid", "", "123", `${CLASS_ID}x`]) {
+        await expect(service.listClassRefs({ classId: malformed })).resolves.toEqual([]);
+      }
+
+      expect(dataSource.query).not.toHaveBeenCalled();
+    });
+
+    it("answers an empty list, without querying, for a courseId that is not a UUID", async () => {
+      for (const malformed of ["not-a-uuid", "", "123", `${COURSE_ID}x`]) {
+        await expect(service.listClassRefs({ courseId: malformed })).resolves.toEqual([]);
+      }
+
+      expect(dataSource.query).not.toHaveBeenCalled();
+    });
+
+    it("answers an empty list, without querying, when only one of the two ids is malformed", async () => {
+      await expect(
+        service.listClassRefs({ classId: CLASS_ID, courseId: "not-a-uuid" }),
+      ).resolves.toEqual([]);
+      await expect(
+        service.listClassRefs({
+          classId: "not-a-uuid",
+          courseId: COURSE_ID,
+          includeArchived: true,
+        }),
+      ).resolves.toEqual([]);
+
+      expect(dataSource.query).not.toHaveBeenCalled();
+    });
+
+    it("asks for every active class in one query when there is no filter", async () => {
+      dataSource.query.mockResolvedValue([REF]);
+
+      await expect(service.listClassRefs()).resolves.toEqual([REF]);
+      await service.listClassRefs({});
+
+      expect(dataSource.query).toHaveBeenCalledTimes(2);
+      expect(dataSource.query.mock.calls[0][1]).toEqual([null, null, false]);
+      expect(dataSource.query.mock.calls[1][1]).toEqual([null, null, false]);
+    });
+
+    it("passes the class, the course and includeArchived to the query, in that order", async () => {
+      dataSource.query.mockResolvedValue([]);
+
+      await service.listClassRefs({
+        classId: CLASS_ID,
+        courseId: COURSE_ID,
+        includeArchived: true,
+      });
+      await service.listClassRefs({ courseId: COURSE_ID });
+      await service.listClassRefs({ classId: CLASS_ID, includeArchived: false });
+
+      expect(dataSource.query.mock.calls.map((call) => call[1])).toEqual([
+        [CLASS_ID, COURSE_ID, true],
+        [null, COURSE_ID, false],
+        [CLASS_ID, null, false],
+      ]);
+    });
+
+    it("hands the rows of the query over as they come, without a write, a transaction or an event", async () => {
+      const archived = { ...REF, id: OTHER_CLASS_ID, archivedAt: NOW, creationRank: 2 };
+      dataSource.query.mockResolvedValue([REF, archived]);
+
+      await expect(service.listClassRefs({ includeArchived: true })).resolves.toEqual([
+        REF,
+        archived,
+      ]);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("numbers the classes in a subquery over every row, before it filters", async () => {
+      dataSource.query.mockResolvedValue([]);
+
+      await service.listClassRefs({ courseId: COURSE_ID });
+
+      const sql = String(dataSource.query.mock.calls[0][0]);
+      const numbering = sql.indexOf("ROW_NUMBER() OVER (ORDER BY created_at, id)");
+      const firstFilter = sql.indexOf("ranked.deleted_at IS NULL");
+      expect(numbering).toBeGreaterThan(-1);
+      expect(firstFilter).toBeGreaterThan(numbering);
+      expect(sql).toContain('ORDER BY ranked."creationRank"');
     });
   });
 
