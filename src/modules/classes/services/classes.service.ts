@@ -53,7 +53,8 @@ export function classNotFound(): HttpException {
   return new HttpException({ error: "CLASS_NOT_FOUND", message: "Class not found." }, 404);
 }
 
-function classArchived(): HttpException {
+/** 409: an archived class is read-only (RN-27). Shared with the enrollments (GUS-108). */
+export function classArchived(): HttpException {
   return new HttpException(
     { error: "CLASS_ARCHIVED", message: "Archived classes are read-only." },
     409,
@@ -260,9 +261,9 @@ export class ClassesService {
    * refuse new classes (RF-020), not the ones they already have (RN-27).
    *
    * The row of the class is locked FOR UPDATE until the end of the transaction, so two edits of
-   * the same class are serialized, and so is an edit and an archive. Counting the enrollments
-   * under that lock is what GUS-108 must keep: an enrollment has to take the same lock, or it and
-   * a change of course could both pass their checks.
+   * the same class are serialized, and so is an edit and an archive. The enrollments are counted
+   * under that lock, and an enrollment takes the same lock (`EnrollmentsService`, section 19): an
+   * enrollment and a change of course (or a cut of the seats) never pass their checks at once.
    *
    * Without a change (or with an empty body) nothing is written and no event is emitted. Emits
    * CLASS_UPDATED after the commit, with only the fields that changed (`courseId` included).

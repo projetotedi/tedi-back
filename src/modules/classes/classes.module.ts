@@ -3,9 +3,11 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
+import { ClassEnrollmentsController } from "./controllers/class-enrollments.controller";
 import { ClassesController } from "./controllers/classes.controller";
 import { CourseClassesController } from "./controllers/course-classes.controller";
 import { EditionsController } from "./controllers/editions.controller";
+import { EnrollmentsController } from "./controllers/enrollments.controller";
 import { SchoolClass } from "./entities/class.entity";
 import { Edition } from "./entities/edition.entity";
 import { Enrollment } from "./entities/enrollment.entity";
@@ -14,6 +16,7 @@ import { ClassesService } from "./services/classes.service";
 import { CourseClassesService } from "./services/course-classes.service";
 import { EditionsService } from "./services/editions.service";
 import { EnrollmentCountsService } from "./services/enrollment-counts.service";
+import { EnrollmentsService } from "./services/enrollments.service";
 
 @Module({
   // catalog <- classes and people <- classes, as docs/ARCHITECTURE.md section 3 draws it.
@@ -31,13 +34,22 @@ import { EnrollmentCountsService } from "./services/enrollment-counts.service";
   // CourseClassesController comes first on purpose: it holds GET /classes/summary-by-course, and
   // routes are registered in this order. The detail GET /classes/:id (GUS-104) lives in
   // ClassesController and would otherwise answer for "summary-by-course" as if it were an id.
-  controllers: [CourseClassesController, ClassesController, EditionsController],
+  // The controllers of the enrollments (GUS-108) come after the ones above: CourseClassesController
+  // keeps the first place, and none of their routes clashes with `GET /classes/:id`.
+  controllers: [
+    CourseClassesController,
+    ClassesController,
+    EditionsController,
+    ClassEnrollmentsController,
+    EnrollmentsController,
+  ],
   providers: [
     ClassesService,
     ClassDetailService,
     CourseClassesService,
     EditionsService,
     EnrollmentCountsService,
+    EnrollmentsService,
     Clock,
   ],
   // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151) and

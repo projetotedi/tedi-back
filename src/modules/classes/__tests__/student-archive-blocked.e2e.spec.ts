@@ -240,6 +240,42 @@ describe("Archive of a student with enrollments (e2e)", () => {
     expect(events).toEqual([]);
   });
 
+  it("race: an enrollment that waits for the archive of the student answers 409 STUDENT_ARCHIVED and writes nothing", async () => {
+    // The archive of the student in flight: the profile FOR UPDATE, archived, not committed yet.
+    const holder = dataSource.createQueryRunner();
+    await holder.connect();
+    await holder.startTransaction();
+    let pending: Promise<request.Response> | undefined;
+    try {
+      await holder.query(`SELECT id FROM student_profiles WHERE person_id = $1 FOR UPDATE`, [
+        studentId,
+      ]);
+      await holder.query(
+        `UPDATE student_profiles SET archived_at = now(), archived_by_id = $2 WHERE person_id = $1`,
+        [studentId, coordinator.id],
+      );
+
+      pending = request(app.getHttpServer())
+        .post(`/classes/${classId}/enrollments`)
+        .set("Cookie", director.cookie)
+        .send({ studentIds: [studentId] })
+        .then((res) => res);
+      // The enrollment holds the class and waits on the profile (FOR SHARE).
+      expect(await blockedStatement()).toMatch(/"StudentProfile"/);
+    } finally {
+      await holder.commitTransaction();
+      await holder.release();
+    }
+
+    const res = await pending;
+    expect(res?.status).toBe(409);
+    expect(res?.body.error).toBe("STUDENT_ARCHIVED");
+    const rows: Array<{ total: number }> = await dataSource.query(
+      `SELECT COUNT(*)::int AS total FROM enrollments`,
+    );
+    expect(rows[0].total).toBe(0);
+  });
+
   it("race: the archive of a student waits for an enrollment in progress and answers 409 STUDENT_HAS_ACTIVE_ENROLLMENTS", async () => {
     // An enrollment in flight: the class FOR UPDATE, the profile FOR SHARE, the row not committed.
     const holder = dataSource.createQueryRunner();
