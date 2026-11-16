@@ -1094,8 +1094,6 @@ describe("ApplicationsService", () => {
   });
 
   describe("listPending()", () => {
-    const query = {};
-
     /** Three applications in two lessons: two in the lesson F1, one in F2. */
     function seedQueue(): void {
       state.applications = [
@@ -1126,7 +1124,7 @@ describe("ApplicationsService", () => {
     }
 
     it("reads the applications with source application and status pending, oldest first", async () => {
-      await service.listPending(query, COORDINATOR);
+      await service.listPending(COORDINATOR);
 
       expect(dataSource.getRepository).toHaveBeenCalledWith(LessonAssignment);
       expect(applicationRepository.find).toHaveBeenCalledWith({
@@ -1137,7 +1135,7 @@ describe("ApplicationsService", () => {
     });
 
     it("answers { total: 0, lessons: [] } and reads nothing else when there is none", async () => {
-      await expect(service.listPending(query, COORDINATOR)).resolves.toEqual({
+      await expect(service.listPending(COORDINATOR)).resolves.toEqual({
         total: 0,
         lessons: [],
       });
@@ -1148,7 +1146,7 @@ describe("ApplicationsService", () => {
     it("groups them by lesson in the order of the agenda, with the coverage counted over confirmed only", async () => {
       seedQueue();
 
-      const result = await service.listPending(query, COORDINATOR);
+      const result = await service.listPending(COORDINATOR);
 
       expect(result.lessons.map((group) => group.lesson.id)).toEqual([OTHER_LESSON_ID, LESSON_ID]);
       expect(result.lessons[0]).toEqual({
@@ -1195,7 +1193,7 @@ describe("ApplicationsService", () => {
     it("asks the agenda, the staff and the names once each, whatever the number of applications", async () => {
       seedQueue();
 
-      await service.listPending(query, COORDINATOR);
+      await service.listPending(COORDINATOR);
 
       expect(order).toEqual(["find-applications", "find-agenda", "count-staff", "find-people"]);
       expect(listing.findAgendaByIds).toHaveBeenCalledWith([LESSON_ID, OTHER_LESSON_ID]);
@@ -1208,14 +1206,14 @@ describe("ApplicationsService", () => {
       // The lesson F1 does not come back (a soft-deleted lesson): its two applications are not listed.
       state.agenda = [buildAgendaRef({ id: OTHER_LESSON_ID })];
 
-      const result = await service.listPending(query, COORDINATOR);
+      const result = await service.listPending(COORDINATOR);
 
       expect(result.total).toBe(1);
       expect(result.lessons).toHaveLength(1);
       expect(result.lessons[0].applications).toHaveLength(1);
 
       state.agenda = [buildAgendaRef({ id: OTHER_LESSON_ID }), buildAgendaRef({ id: LESSON_ID })];
-      expect((await service.listPending(query, COORDINATOR)).total).toBe(3);
+      expect((await service.listPending(COORDINATOR)).total).toBe(3);
     });
 
     it("throws, as a broken invariant, when the agenda answers a lesson that was not asked for", async () => {
@@ -1225,14 +1223,14 @@ describe("ApplicationsService", () => {
         buildAgendaRef({ id: "01999a3e-7c1b-7000-8000-0000000000f9" }),
       ];
 
-      await expect(service.listPending(query, COORDINATOR)).rejects.toThrow("was not asked for");
+      await expect(service.listPending(COORDINATOR)).rejects.toThrow("was not asked for");
     });
 
     it("answers person null for a person that is gone", async () => {
       seedQueue();
       state.people = [{ id: PERSON_ID, name: "Ana Torres" }];
 
-      const result = await service.listPending(query, COORDINATOR);
+      const result = await service.listPending(COORDINATOR);
 
       expect(result.lessons[0].applications[0].person).toBeNull();
     });
@@ -1241,13 +1239,13 @@ describe("ApplicationsService", () => {
       seedQueue();
       const can = jest.spyOn(policy, "can");
 
-      const forCoordinator = await service.listPending(query, COORDINATOR);
+      const forCoordinator = await service.listPending(COORDINATOR);
       expect(can).toHaveBeenCalledTimes(1);
       expect(can).toHaveBeenCalledWith(COORDINATOR, Permission.ASSIGNMENTS_REVIEW);
       expect(forCoordinator.lessons[1].applications[0].note).toBe(NOTE);
 
       can.mockClear();
-      const forMember = await service.listPending(query, MEMBER);
+      const forMember = await service.listPending(MEMBER);
       expect(can).toHaveBeenCalledTimes(1);
       expect(
         forMember.lessons.flatMap((group) => group.applications.map((item) => item.note)),

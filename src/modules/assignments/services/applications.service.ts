@@ -1,7 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { DataSource, EntityManager } from "typeorm";
-import { NO_CONFIRMED_STAFF, toLessonCoverage } from "@modules/lessons/services/lesson-coverage";
+import {
+  ConfirmedStaffCount,
+  NO_CONFIRMED_STAFF,
+  toLessonCoverage,
+} from "@modules/lessons/services/lesson-coverage";
 import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService, LessonStatus } from "@modules/lessons/services/lessons.service";
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
@@ -15,7 +19,6 @@ import { Permission } from "@shared/permissions/permission.enum";
 import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { ApplyToLessonDto } from "../dto/apply-to-lesson.dto";
 import { LessonAssignmentResponseDto } from "../dto/lesson-assignment.response.dto";
-import { ListApplicationsQueryDto } from "../dto/list-applications-query.dto";
 import {
   PendingApplicationGroupResponseDto,
   PendingApplicationsResponseDto,
@@ -145,10 +148,8 @@ export class ApplicationsService {
 
       if (await hasActiveAssignment(manager, lesson.id, member.id)) throw alreadyApplied();
 
-      const counts = await this.staffCounter.countConfirmedStaff([lesson.id], manager);
-      if (!hasOpenPlace(dto.role, lesson, counts.get(lesson.id) ?? NO_CONFIRMED_STAFF)) {
-        throw roleFull();
-      }
+      const staff = await this.confirmedStaffOf(lesson.id, manager);
+      if (!hasOpenPlace(dto.role, lesson, staff)) throw roleFull();
 
       const assignment = await manager.save(
         manager.create(LessonAssignment, {
@@ -193,8 +194,9 @@ export class ApplicationsService {
    * The queue of the pending applications (`source` `application`, `status` `pending`), of any
    * lesson: a cancelled one and one that already happened come too, with the status and the date of
    * the lesson, so they can be declined (an application does not resolve itself, A13). A direct
-   * pending assignment is not an application and is left out. The query only takes
-   * `status=pending`, so the predicate is fixed here.
+   * pending assignment is not an application and is left out. The route only takes
+   * `?status=pending` (the DTO answers 400 to anything else), so the predicate is fixed here and the
+   * service takes no query.
    *
    * Grouped by lesson, the soonest lesson first (by date, start time and id), and inside a lesson the
    * oldest application first (by `createdAt`, then id). Each group carries the lesson with its class,
@@ -212,10 +214,7 @@ export class ApplicationsService {
    * independent, but with dozens of rows running them in parallel only holds more connections of the
    * pool at once.
    */
-  async listPending(
-    _query: ListApplicationsQueryDto,
-    actor: AuthUser,
-  ): Promise<PendingApplicationsResponseDto> {
+  async listPending(actor: AuthUser): Promise<PendingApplicationsResponseDto> {
     const visibility = { canSeeNote: this.policy.can(actor, Permission.ASSIGNMENTS_REVIEW) };
 
     const applications = await this.dataSource.getRepository(LessonAssignment).find({
@@ -313,10 +312,8 @@ export class ApplicationsService {
         lessonStaffLockKey(lesson.id),
       ]);
       // Counted AFTER the lock, in a statement of its own: it sees the approval that went first.
-      const counts = await this.staffCounter.countConfirmedStaff([lesson.id], manager);
-      if (!hasOpenPlace(application.role, lesson, counts.get(lesson.id) ?? NO_CONFIRMED_STAFF)) {
-        throw roleFull();
-      }
+      const staff = await this.confirmedStaffOf(lesson.id, manager);
+      if (!hasOpenPlace(application.role, lesson, staff)) throw roleFull();
 
       application.status = AssignmentStatus.CONFIRMED;
       application.reviewedById = actorId;
@@ -421,6 +418,19 @@ export class ApplicationsService {
     if (application === null) throw applicationNotFound();
 
     return application;
+  }
+
+  /**
+   * The confirmed staff of one lesson, counted inside the transaction of the caller (its `manager`),
+   * in a statement of its own; a lesson with nobody confirmed reads as `NO_CONFIRMED_STAFF`. What
+   * applying and approving check the vacancy against.
+   */
+  private async confirmedStaffOf(
+    lessonId: string,
+    manager: EntityManager,
+  ): Promise<ConfirmedStaffCount> {
+    const counts = await this.staffCounter.countConfirmedStaff([lessonId], manager);
+    return counts.get(lessonId) ?? NO_CONFIRMED_STAFF;
   }
 
   /**

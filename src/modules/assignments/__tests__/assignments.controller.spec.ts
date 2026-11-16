@@ -297,12 +297,12 @@ describe("the controllers of the assignments", () => {
         applications.reject.mockResolvedValue(assignment);
       });
 
-      it("delegates listPendingApplications with the query and the whole actor (for the note)", async () => {
+      it("delegates listPendingApplications with the whole actor (for the note): the query only validates status", async () => {
         const query = { status: AssignmentStatus.PENDING } as const;
 
         await expect(review.listPendingApplications(query, ACTOR)).resolves.toBe(pending);
 
-        expect(applications.listPending).toHaveBeenCalledWith(query, ACTOR);
+        expect(applications.listPending).toHaveBeenCalledWith(ACTOR);
       });
 
       it("delegates approveApplication and rejectApplication with the id and the actor id", async () => {

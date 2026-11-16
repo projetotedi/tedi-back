@@ -59,10 +59,11 @@ export class ApplicationsController {
   @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
   @ApiForbiddenResponse(FORBIDDEN_RESPONSE)
   listPendingApplications(
-    @Query() query: ListApplicationsQueryDto,
+    // Declared for the ValidationPipe and the contract only: ?status takes only pending, the queue.
+    @Query() _query: ListApplicationsQueryDto,
     @CurrentUser() actor: AuthUser,
   ): Promise<PendingApplicationsResponseDto> {
-    return this.applicationsService.listPending(query, actor);
+    return this.applicationsService.listPending(actor);
   }
 
   @Patch(":id/approve")
