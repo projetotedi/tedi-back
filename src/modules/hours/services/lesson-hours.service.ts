@@ -14,7 +14,8 @@ import { HoursService } from "./hours.service";
 /**
  * Token of the status lesson hours are born with (Q6.6, still open with the PO): a provider of
  * `hours.module.ts`, not an env, so a test swaps it and the decision changes in one line. With
- * `pending`, see the risk 4 of docs/ARCHITECTURE.md section 18.
+ * `pending` the hours wait for the review (GUS-164), and the member still cannot remove them
+ * (`removeMyEntry` answers ATTENDANCE_ENTRY_NOT_REMOVABLE to any attendance entry).
  */
 export const LESSON_HOURS_INITIAL_STATUS = "LESSON_HOURS_INITIAL_STATUS";
 
