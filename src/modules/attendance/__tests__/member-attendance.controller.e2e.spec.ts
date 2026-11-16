@@ -33,6 +33,7 @@ import { AttendanceModule } from "../attendance.module";
 import {
   CLASS_PERIOD,
   insertAssignment,
+  insertAttendanceHourEntry,
   insertDepartment,
   insertLesson,
   insertMemberProfile,
@@ -597,6 +598,36 @@ describe("member attendance routes (e2e)", () => {
       ).toEqual(["entries.1.assignmentId", "entries.2.assignmentId", "entries.3.assignmentId"]);
       expect(await attendanceRows()).toEqual([]);
       expect(await entriesOf(lessonId)).toEqual([]);
+    });
+
+    it("rolls back the whole batch when a write fails midway: no presence, no hour entry and no history of the entry written before, and no event", async () => {
+      // An active attendance entry of the other monitor in this lesson, written straight to the
+      // table: her recordPresence, the second of the batch, violates
+      // uq_hour_entries_lesson_id_person_id_attendance after the monitor's hours were written.
+      const seeded = await insertAttendanceHourEntry(dataSource, {
+        personId: otherMonitor.id,
+        createdById: coordinator.id,
+        lessonId,
+        classId,
+      });
+      const events = collectEvents();
+
+      const res = await putAttendance(coordinator, [
+        { assignmentId: monitorAssignment, status: "present" },
+        { assignmentId: otherMonitorAssignment, status: "present" },
+      ]).expect(500);
+
+      expect(res.body).toMatchObject({ error: "INTERNAL_SERVER_ERROR" });
+      expect(await attendanceRows()).toEqual([]);
+      expect((await entriesOf(lessonId)).map((row) => row.id)).toEqual([seeded]);
+      const history: unknown[] = await dataSource.query(
+        `SELECT e.id FROM hour_entry_events e
+           JOIN hour_entries h ON h.id = e.hour_entry_id
+          WHERE h.lesson_id = $1`,
+        [lessonId],
+      );
+      expect(history).toEqual([]);
+      expect(events).toEqual([]);
     });
 
     it("answers 400 DUPLICATE_ASSIGNMENT for the same assignment twice, in any letter case", async () => {
