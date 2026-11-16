@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { DataSource, SelectQueryBuilder } from "typeorm";
+import { isUUID } from "class-validator";
+import { DataSource, In, SelectQueryBuilder } from "typeorm";
 import { ClassesService, ClassRef } from "@modules/classes/services/classes.service";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
 import { applyTextSearchAllWords } from "@shared/search/search.util";
@@ -8,6 +9,7 @@ import { LESSON_CALENDAR_MAX_DAYS } from "../dto/lesson-limits";
 import { LessonListItemResponseDto } from "../dto/lesson-list-item.response.dto";
 import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
 import { Lesson } from "../entities/lesson.entity";
+import { LessonStatus } from "../enums/lesson-status.enum";
 import { ConfirmedStaff, NO_CONFIRMED_STAFF } from "./lesson-coverage";
 import { LessonCoverageRegistry } from "./lesson-coverage.registry";
 import { assertDateRange } from "./lesson-date-range";
@@ -21,6 +23,52 @@ type LessonFilters = Pick<
 
 /** The columns the search looks in: every word has to show up in one of them (L22). */
 const SEARCH_COLUMNS = ["lesson.title", "lesson.subject"] as const;
+
+/**
+ * A lesson of the agenda, as another module reads it (the assignments, GUS-160: "Minhas aulas",
+ * the lessons with an open place and the pending applications): what says which lesson it is, when
+ * and where, its position in the sequence ("Aula 3"), how many monitors it expects, and the class it
+ * belongs to. The shape is the contract of `findAgendaBetween` and `findAgendaByIds`: the entity
+ * never leaves this module.
+ */
+export interface LessonAgendaRef {
+  id: string;
+  title: string;
+  /** The position of the plan in the sequence of the course; null for a lesson on its own. */
+  sequenceOrder: number | null;
+  /** "YYYY-MM-DD". */
+  date: string;
+  /** "HH:mm". */
+  startTime: string;
+  /** "HH:mm". */
+  endTime: string;
+  location: string | null;
+  status: LessonStatus;
+  /** How many monitors the lesson expects. Null when not informed. */
+  expectedMonitors: number | null;
+  /** The class: `name` is its name or, when it has none, its code (the label of the row, L14). */
+  class: { id: string; code: string; name: string };
+}
+
+/** The lesson with its class, as `LessonAgendaRef`. Missing optional columns are read as null. */
+function toLessonAgendaRef(lesson: Lesson, schoolClass: ClassRef): LessonAgendaRef {
+  return {
+    id: lesson.id,
+    title: lesson.title,
+    sequenceOrder: lesson.sequenceOrder ?? null,
+    date: lesson.date,
+    startTime: lesson.startTime,
+    endTime: lesson.endTime,
+    location: lesson.location ?? null,
+    status: lesson.status,
+    expectedMonitors: lesson.expectedMonitors ?? null,
+    class: {
+      id: schoolClass.id,
+      code: schoolClass.code,
+      name: schoolClass.name ?? schoolClass.code,
+    },
+  };
+}
 
 /**
  * The reads of many lessons at once (F4.4, RF-043): the list, paginated, and the calendar of a
@@ -51,6 +99,13 @@ const SEARCH_COLUMNS = ["lesson.title", "lesson.subject"] as const;
  * answer says the confirmed teacher (a pending one is not the teacher) and how many monitors are
  * confirmed. Without a counter registered nobody is allocated as far as this module knows, so every
  * lesson reads as `NO_CONFIRMED_STAFF`: no teacher, and the monitors it expects are all missing.
+ *
+ * Two more reads are the contract of the agenda for another module (the assignments, GUS-160:
+ * "Minhas aulas", the lessons with an open place and the pending applications), which needs the
+ * class of each lesson and cannot import `classes`: `findAgendaBetween` (the lessons that will
+ * happen in a period) and `findAgendaByIds` (some lessons by id, whatever their status). Both answer
+ * `LessonAgendaRef` and count no staff: the caller counts it through its own counter. No lock, no
+ * transaction, no event.
  */
 @Injectable()
 export class LessonListingService {
@@ -107,6 +162,58 @@ export class LessonListingService {
     const lessons = await this.buildQuery(query, [...classes.keys()]).getMany();
 
     return this.toItems(lessons, classes);
+  }
+
+  /**
+   * The agenda of a period: the lessons from `from` to `to`, both "YYYY-MM-DD" and both included,
+   * that are not cancelled, of the classes that are not archived (the default of the list, L19), in
+   * the order of the list (`date`, `startTime`, `id`). It is what will happen, so a cancelled lesson
+   * is out. The caller validates the period; nothing is limited here. Two queries: the classes, and
+   * the lessons of those classes; with no class, the lessons are not queried.
+   */
+  async findAgendaBetween(from: string, to: string): Promise<LessonAgendaRef[]> {
+    const classes = await this.resolveClasses({});
+    if (classes.size === 0) return [];
+
+    const lessons = await this.dataSource
+      .getRepository(Lesson)
+      .createQueryBuilder("lesson")
+      .where("lesson.classId IN (:...classIds)", { classIds: [...classes.keys()] })
+      .andWhere("lesson.date >= :from", { from })
+      .andWhere("lesson.date <= :to", { to })
+      .andWhere("lesson.status <> :cancelled", { cancelled: LessonStatus.CANCELLED })
+      .orderBy("lesson.date", "ASC")
+      .addOrderBy("lesson.startTime", "ASC")
+      .addOrderBy("lesson.id", "ASC")
+      .getMany();
+
+    return lessons.map((lesson) => toLessonAgendaRef(lesson, this.classOf(lesson, classes)));
+  }
+
+  /**
+   * The lessons of these ids, whatever their status (a cancelled one too) and the archived classes
+   * included (a lesson is reached by its id, RN-27), in the order of the list (`date`, `startTime`,
+   * `id`). A repeated id counts once and an id that is not a UUID is skipped (it cannot be a lesson,
+   * and Postgres would answer 22P02); an id that is not a lesson is not answered. With nothing to
+   * ask it answers [] without a query, and with no lesson found it does not read the classes.
+   *
+   * The classes are every class, the archived ones included: dozens a semester, hundreds over the
+   * years, the same cost the list accepts (L13).
+   */
+  async findAgendaByIds(ids: readonly string[]): Promise<LessonAgendaRef[]> {
+    const unique = [...new Set(ids)].filter((id) => isUUID(id));
+    if (unique.length === 0) return [];
+
+    const lessons = await this.dataSource.getRepository(Lesson).find({
+      where: { id: In(unique) },
+      order: { date: "ASC", startTime: "ASC", id: "ASC" },
+    });
+    if (lessons.length === 0) return [];
+
+    const refs = await this.classes.listClassRefs({ includeArchived: true });
+    const classes = new Map(refs.map((ref) => [ref.id, ref]));
+
+    return lessons.map((lesson) => toLessonAgendaRef(lesson, this.classOf(lesson, classes)));
   }
 
   /**
@@ -178,20 +285,26 @@ export class LessonListingService {
     );
   }
 
-  /**
-   * The item of a lesson. The query only takes lessons of the classes that were resolved, so a
-   * class that is missing is a broken invariant and not a business error.
-   */
+  /** The item of a lesson, with its class. */
   private toItem(
     lesson: Lesson,
     classes: ReadonlyMap<string, ClassRef>,
     staff: ConfirmedStaff,
   ): LessonListItemResponseDto {
+    return toLessonListItem(lesson, this.classOf(lesson, classes), staff);
+  }
+
+  /**
+   * The class of a lesson among the ones that were resolved. The queries only take lessons of those
+   * classes (or, by id, read every class), so a class that is missing is a broken invariant and not
+   * a business error.
+   */
+  private classOf(lesson: Lesson, classes: ReadonlyMap<string, ClassRef>): ClassRef {
     const schoolClass = classes.get(lesson.classId);
     if (schoolClass === undefined) {
       throw new Error(`The class ${lesson.classId} of the lesson ${lesson.id} was not resolved.`);
     }
 
-    return toLessonListItem(lesson, schoolClass, staff);
+    return schoolClass;
   }
 }

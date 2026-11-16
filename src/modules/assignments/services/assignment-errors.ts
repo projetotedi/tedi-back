@@ -110,3 +110,73 @@ export function assignmentNotActive(): HttpException {
     409,
   );
 }
+
+/**
+ * 409 for the application of a member (GUS-160): she already holds a place in the lesson, pending or
+ * confirmed, direct or applied for, as either role. Also the answer to the unique violation
+ * `uq_lesson_assignments_lesson_id_person_id_active` on the routes of the applications. The routes
+ * of the direct assignment answer DUPLICATE_ROLE_IN_LESSON for the same thing.
+ */
+export function alreadyApplied(): HttpException {
+  return new HttpException(
+    {
+      error: "ALREADY_APPLIED",
+      message: "The member already has an assignment or an application in this lesson.",
+    },
+    409,
+  );
+}
+
+/**
+ * 409: the lesson has no open place for the role (GUS-160): a teacher is already confirmed, or the
+ * confirmed monitors reach the expected ones (or none are expected). Only confirmed assignments take
+ * a place, so a pending application never fills one. On the approval, also the answer to the unique
+ * violation `uq_lesson_assignments_lesson_id_confirmed_teacher`.
+ */
+export function roleFull(): HttpException {
+  return new HttpException(
+    { error: "ROLE_FULL", message: "The lesson has no open place for this role." },
+    409,
+  );
+}
+
+/**
+ * 409: the lesson already happened, as far as an application goes (GUS-160): it is before today in
+ * America/Sao_Paulo, or it is marked done, even today or ahead of time (`isClosedForApplications`).
+ * Applications are only taken for lessons that have not happened yet.
+ */
+export function lessonInPast(): HttpException {
+  return new HttpException(
+    {
+      error: "LESSON_IN_PAST",
+      message: "Applications are only taken for lessons that have not happened yet.",
+    },
+    409,
+  );
+}
+
+/**
+ * 404 for `/applications/:id`, shared by the pipe of the id of the route and by the review: an
+ * unknown or malformed id, and a direct assignment too, since the resource of the URL is the
+ * application and a direct assignment is not one (docs/ARCHITECTURE.md section 10.3).
+ */
+export function applicationNotFound(): HttpException {
+  return new HttpException(
+    { error: "APPLICATION_NOT_FOUND", message: "Application not found." },
+    404,
+  );
+}
+
+/**
+ * 409: only a pending application is approved or declined. A declined or cancelled one is final,
+ * and an approved one leaves through `PATCH /assignments/:id/cancel`.
+ */
+export function applicationNotPending(): HttpException {
+  return new HttpException(
+    {
+      error: "APPLICATION_NOT_PENDING",
+      message: "Only a pending application can be approved or declined.",
+    },
+    409,
+  );
+}

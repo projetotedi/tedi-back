@@ -41,13 +41,16 @@ import { LessonsService } from "./services/lessons.service";
   //   and findLessonSummaries, with the status of the lesson re-exported) and the port through which
   //   it plugs in the counter of the confirmed staff (LessonCoverageRegistry), the coverage that
   //   every answer of this module shows, the list and the calendar included. The arrow stays
-  //   assignments -> lessons: this module never imports the other one.
+  //   assignments -> lessons: this module never imports the other one;
+  // - assignments (GUS-160): the agenda with the class of each lesson ("Minhas aulas", the lessons
+  //   with an open place and the pending applications), through LessonListingService
+  //   (findAgendaBetween and findAgendaByIds), since assignments cannot import ClassesModule;
   // - attendance (GUS-168): the lesson whose attendance is signed (getLessonSummary FOR SHARE) and
   //   the lessons of the history of a member (findLessonSummaries). The student roll call (GUS-166)
   //   will say what else it needs.
   // LessonCreationService stays inside on purpose: LessonsService and LessonGenerationService
   // (GUS-154) both build lessons through it, so a lesson of the series is born with the same rules
   // as one of POST /lessons.
-  exports: [LessonsService, LessonCoverageRegistry],
+  exports: [LessonsService, LessonCoverageRegistry, LessonListingService],
 })
 export class LessonsModule {}

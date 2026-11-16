@@ -1,17 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { DataSource, EntityManager, In, QueryFailedError } from "typeorm";
+import { DataSource, EntityManager } from "typeorm";
 import { LessonsService, LessonStatus } from "@modules/lessons/services/lessons.service";
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
 import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
-import {
-  AUDITABLE_ACTION_EVENT,
-  AuditableAction,
-  AuditableActionEvent,
-} from "@shared/events/auditable-action.event";
+import { AUDITABLE_ACTION_EVENT, AuditableAction } from "@shared/events/auditable-action.event";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { CreateAssignmentDto } from "../dto/create-assignment.dto";
@@ -20,7 +16,16 @@ import { MemberAssignmentResponseDto } from "../dto/member-assignment.response.d
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
-import { ACTIVE_ASSIGNMENT_STATUSES, AssignmentStatus } from "../enums/assignment-status.enum";
+import { AssignmentStatus } from "../enums/assignment-status.enum";
+import { buildAssignmentAuditEvent } from "./assignment-audit";
+import {
+  ACTIVE_UNIQUE_INDEX,
+  CONFIRMED_TEACHER_UNIQUE_INDEX,
+  hasActiveAssignment,
+  LESSON_FOREIGN_KEY,
+  PERSON_FOREIGN_KEY,
+  violatedConstraint,
+} from "./assignment-constraints";
 import {
   assignmentNotActive,
   assignmentNotFound,
@@ -37,13 +42,6 @@ import {
   toLessonAssignmentResponse,
   toMemberAssignmentResponse,
 } from "./assignment-response.mapper";
-
-const ASSIGNMENT_TARGET_TYPE = "lesson_assignment";
-
-const ACTIVE_UNIQUE_INDEX = "uq_lesson_assignments_lesson_id_person_id_active";
-const CONFIRMED_TEACHER_UNIQUE_INDEX = "uq_lesson_assignments_lesson_id_confirmed_teacher";
-const PERSON_FOREIGN_KEY = "fk_lesson_assignments_person_id";
-const LESSON_FOREIGN_KEY = "fk_lesson_assignments_lesson_id";
 
 type ConfirmOutcome =
   | { changed: false; assignment: LessonAssignment }
@@ -132,7 +130,7 @@ export class AssignmentsService {
       if (member === null) throw memberNotFoundInBody();
       if (!member.active) throw memberInactive();
 
-      if (await this.hasActiveAssignment(manager, lesson.id, member.id)) {
+      if (await hasActiveAssignment(manager, lesson.id, member.id)) {
         throw duplicateRoleInLesson();
       }
       const confirmed = dto.status === AssignmentStatus.CONFIRMED;
@@ -430,17 +428,6 @@ export class AssignmentsService {
     return assignment;
   }
 
-  /** Whether the member holds a place in the lesson: a pending or confirmed assignment of hers. */
-  private hasActiveAssignment(
-    manager: EntityManager,
-    lessonId: string,
-    personId: string,
-  ): Promise<boolean> {
-    return manager.exists(LessonAssignment, {
-      where: { lessonId, personId, status: In(ACTIVE_ASSIGNMENT_STATUSES) },
-    });
-  }
-
   /** Whether the lesson already has a confirmed teacher. */
   private hasConfirmedTeacher(manager: EntityManager, lessonId: string): Promise<boolean> {
     return manager.exists(LessonAssignment, {
@@ -472,24 +459,21 @@ export class AssignmentsService {
 
   /** Turns the violations of the constraints of `lesson_assignments` into their business error. */
   private mapConstraintError(error: unknown): unknown {
-    if (error instanceof QueryFailedError) {
-      const driverError = error.driverError as { code?: string; constraint?: string } | undefined;
+    const violation = violatedConstraint(error);
+    if (violation === null) return error;
+    const { code, constraint } = violation;
 
-      if (driverError?.code === "23505" && driverError.constraint === ACTIVE_UNIQUE_INDEX) {
-        return duplicateRoleInLesson();
-      }
-      if (
-        driverError?.code === "23505" &&
-        driverError.constraint === CONFIRMED_TEACHER_UNIQUE_INDEX
-      ) {
-        return lessonTeacherTaken();
-      }
-      if (driverError?.code === "23503" && driverError.constraint === PERSON_FOREIGN_KEY) {
-        return memberNotFoundInBody();
-      }
-      if (driverError?.code === "23503" && driverError.constraint === LESSON_FOREIGN_KEY) {
-        return lessonNotFound();
-      }
+    if (code === "23505" && constraint === ACTIVE_UNIQUE_INDEX) {
+      return duplicateRoleInLesson();
+    }
+    if (code === "23505" && constraint === CONFIRMED_TEACHER_UNIQUE_INDEX) {
+      return lessonTeacherTaken();
+    }
+    if (code === "23503" && constraint === PERSON_FOREIGN_KEY) {
+      return memberNotFoundInBody();
+    }
+    if (code === "23503" && constraint === LESSON_FOREIGN_KEY) {
+      return lessonNotFound();
     }
     return error;
   }
@@ -501,14 +485,16 @@ export class AssignmentsService {
     before: Record<string, unknown> | null,
     after: Record<string, unknown>,
   ): void {
-    const event = new AuditableActionEvent();
-    event.actorId = actorId;
-    event.action = action;
-    event.targetType = ASSIGNMENT_TARGET_TYPE;
-    event.targetId = targetId;
-    event.before = before;
-    event.after = after;
-    event.occurredAt = this.clock.now();
-    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
+    this.eventEmitter.emit(
+      AUDITABLE_ACTION_EVENT,
+      buildAssignmentAuditEvent({
+        action,
+        actorId,
+        assignmentId: targetId,
+        before,
+        after,
+        occurredAt: this.clock.now(),
+      }),
+    );
   }
 }

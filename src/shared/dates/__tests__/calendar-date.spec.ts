@@ -1,4 +1,5 @@
 import {
+  addCalendarDays,
   ageOn,
   calendarDaysBetween,
   isValidCalendarDate,
@@ -94,6 +95,26 @@ describe("calendarDaysBetween", () => {
     for (const invalid of ["2026-02-30", "2026-3-1", "01/03/2026", "2026-03-01T00:00:00Z", ""]) {
       expect(() => calendarDaysBetween(invalid, "2026-03-01")).toThrow("Invalid calendar date");
       expect(() => calendarDaysBetween("2026-03-01", invalid)).toThrow("Invalid calendar date");
+    }
+  });
+});
+
+describe("addCalendarDays", () => {
+  it("adds days across months, years and the leap day, and goes back with a negative number", () => {
+    expect(addCalendarDays("2026-03-09", 0)).toBe("2026-03-09");
+    expect(addCalendarDays("2026-03-09", 27)).toBe("2026-04-05");
+    expect(addCalendarDays("2026-12-20", 27)).toBe("2027-01-16");
+    expect(addCalendarDays("2024-02-28", 1)).toBe("2024-02-29");
+    expect(addCalendarDays("2023-02-28", 1)).toBe("2023-03-01");
+    expect(addCalendarDays("2026-03-07", 2)).toBe("2026-03-09");
+    expect(addCalendarDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addCalendarDays("2024-03-01", -1)).toBe("2024-02-29");
+    expect(addCalendarDays("0099-12-31", 1)).toBe("0100-01-01");
+  });
+
+  it("throws for a date that does not exist", () => {
+    for (const invalid of ["2026-02-30", "2026-3-1", ""]) {
+      expect(() => addCalendarDays(invalid, 1)).toThrow("Invalid calendar date");
     }
   });
 });

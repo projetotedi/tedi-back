@@ -22,6 +22,7 @@ import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
 import { LessonsModule } from "../lessons.module";
+import { LessonListingService } from "../services/lesson-listing.service";
 import { CLASS_PERIOD, insertLesson } from "./fixtures/lessons.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
@@ -1333,6 +1334,112 @@ describe("Lessons list and calendar (e2e)", () => {
 
         expect(titlesOf(res.body as ItemBody[])).toEqual(["Dia 10"]);
       });
+    });
+  });
+
+  describe("LessonListingService.findAgendaBetween and findAgendaByIds (exported, GUS-160)", () => {
+    let listing: LessonListingService;
+
+    beforeEach(() => {
+      listing = module.get(LessonListingService);
+    });
+
+    it("answers the lessons of the period, both ends included, without the cancelled ones and without the archived class, in order", async () => {
+      await seedFilterScenario();
+      await lesson({ title: "Antes do período", date: "2026-03-09" });
+      await lesson({
+        title: "Depois do período",
+        date: "2026-03-13",
+        startTime: "16:00",
+        endTime: "17:00",
+      });
+
+      const agenda = await listing.findAgendaBetween("2026-03-10", "2026-03-12");
+
+      // Golpes (B, 09:00) before Senhas (A, 14:00) on the 10th; the archived INFO-C, the
+      // cancelled lessons of the 11th and the 13th and the two days outside are left out.
+      expect(agenda.map((ref) => ref.title)).toEqual([
+        "Golpes na internet",
+        "Senhas e privacidade",
+        "Redes sociais",
+        "Navegação segura",
+      ]);
+    });
+
+    it("answers the class label (name or code), the position and the place of each lesson, and HH:mm times", async () => {
+      const arquivos = await lesson({
+        title: "Arquivos e pastas",
+        lessonPlanId: planP,
+        sequenceOrder: 3,
+        location: "Laboratório 2",
+        expectedMonitors: 3,
+        date: "2026-03-10",
+        startTime: "14:00",
+        endTime: "15:30",
+      });
+      const golpes = await lesson({
+        classId: classB,
+        title: "Golpes na internet",
+        date: "2026-03-11",
+        startTime: "09:00",
+        endTime: "10:30",
+      });
+
+      await expect(listing.findAgendaBetween("2026-03-09", "2026-03-15")).resolves.toEqual([
+        {
+          id: arquivos.id,
+          title: "Arquivos e pastas",
+          sequenceOrder: 3,
+          date: "2026-03-10",
+          startTime: "14:00",
+          endTime: "15:30",
+          location: "Laboratório 2",
+          status: LessonStatus.PLANNED,
+          expectedMonitors: 3,
+          class: { id: classA, code: "INFO-A", name: "Informática Básica, turma A" },
+        },
+        {
+          id: golpes.id,
+          title: "Golpes na internet",
+          sequenceOrder: null,
+          date: "2026-03-11",
+          startTime: "09:00",
+          endTime: "10:30",
+          location: null,
+          status: LessonStatus.PLANNED,
+          expectedMonitors: null,
+          class: { id: classB, code: "SEG-B", name: "SEG-B" },
+        },
+      ]);
+    });
+
+    it("answers the lessons asked by id, cancelled ones and archived classes included, skipping unknown and malformed ids", async () => {
+      const cancelled = await lesson({
+        title: "Cancelada",
+        date: "2026-03-12",
+        status: LessonStatus.CANCELLED,
+      });
+      const archived = await lesson({
+        classId: classC,
+        title: "Da turma arquivada",
+        date: "2026-03-11",
+      });
+      const planned = await lesson({ title: "Planejada", date: "2026-03-10" });
+
+      const agenda = await listing.findAgendaByIds([
+        cancelled.id,
+        archived.id,
+        planned.id,
+        planned.id,
+        UNKNOWN_ID,
+        "not-a-uuid",
+      ]);
+
+      expect(agenda.map((ref) => [ref.title, ref.status, ref.class.code])).toEqual([
+        ["Planejada", LessonStatus.PLANNED, "INFO-A"],
+        ["Da turma arquivada", LessonStatus.PLANNED, "INFO-C"],
+        ["Cancelada", LessonStatus.CANCELLED, "INFO-A"],
+      ]);
     });
   });
 });

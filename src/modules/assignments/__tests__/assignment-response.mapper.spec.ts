@@ -1,12 +1,16 @@
 import "reflect-metadata";
+import { LessonAgendaRef } from "@modules/lessons/services/lesson-listing.service";
 import { LessonStatus, LessonSummary } from "@modules/lessons/services/lessons.service";
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 import {
+  toAssignmentLesson,
   toLessonAssignmentResponse,
   toMemberAssignmentResponse,
+  toMyAssignmentResponse,
+  toOpenLessonResponse,
 } from "../services/assignment-response.mapper";
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
@@ -56,6 +60,26 @@ function buildLesson(): LessonSummary {
 }
 
 const PERSON = { id: PERSON_ID, name: "Monitor Um" };
+
+function buildAgendaRef(overrides: Partial<LessonAgendaRef> = {}): LessonAgendaRef {
+  return {
+    id: LESSON_ID,
+    title: "Arquivos e pastas",
+    sequenceOrder: 3,
+    date: "2026-03-10",
+    startTime: "14:00",
+    endTime: "15:30",
+    location: "Laboratório 2",
+    status: LessonStatus.PLANNED,
+    expectedMonitors: 3,
+    class: {
+      id: "01999a3e-7c1b-7000-8000-0000000000c1",
+      code: "INFO-A",
+      name: "Informática Básica, turma A",
+    },
+    ...overrides,
+  };
+}
 
 describe("toLessonAssignmentResponse", () => {
   describe("the note (RNF-13)", () => {
@@ -204,5 +228,68 @@ describe("toMemberAssignmentResponse", () => {
       endTime: "15:30",
       status: LessonStatus.PLANNED,
     });
+  });
+});
+
+describe("toAssignmentLesson (GUS-160)", () => {
+  it("maps a lesson of the agenda with its class, position and place", () => {
+    expect(toAssignmentLesson(buildAgendaRef())).toEqual({
+      id: LESSON_ID,
+      title: "Arquivos e pastas",
+      date: "2026-03-10",
+      startTime: "14:00",
+      endTime: "15:30",
+      status: LessonStatus.PLANNED,
+      sequenceOrder: 3,
+      location: "Laboratório 2",
+      class: {
+        id: "01999a3e-7c1b-7000-8000-0000000000c1",
+        code: "INFO-A",
+        name: "Informática Básica, turma A",
+      },
+    });
+  });
+
+  it("keeps a lesson on its own without position and without place, and leaves expectedMonitors out", () => {
+    const lesson = toAssignmentLesson(buildAgendaRef({ sequenceOrder: null, location: null }));
+
+    expect(lesson.sequenceOrder).toBeNull();
+    expect(lesson.location).toBeNull();
+    expect(lesson).not.toHaveProperty("expectedMonitors");
+  });
+});
+
+describe("toMyAssignmentResponse (GUS-160)", () => {
+  it("maps an item of my lessons without the note", () => {
+    const response = toMyAssignmentResponse(
+      buildAssignment({ note: NOTE, source: AssignmentSource.APPLICATION }),
+      buildAgendaRef(),
+    );
+
+    expect(response).toEqual({
+      id: ASSIGNMENT_ID,
+      lesson: toAssignmentLesson(buildAgendaRef()),
+      role: AssignmentRole.MONITOR,
+      status: AssignmentStatus.CONFIRMED,
+      source: AssignmentSource.APPLICATION,
+    });
+    expect(JSON.stringify(response)).not.toContain(NOTE);
+  });
+});
+
+describe("toOpenLessonResponse (GUS-160)", () => {
+  it("maps an open lesson with the coverage of the lesson and the open roles", () => {
+    expect(toOpenLessonResponse(buildAgendaRef(), { teachers: 0, monitors: 2 })).toEqual({
+      lesson: toAssignmentLesson(buildAgendaRef()),
+      coverage: {
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 2, expected: 3 },
+      },
+      openRoles: [AssignmentRole.TEACHER, AssignmentRole.MONITOR],
+    });
+    expect(
+      toOpenLessonResponse(buildAgendaRef({ expectedMonitors: 2 }), { teachers: 1, monitors: 0 })
+        .openRoles,
+    ).toEqual([AssignmentRole.MONITOR]);
   });
 });

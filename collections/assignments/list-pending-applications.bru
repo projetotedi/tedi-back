@@ -1,0 +1,31 @@
+meta {
+  name: list-pending-applications
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/applications?status=pending
+  body: none
+  auth: none
+}
+
+params:query {
+  status: pending
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Lista as candidaturas pendentes, agrupadas por aula (modal Candidaturas pendentes). É também o contador do botão "Candidaturas pendentes (N)" da listagem de aulas: o N é o campo total desta mesma resposta, então o botão e o modal nunca divergem.
+  Requer cookie tedi_session e a permissão assignments.review (@RequirePermission; diretoria de qualquer departamento, coordenação e superadmin). Membro recebe 403 FORBIDDEN, e o front esconde o botão quando permissions["assignments.review"] é none.
+  Query: status, opcional, só aceita pending (o padrão); outro valor é 400 VALIDATION_FAILED.
+  Entram as candidaturas com source application e status pending, de qualquer aula: a aula cancelada e a que já passou também aparecem (com o status e a data da aula no grupo), para poderem ser recusadas. Alocação direta pendente não é candidatura e não entra.
+  Cada grupo traz lesson (id, title, date, startTime, endTime, status, sequenceOrder, location e class { id, code, name }), coverage (teacher { confirmed, expected } e monitors { confirmed, expected }, só com as confirmadas: candidatura pendente não sobe a cobertura) e applications (as candidaturas da aula, a mais antiga primeiro, com person { id, name }, role, note e createdAt, o "Enviada em"). Aulas em ordem de data, horário de início e id.
+  total é o número de candidaturas listadas (não de aulas). A nota é a observação para quem vai aprovar: quem tem assignments.review a lê.
+  Sem paginação: a fila tem dezenas. Leitura simples: sem transação, sem lock e sem evento.
+  Retorna 200 PendingApplicationsResponseDto ({ total: 0, lessons: [] } sem pendentes).
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN.
+}

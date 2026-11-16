@@ -1,38 +1,10 @@
-import { HttpException } from "@nestjs/common";
 import { calendarDaysBetween } from "@shared/dates/calendar-date";
+import { dateRangeTooLong, invalidDateRange } from "@shared/dates/date-range-errors";
 
 /**
- * 400 INVALID_DATE_RANGE, with the field in `details` so the front anchors the error on the end of
- * the period. The one place that builds it: the list and the calendar of lessons answer the same.
- */
-export function invalidDateRange(): HttpException {
-  return new HttpException(
-    {
-      error: "INVALID_DATE_RANGE",
-      message: "to must be on or after from.",
-      details: [{ field: "to", message: "to must be on or after from" }],
-    },
-    400,
-  );
-}
-
-/**
- * 400 DATE_RANGE_TOO_LONG: the period holds more days than the route takes, both ends counted. The
- * field in `details` is the end of the period, as in `invalidDateRange`.
- */
-export function dateRangeTooLong(maxDays: number): HttpException {
-  return new HttpException(
-    {
-      error: "DATE_RANGE_TOO_LONG",
-      message: `The period cannot be longer than ${maxDays} days, counting both ends.`,
-      details: [{ field: "to", message: `to must be at most ${maxDays - 1} days after from` }],
-    },
-    400,
-  );
-}
-
-/**
- * Checks the period of a list of lessons, both "YYYY-MM-DD" that the DTO already validated:
+ * Checks the period of a list of lessons, both "YYYY-MM-DD" that the DTO already validated. The
+ * errors are the shared ones (`@shared/dates/date-range-errors`), the same body as the period of
+ * "Minhas aulas":
  * - 400 INVALID_DATE_RANGE when `to` is before `from` (one day, `from` equal to `to`, is a period);
  * - 400 DATE_RANGE_TOO_LONG when `maxDays` is given and the period has more days than that, both
  *   ends counted: 2026-03-01 to 2026-04-11 is 42 days.
