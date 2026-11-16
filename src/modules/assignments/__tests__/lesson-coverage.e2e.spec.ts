@@ -4,6 +4,9 @@
  * CA3: the coverage of `GET /lessons/:id` changes when an assignment is confirmed or cancelled
  * R4:  the counter counts the confirmed staff of several lessons in ONE call, for the listing and
  *      the calendar of the GUS-153, and leaves out the lessons without staff
+ * A19: the list and the calendar (`GET /lessons`, `GET /lessons/calendar`) show the confirmed
+ *      teacher of each lesson and belowExpectedMonitors, reading the staff of the whole page, or
+ *      of the whole period, in ONE query and never one per lesson
  *
  * The coverage lives in the answer of the lessons, but what it counts is in the assignments, so the
  * test is here, in the module that implements the port: it boots `lessons` and `assignments`
@@ -79,6 +82,21 @@ interface Coverage {
 interface AssignmentBody {
   id: string;
   status: string;
+}
+
+/** The list and the calendar read the same lessons and answer the same item. */
+const ROUTES = ["/lessons", "/lessons/calendar"] as const;
+type Route = (typeof ROUTES)[number];
+
+/** The month grid of the scenery: 42 days, both ends counted. */
+const GRID = { from: "2026-03-01", to: "2026-04-11" } as const;
+
+interface ItemBody {
+  id: string;
+  title: string;
+  status: string;
+  teacher: { id: string; name: string } | null;
+  belowExpectedMonitors: boolean;
 }
 
 describe("coverage of the lessons (e2e)", () => {
@@ -256,6 +274,55 @@ describe("coverage of the lessons (e2e)", () => {
       teacher: { confirmed: teacherConfirmed, expected: 1 },
       monitors: { confirmed: monitorsConfirmed, expected: expectedMonitors },
     };
+  }
+
+  /**
+   * The lessons a route answers, as a plain list: the list with the largest page, or the calendar
+   * of the whole month grid, read by a member (every profile reads them).
+   */
+  async function itemsOf(
+    route: Route,
+    query: Record<string, string | number> = {},
+    actor: Actor = member,
+  ): Promise<ItemBody[]> {
+    if (route === "/lessons") {
+      const res = await request(app.getHttpServer())
+        .get("/lessons")
+        .query({ limit: 100, ...query })
+        .set("Cookie", actor.cookie)
+        .expect(200);
+      return (res.body as { data: ItemBody[] }).data;
+    }
+    const res = await request(app.getHttpServer())
+      .get("/lessons/calendar")
+      .query({ ...GRID, ...query })
+      .set("Cookie", actor.cookie)
+      .expect(200);
+    return res.body as ItemBody[];
+  }
+
+  async function itemOf(route: Route, forLessonId: string = lessonId): Promise<ItemBody> {
+    const item = (await itemsOf(route)).find((candidate) => candidate.id === forLessonId);
+    if (item === undefined) {
+      throw new Error(`The lesson ${forLessonId} is not in the answer of ${route}.`);
+    }
+    return item;
+  }
+
+  /** Runs `work` and says which statements it sent to the database, so a test can count them. */
+  async function statementsOf(work: () => Promise<unknown>): Promise<string[]> {
+    const statements: string[] = [];
+    const logQuery = jest
+      .spyOn(dataSource.logger, "logQuery")
+      .mockImplementation((query: string) => {
+        statements.push(query);
+      });
+    try {
+      await work();
+    } finally {
+      logQuery.mockRestore();
+    }
+    return statements;
   }
 
   // ---------------------------------------------------------------------------
@@ -501,6 +568,309 @@ describe("coverage of the lessons (e2e)", () => {
         belowExpectedMonitors: false,
       });
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // A19: the list and the calendar
+  // ---------------------------------------------------------------------------
+
+  describe.each(ROUTES)("%s: the teacher and belowExpectedMonitors of each lesson", (route) => {
+    it("shows the confirmed teacher of the lesson, with her id and her name and nothing else", async () => {
+      await assign(ana, "teacher", "confirmed");
+
+      const item = await itemOf(route);
+
+      expect(item.teacher).toEqual({ id: ana.id, name: "Ana Torres" });
+      expect(Object.keys(item.teacher ?? {}).sort()).toEqual(["id", "name"]);
+    });
+
+    it("answers teacher null for a lesson without a confirmed teacher", async () => {
+      expect((await itemOf(route)).teacher).toBeNull();
+
+      // Monitors alone do not make a teacher.
+      await assign(ana, "monitor", "confirmed");
+      expect((await itemOf(route)).teacher).toBeNull();
+    });
+
+    it("does not show a pending teacher, shows her once she is confirmed, and the cancellation takes her out", async () => {
+      const teacher = await assign(ana, "teacher", "pending");
+      expect((await itemOf(route)).teacher).toBeNull();
+
+      await confirm(teacher.id);
+      expect((await itemOf(route)).teacher).toEqual({ id: ana.id, name: "Ana Torres" });
+
+      await cancel(teacher.id);
+      expect((await itemOf(route)).teacher).toBeNull();
+    });
+
+    it("keeps the confirmed teacher when another one is pending: a candidate does not replace her", async () => {
+      await assign(ana, "teacher", "confirmed");
+      await assign(bruno, "teacher", "pending");
+
+      expect((await itemOf(route)).teacher).toEqual({ id: ana.id, name: "Ana Torres" });
+    });
+
+    it("does not show a declined teacher: a refused application never was the teacher", async () => {
+      await insertAssignment(dataSource, {
+        lessonId,
+        personId: ana.id,
+        createdById: ana.id,
+        role: "teacher",
+        status: "declined",
+        source: "application",
+        reviewedById: coordinator.id,
+        reviewedAt: new Date(),
+      });
+
+      expect((await itemOf(route)).teacher).toBeNull();
+    });
+
+    it("shows the teacher to every profile that reads the lessons: a member, a director and a coordinator", async () => {
+      await assign(ana, "teacher", "confirmed");
+
+      for (const actor of [member, director, coordinator]) {
+        const items = await itemsOf(route, {}, actor);
+
+        expect(items.find((item) => item.id === lessonId)?.teacher).toEqual({
+          id: ana.id,
+          name: "Ana Torres",
+        });
+      }
+    });
+
+    it("gives each lesson its own teacher", async () => {
+      const other = await createLesson({ date: "2026-03-17" });
+      const third = await createLesson({ date: "2026-03-24" });
+      await assign(ana, "teacher", "confirmed");
+      await assign(bruno, "teacher", "confirmed", other);
+
+      const items = await itemsOf(route);
+
+      expect(items.map((item) => [item.id, item.teacher?.name ?? null])).toEqual([
+        [lessonId, "Ana Torres"],
+        [other, "Bruno Lima"],
+        [third, null],
+      ]);
+    });
+
+    it("follows the confirmed monitors in belowExpectedMonitors: pending does not count, and cancelling brings the shortage back", async () => {
+      // The lesson of the scenery expects two monitors.
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
+
+      const first = await assign(ana, "monitor", "confirmed");
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
+
+      await assign(bruno, "monitor", "pending");
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
+
+      await assign(carla, "monitor", "confirmed");
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(false);
+
+      await cancel(first.id);
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
+    });
+
+    it("is not below once the pending monitor is confirmed", async () => {
+      await assign(ana, "monitor", "confirmed");
+      const pending = await assign(bruno, "monitor", "pending");
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
+
+      await confirm(pending.id);
+
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(false);
+    });
+
+    it("counts only monitors: a confirmed teacher does not make up for a monitor that is missing", async () => {
+      const oneMonitor = await createLesson({ date: "2026-03-17", expectedMonitors: 1 });
+      await assign(ana, "teacher", "confirmed", oneMonitor);
+      expect((await itemOf(route, oneMonitor)).belowExpectedMonitors).toBe(true);
+
+      await assign(bruno, "monitor", "confirmed", oneMonitor);
+
+      expect((await itemOf(route, oneMonitor)).belowExpectedMonitors).toBe(false);
+    });
+
+    it("is never below for a lesson that expects zero monitors or does not say how many it expects", async () => {
+      const none = await createLesson({ date: "2026-03-17", expectedMonitors: 0 });
+      const open = await createLesson({ date: "2026-03-24" });
+
+      expect((await itemOf(route, none)).belowExpectedMonitors).toBe(false);
+      expect((await itemOf(route, open)).belowExpectedMonitors).toBe(false);
+
+      await assign(ana, "monitor", "confirmed", open);
+      expect((await itemOf(route, open)).belowExpectedMonitors).toBe(false);
+    });
+
+    it("is never below for a cancelled lesson, and it keeps the teacher that was confirmed in it", async () => {
+      await assign(ana, "teacher", "confirmed");
+      expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
+
+      await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
+
+      // Cancelling the lesson does not cancel its assignments: the teacher stays on the row, and a
+      // lesson that does not happen has no shortage of monitors.
+      const item = await itemOf(route);
+      expect(item.status).toBe("cancelled");
+      expect(item.belowExpectedMonitors).toBe(false);
+      expect(item.teacher).toEqual({ id: ana.id, name: "Ana Torres" });
+    });
+
+    it("agrees with the detail of the lesson on belowExpectedMonitors, at every step", async () => {
+      const steps: Array<() => Promise<unknown>> = [
+        async () => undefined,
+        () => assign(ana, "monitor", "confirmed"),
+        () => assign(bruno, "monitor", "pending"),
+        () => assign(carla, "monitor", "confirmed"),
+        () => assign(diego, "teacher", "confirmed"),
+      ];
+
+      for (const step of steps) {
+        await step();
+
+        expect((await itemOf(route)).belowExpectedMonitors).toBe(
+          (await coverageOf()).belowExpectedMonitors,
+        );
+      }
+    });
+  });
+
+  describe("one query for the whole page, never one per lesson", () => {
+    /** Three lessons on three days, each with a teacher of its own, and a monitor in the second. */
+    async function seedThreeLessons(): Promise<string[]> {
+      const second = await createLesson({ date: "2026-03-11", expectedMonitors: 1 });
+      const third = await createLesson({ date: "2026-03-12", expectedMonitors: 1 });
+      await assign(ana, "teacher", "confirmed", lessonId);
+      await assign(bruno, "teacher", "confirmed", second);
+      await assign(carla, "teacher", "confirmed", third);
+      await assign(diego, "monitor", "confirmed", second);
+      return [lessonId, second, third];
+    }
+
+    /** The names that were asked for, and the statements that read the assignments. */
+    async function readWithSpies(work: () => Promise<unknown>) {
+      const findRefsByIds = jest.spyOn(peopleService, "findRefsByIds");
+      try {
+        const statements = await statementsOf(work);
+        return {
+          nameLookups: findRefsByIds.mock.calls.map((call) => [...call[0]].sort()),
+          assignmentStatements: statements.filter((statement) =>
+            statement.includes('FROM "lesson_assignments"'),
+          ),
+          statements,
+        };
+      } finally {
+        findRefsByIds.mockRestore();
+      }
+    }
+
+    it.each(ROUTES)(
+      "%s: reads the assignments once and the names once, with the three teachers, for three lessons",
+      async (route) => {
+        await seedThreeLessons();
+        let items: ItemBody[] = [];
+
+        const { nameLookups, assignmentStatements } = await readWithSpies(async () => {
+          items = await itemsOf(route);
+        });
+
+        expect(items.map((item) => item.teacher?.name)).toEqual([
+          "Ana Torres",
+          "Bruno Lima",
+          "Carla Menezes",
+        ]);
+        expect(assignmentStatements).toHaveLength(1);
+        expect(nameLookups).toEqual([[ana.id, bruno.id, carla.id].sort()]);
+      },
+    );
+
+    it.each(ROUTES)(
+      "%s: sends as many statements for three lessons as for one: the cost does not grow with the page",
+      async (route) => {
+        await seedThreeLessons();
+        const oneDay = { from: "2026-03-10", to: "2026-03-10" };
+
+        const forOne = await readWithSpies(async () => {
+          expect(await itemsOf(route, oneDay)).toHaveLength(1);
+        });
+        const forThree = await readWithSpies(async () => {
+          expect(await itemsOf(route)).toHaveLength(3);
+        });
+
+        expect(forThree.statements.length).toBe(forOne.statements.length);
+        expect(forOne.assignmentStatements).toHaveLength(1);
+        expect(forThree.assignmentStatements).toHaveLength(1);
+        expect(forOne.nameLookups).toHaveLength(1);
+        expect(forThree.nameLookups).toHaveLength(1);
+      },
+    );
+
+    it("asks the staff of the lessons of the page only: page 1 of 2 does not read the teacher of the third lesson", async () => {
+      await seedThreeLessons();
+      let firstPage: ItemBody[] = [];
+      let secondPage: ItemBody[] = [];
+
+      const first = await readWithSpies(async () => {
+        firstPage = await itemsOf("/lessons", { limit: 2, page: 1 });
+      });
+      const second = await readWithSpies(async () => {
+        secondPage = await itemsOf("/lessons", { limit: 2, page: 2 });
+      });
+
+      expect(firstPage.map((item) => item.teacher?.name)).toEqual(["Ana Torres", "Bruno Lima"]);
+      expect(first.nameLookups).toEqual([[ana.id, bruno.id].sort()]);
+      expect(secondPage.map((item) => item.teacher?.name)).toEqual(["Carla Menezes"]);
+      expect(second.nameLookups).toEqual([[carla.id]]);
+    });
+
+    it.each(ROUTES)(
+      "%s: asks for a teacher who has several lessons in the page once",
+      async (route) => {
+        const second = await createLesson({ date: "2026-03-11" });
+        const third = await createLesson({ date: "2026-03-12" });
+        for (const forLessonId of [lessonId, second, third]) {
+          await assign(ana, "teacher", "confirmed", forLessonId);
+        }
+
+        const { nameLookups } = await readWithSpies(async () => {
+          const items = await itemsOf(route);
+          expect(items.map((item) => item.teacher?.name)).toEqual([
+            "Ana Torres",
+            "Ana Torres",
+            "Ana Torres",
+          ]);
+        });
+
+        expect(nameLookups).toEqual([[ana.id]]);
+      },
+    );
+
+    it.each(ROUTES)(
+      "%s: reads no name when no lesson of the page has a confirmed teacher, a pending one included",
+      async (route) => {
+        await assign(ana, "monitor", "confirmed");
+        await assign(bruno, "teacher", "pending");
+
+        const { nameLookups, assignmentStatements } = await readWithSpies(async () => {
+          const [item] = await itemsOf(route);
+          expect(item.teacher).toBeNull();
+        });
+
+        expect(assignmentStatements).toHaveLength(1);
+        expect(nameLookups).toEqual([]);
+      },
+    );
+
+    it.each(ROUTES)(
+      "%s: reads no assignment at all when the answer has no lesson",
+      async (route) => {
+        const { nameLookups, assignmentStatements } = await readWithSpies(async () => {
+          expect(await itemsOf(route, { search: "nenhuma aula tem este título" })).toEqual([]);
+        });
+
+        expect(assignmentStatements).toHaveLength(0);
+        expect(nameLookups).toEqual([]);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
