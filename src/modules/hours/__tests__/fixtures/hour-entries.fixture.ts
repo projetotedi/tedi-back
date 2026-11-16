@@ -29,15 +29,16 @@ export function tomorrowInAppTimeZone(): string {
 }
 
 /**
- * Reviews an entry by hand, as the review of coordination (GUS-164) will: a raw UPDATE, since no
- * route of this card does it.
+ * Reviews an entry by hand with a raw UPDATE, for the e2e that only need a reviewed entry. It must
+ * write what HoursReviewService writes, or the checks of the review refuse it: approved keeps the
+ * declared minutes, adjusted changes them and rejected is 0; adjusted and rejected carry a note.
  */
 export async function reviewEntry(
   dataSource: DataSource,
   hourEntryId: string,
   review: {
     status: "approved" | "adjusted" | "rejected";
-    validatedMinutes: number | null;
+    validatedMinutes: number;
     reviewNote: string | null;
     reviewedById: string;
   },
@@ -95,6 +96,25 @@ export async function entryRow(
     [hourEntryId],
   );
   return rows[0];
+}
+
+/**
+ * `count` pending manual entries of a person on one day, in one INSERT (the export reads in
+ * batches, and logging hundreds of entries through the route would take too long). The ids are
+ * random uuids, so their order is the order of the uuids, not of the insert.
+ */
+export async function insertPendingEntries(
+  dataSource: DataSource,
+  input: { personId: string; date: string; declaredMinutes: number; count: number },
+): Promise<void> {
+  await dataSource.query(
+    `INSERT INTO hour_entries
+       (id, person_id, created_by_id, origin, activity, category, date, declared_minutes)
+     SELECT gen_random_uuid(), $1::uuid, $1::uuid, 'manual'::hour_entries_origin_enum,
+            'Planejamento ' || n, 'planning'::hour_entries_category_enum, $2::date, $3::int
+       FROM generate_series(1, $4::int) AS n`,
+    [input.personId, input.date, input.declaredMinutes, input.count],
+  );
 }
 
 /** How many entries exist, removed included. */

@@ -373,7 +373,7 @@ describe("hour entries repository (e2e)", () => {
       expect(events[0]).toMatch(/\(hour_entry_id\)/);
     });
 
-    it("has the four check constraints declared by HourEntry", async () => {
+    it("has the seven check constraints declared by HourEntry", async () => {
       const declared = dataSource
         .getMetadata(HourEntry)
         .checks.map((check) => ({ name: check.name, expression: check.expression }))
@@ -392,6 +392,18 @@ describe("hour entries repository (e2e)", () => {
           expression: `"status" <> 'pending' OR "validated_minutes" IS NULL`,
         },
         {
+          name: "ck_hour_entries_review_columns",
+          expression: `("status" = 'pending') = ("validated_minutes" IS NULL) AND ("status" = 'pending') = ("reviewed_by_id" IS NULL) AND ("status" = 'pending') = ("reviewed_at" IS NULL)`,
+        },
+        {
+          name: "ck_hour_entries_review_minutes",
+          expression: `("status" <> 'approved' OR "validated_minutes" = "declared_minutes") AND ("status" <> 'adjusted' OR "validated_minutes" <> "declared_minutes") AND ("status" <> 'rejected' OR "validated_minutes" = 0)`,
+        },
+        {
+          name: "ck_hour_entries_review_note",
+          expression: `("status" IN ('adjusted', 'rejected')) = ("review_note" IS NOT NULL)`,
+        },
+        {
           name: "ck_hour_entries_validated_minutes",
           expression:
             '"validated_minutes" IS NULL OR ("validated_minutes" >= 0 AND "validated_minutes" <= 1440)',
@@ -408,6 +420,16 @@ describe("hour entries repository (e2e)", () => {
       expect(definitions.ck_hour_entries_pending_not_validated).toMatch(/'pending'/);
       expect(definitions.ck_hour_entries_origin_author).toMatch(/'attendance'/);
       expect(definitions.ck_hour_entries_origin_author).toMatch(/created_by_id = person_id/);
+      expect(definitions.ck_hour_entries_review_columns).toMatch(/reviewed_by_id IS NULL/);
+      expect(definitions.ck_hour_entries_review_columns).toMatch(/reviewed_at IS NULL/);
+      expect(definitions.ck_hour_entries_review_minutes).toMatch(
+        /validated_minutes = declared_minutes/,
+      );
+      expect(definitions.ck_hour_entries_review_minutes).toMatch(/'adjusted'/);
+      expect(definitions.ck_hour_entries_review_minutes).toMatch(/'rejected'/);
+      expect(definitions.ck_hour_entries_review_note).toMatch(/'adjusted'/);
+      expect(definitions.ck_hour_entries_review_note).toMatch(/'rejected'/);
+      expect(definitions.ck_hour_entries_review_note).toMatch(/review_note IS NOT NULL/);
       expect(await checkDefinitions("hour_entry_events")).toEqual({});
     });
 
@@ -467,6 +489,7 @@ describe("hour entries repository (e2e)", () => {
       const scenery = await setUp();
       const reviewed = {
         status: HourEntryStatus.ADJUSTED,
+        reviewNote: "Ajuste.",
         reviewedById: scenery.directorId,
         reviewedAt: new Date(),
       };
@@ -490,13 +513,24 @@ describe("hour entries repository (e2e)", () => {
         constraint: "ck_hour_entries_pending_not_validated",
       });
 
-      for (const status of [
-        HourEntryStatus.APPROVED,
-        HourEntryStatus.ADJUSTED,
-        HourEntryStatus.REJECTED,
-      ]) {
-        await createEntry(scenery, { status, validatedMinutes: 150 });
-      }
+      const review = { reviewedById: scenery.directorId, reviewedAt: new Date() };
+      await createEntry(scenery, {
+        ...review,
+        status: HourEntryStatus.APPROVED,
+        validatedMinutes: 150,
+      });
+      await createEntry(scenery, {
+        ...review,
+        status: HourEntryStatus.ADJUSTED,
+        validatedMinutes: 120,
+        reviewNote: "Duas horas.",
+      });
+      await createEntry(scenery, {
+        ...review,
+        status: HourEntryStatus.REJECTED,
+        validatedMinutes: 0,
+        reviewNote: "Fora do projeto.",
+      });
     });
 
     it("rejects a manual entry created by someone else, and an on_behalf entry created by the person herself, with 23514 on ck_hour_entries_origin_author; attendance takes either", async () => {
@@ -608,6 +642,99 @@ describe("hour entries repository (e2e)", () => {
       await expect(
         dataSource.query(`DELETE FROM hour_entries WHERE id = $1`, [entry.id]),
       ).rejects.toMatchObject({ code: "23503", constraint: "fk_hour_entry_events_hour_entry_id" });
+    });
+
+    it("rejects a reviewed entry without reviewer, instant or validated minutes, and a pending one with a reviewer, with 23514 on ck_hour_entries_review_columns", async () => {
+      const scenery = await setUp();
+      const approved = {
+        status: HourEntryStatus.APPROVED,
+        validatedMinutes: 150,
+        reviewedById: scenery.directorId,
+        reviewedAt: new Date(),
+      };
+
+      for (const missing of [
+        { reviewedById: null },
+        { reviewedAt: null },
+        { validatedMinutes: null },
+      ]) {
+        await expect(createEntry(scenery, { ...approved, ...missing })).rejects.toMatchObject({
+          code: "23514",
+          constraint: "ck_hour_entries_review_columns",
+        });
+      }
+      for (const reviewOfPending of [
+        { reviewedById: scenery.directorId },
+        { reviewedAt: new Date() },
+      ]) {
+        await expect(
+          createEntry(scenery, { status: HourEntryStatus.PENDING, ...reviewOfPending }),
+        ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_columns" });
+      }
+      await createEntry(scenery, approved);
+    });
+
+    it("rejects approved minutes other than the declared ones, adjusted minutes equal to them and rejected minutes other than 0, with 23514 on ck_hour_entries_review_minutes", async () => {
+      const scenery = await setUp();
+      const review = { reviewedById: scenery.directorId, reviewedAt: new Date() };
+
+      await expect(
+        createEntry(scenery, {
+          ...review,
+          status: HourEntryStatus.APPROVED,
+          validatedMinutes: 120,
+        }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_minutes" });
+      await expect(
+        createEntry(scenery, {
+          ...review,
+          status: HourEntryStatus.ADJUSTED,
+          validatedMinutes: 150,
+          reviewNote: "Sem mudança.",
+        }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_minutes" });
+      await expect(
+        createEntry(scenery, {
+          ...review,
+          status: HourEntryStatus.REJECTED,
+          validatedMinutes: 150,
+          reviewNote: "Fora do projeto.",
+        }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_minutes" });
+
+      await createEntry(scenery, {
+        ...review,
+        status: HourEntryStatus.ADJUSTED,
+        validatedMinutes: 1440,
+        reviewNote: "Mais que o declarado.",
+      });
+    });
+
+    it("requires a review note on adjusted and rejected entries and refuses one on pending and approved ones, with 23514 on ck_hour_entries_review_note", async () => {
+      const scenery = await setUp();
+      const review = { reviewedById: scenery.directorId, reviewedAt: new Date() };
+
+      await expect(
+        createEntry(scenery, {
+          ...review,
+          status: HourEntryStatus.ADJUSTED,
+          validatedMinutes: 120,
+        }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_note" });
+      await expect(
+        createEntry(scenery, { ...review, status: HourEntryStatus.REJECTED, validatedMinutes: 0 }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_note" });
+      await expect(
+        createEntry(scenery, {
+          ...review,
+          status: HourEntryStatus.APPROVED,
+          validatedMinutes: 150,
+          reviewNote: "Ok.",
+        }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_note" });
+      await expect(
+        createEntry(scenery, { status: HourEntryStatus.PENDING, reviewNote: "Ainda não." }),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_note" });
     });
   });
 

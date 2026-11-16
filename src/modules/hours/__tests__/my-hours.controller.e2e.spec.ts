@@ -462,7 +462,7 @@ describe("MyHoursController (e2e)", () => {
       await logEntry(otherMember, { date: "2026-03-13" });
       await reviewEntry(dataSource, meeting.id, {
         status: "rejected",
-        validatedMinutes: null,
+        validatedMinutes: 0,
         reviewNote: "Reunião fora do projeto.",
         reviewedById: coordinator.id,
       });
@@ -480,7 +480,7 @@ describe("MyHoursController (e2e)", () => {
       expect(page.data.every((entry) => entry.personId === member.id)).toBe(true);
       expect(page.data[0]).toMatchObject({
         declaredMinutes: 60,
-        validatedMinutes: null,
+        validatedMinutes: 0,
         status: "rejected",
         reviewNote: "Reunião fora do projeto.",
         reviewedById: coordinator.id,
@@ -788,7 +788,7 @@ describe("MyHoursController (e2e)", () => {
       const reviews = [
         { status: "approved", validatedMinutes: 150, reviewNote: null },
         { status: "adjusted", validatedMinutes: 120, reviewNote: "Duas horas." },
-        { status: "rejected", validatedMinutes: null, reviewNote: "Fora do projeto." },
+        { status: "rejected", validatedMinutes: 0, reviewNote: "Fora do projeto." },
       ] as const;
 
       for (const review of reviews) {
