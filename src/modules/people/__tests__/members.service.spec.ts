@@ -941,6 +941,32 @@ describe("MembersService", () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
+    it("throws 403 OWN_ACCOUNT before opening a transaction when the actor sends her own id in upper case", async () => {
+      const ownIdUpperCase = COORDINATOR.id.toUpperCase();
+      expect(ownIdUpperCase).not.toBe(COORDINATOR.id);
+
+      const failure = await httpFailure(
+        service.deactivateMember(ownIdUpperCase, DEACTIVATION, COORDINATOR),
+      );
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "OWN_ACCOUNT",
+        message: "Cannot act on your own account.",
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("locks and reports the target by the lower-case id when the path id comes in upper case", async () => {
+      await service.deactivateMember(PERSON_ID.toUpperCase(), DEACTIVATION, COORDINATOR);
+
+      const locked = manager.findOne.mock.calls
+        .filter((call) => call[1]?.lock?.mode === "pessimistic_write")
+        .map((call) => call[1].where);
+      expect(locked).toEqual([{ id: PERSON_ID }, { personId: PERSON_ID }]);
+      expect(emittedEvents()[0].targetId).toBe(PERSON_ID);
+    });
+
     it("throws 404 MEMBER_NOT_FOUND for an unknown id and for a person without role nor profile", async () => {
       state.personById = null;
       const unknown = await httpFailure(
@@ -1280,6 +1306,20 @@ describe("MembersService", () => {
 
     it("throws 403 OWN_ACCOUNT before opening a transaction when the actor targets herself", async () => {
       const failure = await httpFailure(service.reactivateMember(COORDINATOR.id, COORDINATOR));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "OWN_ACCOUNT",
+        message: "Cannot act on your own account.",
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 OWN_ACCOUNT before opening a transaction when the actor sends her own id in upper case", async () => {
+      const ownIdUpperCase = COORDINATOR.id.toUpperCase();
+      expect(ownIdUpperCase).not.toBe(COORDINATOR.id);
+
+      const failure = await httpFailure(service.reactivateMember(ownIdUpperCase, COORDINATOR));
 
       expect(failure.getStatus()).toBe(403);
       expect(failure.getResponse()).toEqual({

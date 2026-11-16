@@ -361,6 +361,10 @@ export class MembersService {
    * REGISTRATION_NOT_APPROVED, 409 MEMBER_INACTIVE (a second exit would silently overwrite the
    * first one), 400 EXIT_DATE_BEFORE_JOINED_AT and 409 LAST_COORDINATOR.
    *
+   * The id is used in lower case, the canonical text of a uuid and the form actor.id comes from
+   * Postgres: the id pipe accepts upper case and Postgres compares uuid ignoring case, so with the
+   * raw path id an actor could pass OWN_ACCOUNT by sending her own id in upper case.
+   *
    * The exit may be on the join date ("YYYY-MM-DD" compares chronologically as text); a profile
    * approved by the backfill has no join date, so only the floor of the DTO applies.
    * LAST_COORDINATOR is the rule of /access with the same superadmin bypass (decision 10 of E9.a,
@@ -383,10 +387,11 @@ export class MembersService {
     actor: AuthUser,
   ): Promise<MemberDetailResponseDto> {
     if (!isUUID(id)) throw memberNotFound();
-    if (actor.id === id) throw new OwnAccountException();
+    const personId = id.toLowerCase();
+    if (actor.id === personId) throw new OwnAccountException();
 
     const result = await this.dataSource.transaction("SERIALIZABLE", async (manager) => {
-      const { person, profile } = await this.loadMemberForUpdate(manager, id);
+      const { person, profile } = await this.loadMemberForUpdate(manager, personId);
       if (profile === null) throw noMemberProfile();
       if (profile.registrationStatus !== MemberRegistrationStatus.APPROVED) {
         throw registrationNotApproved();
@@ -421,7 +426,7 @@ export class MembersService {
       buildMemberEvent(
         AuditableAction.MEMBER_DEACTIVATED,
         actor.id,
-        id,
+        personId,
         result.before,
         {
           status: MemberStatus.INACTIVE,
@@ -440,19 +445,21 @@ export class MembersService {
    * The member is active again and the exit is cleared (GUS-147). The access is NOT enabled: that
    * stays with PATCH /access/:id/enabled. An active member, a pending or rejected registration and
    * a person without member profile answer unchanged (200, no write, no event: section 10.3 of
-   * ARCHITECTURE). The old exit only survives in the MEMBER_DEACTIVATED event. Same 404 and 403
-   * OWN_ACCOUNT as deactivateMember. Default isolation: nothing here reduces the coordinators nor
-   * touches the access, and the row locks serialize two reactivations of the same member.
+   * ARCHITECTURE). The old exit only survives in the MEMBER_DEACTIVATED event. Same 404, same 403
+   * OWN_ACCOUNT and same lower-case id as deactivateMember. Default isolation: nothing here
+   * reduces the coordinators nor touches the access, and the row locks serialize two reactivations
+   * of the same member.
    *
    * `reactivated` carries the `before` only when something changed, so an event can never go out
    * with an empty `before`, and there are no two flags that could disagree.
    */
   async reactivateMember(id: string, actor: AuthUser): Promise<MemberDetailResponseDto> {
     if (!isUUID(id)) throw memberNotFound();
-    if (actor.id === id) throw new OwnAccountException();
+    const personId = id.toLowerCase();
+    if (actor.id === personId) throw new OwnAccountException();
 
     const result = await this.dataSource.transaction(async (manager) => {
-      const { person, profile } = await this.loadMemberForUpdate(manager, id);
+      const { person, profile } = await this.loadMemberForUpdate(manager, personId);
       if (profile === null || profile.status === MemberStatus.ACTIVE) {
         return { person, profile, reactivated: null };
       }
@@ -478,7 +485,7 @@ export class MembersService {
         buildMemberEvent(
           AuditableAction.MEMBER_REACTIVATED,
           actor.id,
-          id,
+          personId,
           result.reactivated.before,
           { status: MemberStatus.ACTIVE, exitDate: null, exitReason: null },
           this.clock.now(),

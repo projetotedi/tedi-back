@@ -329,6 +329,24 @@ describe("PATCH /members/:id/deactivate and /reactivate (e2e)", () => {
       expect(await accessEnabledOf(coordinator.id)).toBe(true);
     });
 
+    // The id pipe accepts upper case and Postgres compares uuid ignoring case. A coordinator with
+    // an approved member profile, while another coordinator stays active, is the case where her own
+    // id in upper case used to pass OWN_ACCOUNT and end in 200.
+    it("403 OWN_ACCOUNT on the own account sent in upper case, on deactivate and reactivate", async () => {
+      const self = await createActor("Coordinator With Profile", Role.COORDINATOR);
+      await insertMemberProfile(dataSource, { personId: self.id, status: "approved" });
+      const ownIdUpperCase = self.id.toUpperCase();
+
+      const deactivated = await deactivate(ownIdUpperCase, self, EXIT).expect(403);
+      expect(deactivated.body).toStrictEqual(OWN_ACCOUNT_BODY);
+
+      const reactivated = await reactivate(ownIdUpperCase, self).expect(403);
+      expect(reactivated.body).toStrictEqual(OWN_ACCOUNT_BODY);
+
+      expect((await exitOf(self.id)).status).toBe("active");
+      expect(await accessEnabledOf(self.id)).toBe(true);
+    });
+
     it("409 MEMBER_INACTIVE when deactivating again, keeping the first exit", async () => {
       const personId = await registerMember(applicant(1));
       await deactivate(personId, coordinator, EXIT).expect(200);
