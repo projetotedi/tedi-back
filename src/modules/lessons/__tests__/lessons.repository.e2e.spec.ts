@@ -221,6 +221,31 @@ describe("lessons repository (e2e)", () => {
   }
 
   /**
+   * The plan of `sql` with `idx_lessons_class_id_date` out of the picture: a filter only by `date`
+   * can also be served by that index (its second column), and on an almost empty table the planner
+   * picks either one, by a cost that depends on what other suites left behind. Dropping it inside a
+   * transaction that is rolled back (DDL is transactional in Postgres) leaves the question the test
+   * asks: does the query have an index of its own?
+   */
+  async function planWithoutClassIndex(sql: string, parameters: unknown[]): Promise<string> {
+    const queryRunner = dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.query("SET LOCAL enable_seqscan = off");
+      await queryRunner.query("DROP INDEX idx_lessons_class_id_date");
+      const rows: Array<{ "QUERY PLAN": string }> = await queryRunner.query(
+        `EXPLAIN ${sql}`,
+        parameters,
+      );
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    } finally {
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+    }
+  }
+
+  /**
    * The rows a lesson needs: its author, a class (with its course and edition) and a lesson plan.
    * They come from the services the modules export, not from the tables of those modules: it is
    * scenery here, so the test depends on their contract and not on their schema.
@@ -359,7 +384,7 @@ describe("lessons repository (e2e)", () => {
     });
 
     it("serves the lessons between two days, with no class in the filter, through idx_lessons_date", async () => {
-      const plan = await planWithoutSequentialScan(
+      const plan = await planWithoutClassIndex(
         `SELECT id FROM lessons WHERE date >= $1 AND date <= $2 ORDER BY date, start_time, id`,
         ["2026-03-01", "2026-04-11"],
       );
