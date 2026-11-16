@@ -2026,6 +2026,127 @@
         ],
         "type": "object"
       },
+      "LessonListClassRefDto": {
+        "properties": {
+          "code": {
+            "description": "Unique inside its edition.",
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "colorIndex": {
+            "description": "Color slot of the class in the calendar, from 0 to 7; the front picks the color of the class by it. It follows the order the classes were created in and does not change with the filter, the page or the period, nor when another class is archived. Classes created in sequence get different slots until the slots run out, and then they repeat.",
+            "example": 0,
+            "maximum": 7,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The label of the class on the row: its name, or its code when it has no name. Never null.",
+            "example": "Informática Básica, turma A",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "colorIndex"
+        ],
+        "type": "object"
+      },
+      "LessonListItemResponseDto": {
+        "properties": {
+          "belowExpectedMonitors": {
+            "description": "True when the lesson has fewer monitors allocated than it expects (F4.4, RF-050). Always false until the allocation exists (GUS-158).",
+            "example": false,
+            "type": "boolean"
+          },
+          "class": {
+            "$ref": "#/components/schemas/LessonListClassRefDto"
+          },
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD.",
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5). A cancelled lesson is listed like the others: the calendar draws it with a style of its own.",
+            "example": "planned"
+          },
+          "teacher": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonPersonRefDto"
+              }
+            ],
+            "description": "The teacher of the lesson. Always null until the allocation exists (E5, GUS-158): the front shows a dash.",
+            "example": null,
+            "nullable": true,
+            "type": "object"
+          },
+          "title": {
+            "description": "The lesson's own title (RN-18).",
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "class",
+          "date",
+          "startTime",
+          "endTime",
+          "title",
+          "status",
+          "teacher",
+          "belowExpectedMonitors"
+        ],
+        "type": "object"
+      },
+      "LessonPersonRefDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "LessonPlanDetailDto": {
         "properties": {
           "archiveReason": {
@@ -7990,6 +8111,195 @@
       }
     },
     "/lessons": {
+      "get": {
+        "operationId": "listLessons",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Words to look for in the title and in the subject of the lesson. Every word has to show up, each one in either of the two, in any order and not necessarily next to each other: senhas privacidade finds Senhas e privacidade. Case and accents are ignored.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "senhas privacidade",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of this class, archived class included. Without it, the lessons of an archived class are left out (RN-27). An id that matches no class answers an empty list.",
+            "in": "query",
+            "name": "classId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of the classes of this course. The lessons of its archived classes are left out. An id that matches no course answers an empty list.",
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons created from this lesson plan. An id that matches no plan answers an empty list.",
+            "in": "query",
+            "name": "lessonPlanId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons with this status. One value. Omit for every status: the cancelled lessons are listed too.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LessonStatus"
+            }
+          },
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. It can come alone. With `to`, it cannot be after it (else 400 INVALID_DATE_RANGE).",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. It can come alone. With `from`, it cannot be before it (else 400 INVALID_DATE_RANGE).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-04-11",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LessonListItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      },
       "post": {
         "operationId": "createLesson",
         "parameters": [],
@@ -8063,6 +8373,153 @@
               }
             },
             "description": "CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/lessons/calendar": {
+      "get": {
+        "operationId": "listLessonsCalendar",
+        "parameters": [
+          {
+            "description": "Words to look for in the title and in the subject of the lesson. Every word has to show up, each one in either of the two, in any order and not necessarily next to each other: senhas privacidade finds Senhas e privacidade. Case and accents are ignored.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "senhas privacidade",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of this class, archived class included. Without it, the lessons of an archived class are left out (RN-27). An id that matches no class answers an empty list.",
+            "in": "query",
+            "name": "classId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of the classes of this course. The lessons of its archived classes are left out. An id that matches no course answers an empty list.",
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons created from this lesson plan. An id that matches no plan answers an empty list.",
+            "in": "query",
+            "name": "lessonPlanId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons with this status. One value. Omit for every status: the cancelled lessons are listed too.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LessonStatus"
+            }
+          },
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. Required. It cannot be after `to` (else 400 INVALID_DATE_RANGE).",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. Required. The period holds at most 42 days counting both ends, six weeks, a month grid (else 400 DATE_RANGE_TOO_LONG).",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "example": "2026-04-11",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LessonListItemResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every lesson of the period, ordered by date, start time and id, the cancelled ones included. A plain array: there is no page."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE | DATE_RANGE_TOO_LONG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
           },
           "500": {
             "content": {

@@ -12,6 +12,7 @@ import { ClassesModule } from "@modules/classes/classes.module";
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { PeopleModule } from "@modules/people/people.module";
 import { PeopleService } from "@modules/people/services/people.service";
+import { applyTextSearchAllWords } from "@shared/search/search.util";
 import {
   LESSON_LOCATION_MAX_LENGTH,
   LESSON_SUBJECT_MAX_LENGTH,
@@ -192,6 +193,58 @@ describe("lessons repository (e2e)", () => {
     return rows.map((row) => row.indexdef);
   }
 
+  /** The indexes the entity declares, by name. Expression indexes are not among them (see Lesson). */
+  function declaredIndexes() {
+    return dataSource
+      .getMetadata(Lesson)
+      .indices.map((index) => ({
+        name: index.name,
+        unique: index.isUnique,
+        columns: index.columns.map((column) => column.databaseName),
+      }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }
+
+  /**
+   * The plan of a query with the sequential scan turned off, so that an index that could serve the
+   * query is the one the planner picks, whatever the size of the table.
+   */
+  async function planWithoutSequentialScan(sql: string, parameters: unknown[]): Promise<string> {
+    return dataSource.transaction(async (manager) => {
+      await manager.query("SET LOCAL enable_seqscan = off");
+      const rows: Array<{ "QUERY PLAN": string }> = await manager.query(
+        `EXPLAIN ${sql}`,
+        parameters,
+      );
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    });
+  }
+
+  /**
+   * The plan of `sql` with `idx_lessons_class_id_date` out of the picture: a filter only by `date`
+   * can also be served by that index (its second column), and on an almost empty table the planner
+   * picks either one, by a cost that depends on what other suites left behind. Dropping it inside a
+   * transaction that is rolled back (DDL is transactional in Postgres) leaves the question the test
+   * asks: does the query have an index of its own?
+   */
+  async function planWithoutClassIndex(sql: string, parameters: unknown[]): Promise<string> {
+    const queryRunner = dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      await queryRunner.query("SET LOCAL enable_seqscan = off");
+      await queryRunner.query("DROP INDEX idx_lessons_class_id_date");
+      const rows: Array<{ "QUERY PLAN": string }> = await queryRunner.query(
+        `EXPLAIN ${sql}`,
+        parameters,
+      );
+      return rows.map((row) => row["QUERY PLAN"]).join("\n");
+    } finally {
+      await queryRunner.rollbackTransaction();
+      await queryRunner.release();
+    }
+  }
+
   /**
    * The rows a lesson needs: its author, a class (with its course and edition) and a lesson plan.
    * They come from the services the modules export, not from the tables of those modules: it is
@@ -299,13 +352,16 @@ describe("lessons repository (e2e)", () => {
       expect(await actualForeignKeys("lessons")).toEqual(declared);
     });
 
+    it("declares exactly the two B-tree indexes: the search indexes are expression indexes, which live only in the migration", () => {
+      expect(declaredIndexes()).toEqual([
+        { name: "idx_lessons_class_id_date", unique: false, columns: ["class_id", "date"] },
+        { name: "idx_lessons_date", unique: false, columns: ["date"] },
+      ]);
+    });
+
     it("has idx_lessons_class_id_date on (class_id, date), declared by the entity", async () => {
       expect(
-        dataSource.getMetadata(Lesson).indices.map((index) => ({
-          name: index.name,
-          unique: index.isUnique,
-          columns: index.columns.map((column) => column.databaseName),
-        })),
+        declaredIndexes().filter((index) => index.name === "idx_lessons_class_id_date"),
       ).toEqual([
         { name: "idx_lessons_class_id_date", unique: false, columns: ["class_id", "date"] },
       ]);
@@ -314,6 +370,68 @@ describe("lessons repository (e2e)", () => {
       expect(definition).toHaveLength(1);
       expect(definition[0]).not.toContain("UNIQUE");
       expect(definition[0]).toMatch(/\(class_id, date\)/);
+    });
+
+    it("has idx_lessons_date on (date), declared by the entity", async () => {
+      expect(declaredIndexes().filter((index) => index.name === "idx_lessons_date")).toEqual([
+        { name: "idx_lessons_date", unique: false, columns: ["date"] },
+      ]);
+
+      const definition = await indexDefinition("lessons", "idx_lessons_date");
+      expect(definition).toHaveLength(1);
+      expect(definition[0]).not.toContain("UNIQUE");
+      expect(definition[0]).toMatch(/USING btree \(date\)/);
+    });
+
+    it("serves the lessons between two days, with no class in the filter, through idx_lessons_date", async () => {
+      const plan = await planWithoutClassIndex(
+        `SELECT id FROM lessons WHERE date >= $1 AND date <= $2 ORDER BY date, start_time, id`,
+        ["2026-03-01", "2026-04-11"],
+      );
+
+      expect(plan).toContain("idx_lessons_date");
+    });
+
+    it("has the trigram search indexes on lessons", async () => {
+      const titleIndex = await indexDefinition("lessons", "idx_lessons_title_search");
+      const subjectIndex = await indexDefinition("lessons", "idx_lessons_subject_search");
+
+      expect(titleIndex).toHaveLength(1);
+      expect(titleIndex[0]).toMatch(
+        /USING gin \(.*search_normalize\(.*\btitle\b.*\) gin_trgm_ops\)/,
+      );
+      expect(subjectIndex).toHaveLength(1);
+      expect(subjectIndex[0]).toMatch(
+        /USING gin \(.*search_normalize\(.*\bsubject\b.*\) gin_trgm_ops\)/,
+      );
+
+      for (const [column, index] of [
+        ["title", "idx_lessons_title_search"],
+        ["subject", "idx_lessons_subject_search"],
+      ] as const) {
+        const plan = await planWithoutSequentialScan(
+          `SELECT id FROM lessons
+            WHERE public.search_normalize(${column}) LIKE public.search_normalize($1) ESCAPE '\\'`,
+          ["%senhas%"],
+        );
+        expect(plan).toContain(index);
+      }
+    });
+
+    it("uses both search indexes for the word search of the listing, as the query builder writes it", async () => {
+      const builder = dataSource.getRepository(Lesson).createQueryBuilder("lesson");
+      applyTextSearchAllWords(
+        builder,
+        ["lesson.title", "lesson.subject"],
+        "senhas privacidade",
+        "lessonSearch",
+      );
+      const [sql, parameters] = builder.getQueryAndParameters();
+
+      const plan = await planWithoutSequentialScan(sql, parameters);
+
+      expect(plan).toContain("idx_lessons_title_search");
+      expect(plan).toContain("idx_lessons_subject_search");
     });
 
     it("has the six check constraints declared by the entity", async () => {

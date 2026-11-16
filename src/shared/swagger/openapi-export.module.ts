@@ -46,6 +46,7 @@ import { ClassesService } from "@modules/classes/services/classes.service";
 import { CourseClassesService } from "@modules/classes/services/course-classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
 import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
+import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
@@ -183,6 +184,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
         getClassSummary: async () => null,
+        listClassRefs: async () => [],
       },
     },
     {
@@ -198,6 +200,13 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       useValue: {
         listCourseClasses: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         summarizeByCourse: async () => [],
+      },
+    },
+    {
+      provide: LessonListingService,
+      useValue: {
+        list: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listCalendar: async () => [],
       },
     },
     {

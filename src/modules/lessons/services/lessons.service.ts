@@ -109,7 +109,8 @@ function assertWithinPeriod(date: string, schoolClass: ClassSummary): void {
 
 /**
  * Lessons (aulas) of the classes: create, read, edit, cancel and reschedule (F4.1, F4.3, F4.5).
- * Listing, the calendar and the series of lessons are other cards (GUS-153, GUS-154).
+ * Listing and the calendar are `LessonListingService` (GUS-153); the series of lessons is another
+ * card (GUS-154).
  *
  * A lesson is never deleted or archived: cancelling keeps the row, with the reason and who did it.
  * The title and the objective are copied from the lesson plan when the lesson is created from one,
