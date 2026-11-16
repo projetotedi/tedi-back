@@ -1012,6 +1012,25 @@ describe("Applications (e2e)", () => {
         expect(res.body.lessons[0].applications[0].note).toBe(NOTE);
       }
     });
+
+    it("answers 401 without a session on GET /applications, approve and reject", async () => {
+      const application = await apply(ana);
+      const events = collectEvents();
+
+      const list = await request(app.getHttpServer()).get("/applications").expect(401);
+      const approval = await request(app.getHttpServer())
+        .patch(`/applications/${application.id}/approve`)
+        .expect(401);
+      const decline = await request(app.getHttpServer())
+        .patch(`/applications/${application.id}/reject`)
+        .expect(401);
+
+      for (const res of [list, approval, decline]) {
+        expect(res.body.error).toBe("UNAUTHORIZED");
+      }
+      expect((await storedAssignment(application.id)).status).toBe("pending");
+      expect(events).toHaveLength(0);
+    });
   });
 
   // ---------------------------------------------------------------------------
