@@ -95,6 +95,14 @@ interface HistoryItem {
   createdAt: string;
 }
 
+interface OverviewBody {
+  summary: {
+    bankMinutes: number;
+    byStatus: Array<{ status: string; entries: number; declaredMinutes: number }>;
+  };
+  members: { data: Array<{ personId: string; bankMinutes: number; pendingMinutes: number }> };
+}
+
 interface ReviewRow {
   status: string;
   declared_minutes: number;
@@ -462,6 +470,47 @@ describe("HourEntriesController (e2e)", () => {
   });
 
   describe("PATCH /hour-entries/validate", () => {
+    it("validates 3 entries in one call, and the totals of the overview change (CA1)", async () => {
+      const entries = [
+        await logOwn(memberTech, { declaredMinutes: 60 }),
+        await logOwn(memberTech2, { declaredMinutes: 90 }),
+        await logOwn(memberComms, { declaredMinutes: 150 }),
+      ];
+      const overview = async () =>
+        (
+          await request(app.getHttpServer())
+            .get("/hours/overview")
+            .set("Cookie", coordinator.cookie)
+            .expect(200)
+        ).body as OverviewBody;
+      const pendingOf = (body: OverviewBody) =>
+        body.summary.byStatus.find((total) => total.status === "pending");
+
+      const before = await overview();
+      expect(pendingOf(before)).toMatchObject({ entries: 3, declaredMinutes: 300 });
+      expect(before.summary.bankMinutes).toBe(0);
+
+      const res = await validate(
+        coordinator,
+        entries.map((entry) => entry.id),
+      ).expect(200);
+      expect(
+        (res.body as HourEntryBody[]).map((entry) => [entry.status, entry.validatedMinutes]),
+      ).toEqual([
+        ["approved", 60],
+        ["approved", 90],
+        ["approved", 150],
+      ]);
+
+      const after = await overview();
+      expect(pendingOf(after)).toMatchObject({ entries: 0, declaredMinutes: 0 });
+      expect(after.summary.bankMinutes).toBe(300);
+      expect(after.members.data.every((line) => line.pendingMinutes === 0)).toBe(true);
+      expect(after.members.data.map((line) => line.bankMinutes).sort((a, b) => a - b)).toEqual([
+        60, 90, 150,
+      ]);
+    });
+
     it("stores approved with the declared minutes, the reviewer and the instant, and an approved event per entry at that instant", async () => {
       const first = await logOwn(memberTech, { declaredMinutes: 60 });
       const second = await logOwn(memberComms, { declaredMinutes: 90 });

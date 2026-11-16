@@ -8,6 +8,8 @@ import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { HourEntriesController } from "../controllers/hour-entries.controller";
+import { HoursController } from "../controllers/hours.controller";
+import { MemberHoursViewController } from "../controllers/member-hours-view.controller";
 import { MemberHoursController } from "../controllers/member-hours.controller";
 import { MyHoursController } from "../controllers/my-hours.controller";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
@@ -251,6 +253,86 @@ describe("hours controllers", () => {
 
         await expect(controller.logHoursForMember(MEMBER_ID, BODY, ACTOR)).rejects.toBe(failure);
       });
+    });
+  });
+
+  describe("HoursController", () => {
+    it.each([["getHoursOverview", Permission.HOURS_VIEW_OTHERS]] as const)(
+      "protects HoursController.%s with %s and no @Roles",
+      (name, permission) => {
+        const handler = HoursController.prototype[name];
+
+        expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(permission);
+        expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+      },
+    );
+
+    it.each([
+      {
+        name: "getHoursOverview",
+        route: "GET /hours/overview",
+        method: RequestMethod.GET,
+        path: "overview",
+      },
+    ] as const)("routes $name on $route", ({ name, method, path }) => {
+      const handler = HoursController.prototype[name];
+
+      expect(Reflect.getMetadata("method", handler)).toBe(method);
+      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(path);
+      expect(Reflect.getMetadata(PATH_METADATA, HoursController)).toBe("hours");
+    });
+
+    it("passes the actor and the query to the view service on getHoursOverview", async () => {
+      const viewService = { getOverview: jest.fn() };
+      const controller = new HoursController(viewService as unknown as HoursViewService);
+      const overview = { members: { data: [], total: 0, page: 1, limit: 20 } };
+      viewService.getOverview.mockResolvedValue(overview);
+      const query = { from: "2026-03-01", to: "2026-03-31", search: "Ana" };
+
+      await expect(controller.getHoursOverview(query, ACTOR)).resolves.toBe(overview);
+
+      expect(viewService.getOverview).toHaveBeenCalledWith(ACTOR, query);
+    });
+  });
+
+  describe("MemberHoursViewController", () => {
+    it("protects getMemberHours with hours.viewOthers and no @Roles, on GET /members/:id/hours", () => {
+      const handler = MemberHoursViewController.prototype.getMemberHours;
+
+      expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(Permission.HOURS_VIEW_OTHERS);
+      expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+      expect(Reflect.getMetadata("method", handler)).toBe(RequestMethod.GET);
+      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(":id/hours");
+      expect(Reflect.getMetadata(PATH_METADATA, MemberHoursViewController)).toBe("members");
+      expect(methodsOf(MemberHoursViewController)).toEqual([RequestMethod.GET]);
+    });
+
+    it("answers 404 MEMBER_NOT_FOUND to a malformed id, through the pipe of the route", async () => {
+      const pipes = idPipesOf(MemberHoursViewController, "getMemberHours");
+      expect(pipes).toHaveLength(1);
+
+      const failure: unknown = await Promise.resolve(
+        pipes[0].transform("not-a-uuid", { type: "param", data: "id" }),
+      ).catch((error: unknown) => error);
+
+      if (!(failure instanceof HttpException)) throw new Error("Expected an HttpException");
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "MEMBER_NOT_FOUND",
+        message: "Member not found.",
+      });
+    });
+
+    it("passes the id, the query and the actor to the service", async () => {
+      const viewService = { getMemberHours: jest.fn() };
+      const controller = new MemberHoursViewController(viewService as unknown as HoursViewService);
+      const hours = { member: { id: MEMBER_ID } };
+      viewService.getMemberHours.mockResolvedValue(hours);
+      const query = { from: "2026-03-01", page: 2 };
+
+      await expect(controller.getMemberHours(MEMBER_ID, query, ACTOR)).resolves.toBe(hours);
+
+      expect(viewService.getMemberHours).toHaveBeenCalledWith(MEMBER_ID, ACTOR, query);
     });
   });
 

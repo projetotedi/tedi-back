@@ -4,6 +4,8 @@ import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { HourEntriesController } from "./controllers/hour-entries.controller";
+import { HoursController } from "./controllers/hours.controller";
+import { MemberHoursViewController } from "./controllers/member-hours-view.controller";
 import { MemberHoursController } from "./controllers/member-hours.controller";
 import { MyHoursController } from "./controllers/my-hours.controller";
 import { HourEntryEvent } from "./entities/hour-entry-event.entity";
@@ -28,7 +30,13 @@ import { HoursService } from "./services/hours.service";
  */
 @Module({
   imports: [TypeOrmModule.forFeature([HourEntry, HourEntryEvent]), PeopleModule, PermissionsModule],
-  controllers: [MyHoursController, MemberHoursController, HourEntriesController],
+  controllers: [
+    MyHoursController,
+    MemberHoursController,
+    MemberHoursViewController,
+    HoursController,
+    HourEntriesController,
+  ],
   providers: [HoursService, HoursViewService, HoursReviewService, HoursScopeService, Clock],
   exports: [],
 })

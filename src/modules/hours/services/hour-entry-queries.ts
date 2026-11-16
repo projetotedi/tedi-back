@@ -1,5 +1,6 @@
 import { SelectQueryBuilder } from "typeorm";
 import { HourEntry } from "../entities/hour-entry.entity";
+import { HoursSummaryRow } from "./hours-summary";
 
 /**
  * Whose entries a reading of the team covers: everyone, or the people of a list. The list comes
@@ -35,6 +36,34 @@ export function applyPopulation(
   builder.andWhere("entry.person_id IN (:...personIds)", {
     personIds: [...population.personIds],
   });
+}
+
+/**
+ * The totals of the query (alias `entry`) grouped by status and category, at most 28 rows. The
+ * same select as the summary of the person (HoursService.getMySummary), kept apart while GUS-162 is
+ * under review. The sums are cast to `int`: Postgres sums into `bigint`, which `pg` hands over as a
+ * string.
+ */
+export function selectSummaryRows(
+  builder: SelectQueryBuilder<HourEntry>,
+): Promise<HoursSummaryRow[]> {
+  return builder
+    .select("entry.status", "status")
+    .addSelect("entry.category", "category")
+    .addSelect("COUNT(*)::int", "entries")
+    .addSelect("COALESCE(SUM(entry.declared_minutes), 0)::int", "declaredMinutes")
+    .addSelect("COALESCE(SUM(entry.validated_minutes), 0)::int", "validatedMinutes")
+    .groupBy("entry.status")
+    .addGroupBy("entry.category")
+    .getRawMany<HoursSummaryRow>();
+}
+
+/** The order of a statement: the most recent day first, then the most recent entry. */
+export function applyStatementOrder(builder: SelectQueryBuilder<HourEntry>): void {
+  builder
+    .orderBy("entry.date", "DESC")
+    .addOrderBy("entry.created_at", "DESC")
+    .addOrderBy("entry.id", "DESC");
 }
 
 /** The order of the queue of validation: the oldest day first, then the oldest entry. */

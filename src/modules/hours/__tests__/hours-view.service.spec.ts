@@ -186,6 +186,304 @@ describe("HoursViewService", () => {
     service = moduleRef.get(HoursViewService);
   });
 
+  describe("getOverview", () => {
+    const anaRow = {
+      personId: ANA,
+      entries: 3,
+      declaredMinutes: 420,
+      bankMinutes: 120,
+      pendingEntries: 1,
+      pendingMinutes: 90,
+    };
+    const goneRow = {
+      personId: GONE,
+      entries: 1,
+      declaredMinutes: 60,
+      bankMinutes: 0,
+      pendingEntries: 0,
+      pendingMinutes: 0,
+    };
+    const summaryRows = [
+      {
+        status: "pending",
+        category: "planning",
+        entries: 1,
+        declaredMinutes: 90,
+        validatedMinutes: 0,
+      },
+      {
+        status: "adjusted",
+        category: "meeting",
+        entries: 1,
+        declaredMinutes: 240,
+        validatedMinutes: 120,
+      },
+      {
+        status: "rejected",
+        category: "planning",
+        entries: 2,
+        declaredMinutes: 150,
+        validatedMinutes: 0,
+      },
+    ];
+
+    beforeEach(() => {
+      builder.getRawMany
+        .mockResolvedValueOnce(summaryRows)
+        .mockResolvedValueOnce([anaRow, goneRow]);
+      builder.getRawOne.mockResolvedValue({ total: 2 });
+    });
+
+    it("throws INVALID_PERIOD before resolving the scope or reading anything", async () => {
+      const failure = await httpFailure(
+        service.getOverview(COORDINATOR, { from: "2026-03-31", to: "2026-03-01" }),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(codeOf(failure)).toBe("INVALID_PERIOD");
+      expect(scope.populationOf).not.toHaveBeenCalled();
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it("reads every entry for coordination without search: no person filter", async () => {
+      await service.getOverview(COORDINATOR, {});
+
+      expect(scope.populationOf).toHaveBeenCalledWith(
+        COORDINATOR,
+        Permission.HOURS_VIEW_OTHERS,
+        undefined,
+      );
+      expect(builder.andWhere).not.toHaveBeenCalled();
+      expect(entryRepository.createQueryBuilder).toHaveBeenCalledTimes(3);
+    });
+
+    it("restricts the totals and the members to the population of the scope service, with the same period", async () => {
+      scope.populationOf.mockResolvedValue(populationOf([ANA, BRUNO]));
+
+      await service.getOverview(DIRECTOR, { from: "2026-03-01", to: "2026-03-31", search: "a" });
+
+      expect(scope.populationOf).toHaveBeenCalledWith(DIRECTOR, Permission.HOURS_VIEW_OTHERS, "a");
+      const filters = [
+        ["entry.date >= :from", { from: "2026-03-01" }],
+        ["entry.date <= :to", { to: "2026-03-31" }],
+        ["entry.person_id IN (:...personIds)", { personIds: [ANA, BRUNO] }],
+      ];
+      expect(builder.andWhere.mock.calls).toEqual([...filters, ...filters, ...filters]);
+    });
+
+    it("answers zero totals and an empty page, without querying the entries, when the population is nobody", async () => {
+      scope.populationOf.mockResolvedValue(populationOf([]));
+
+      const overview = await service.getOverview(DIRECTOR, { from: "2026-03-01", page: 3 });
+
+      expect(overview.members).toEqual({ data: [], total: 0, page: 3, limit: 20 });
+      expect(overview.summary).toMatchObject({ from: "2026-03-01", to: null, bankMinutes: 0 });
+      expect(overview.summary.byStatus.every((total) => total.entries === 0)).toBe(true);
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+      expect(members.findMemberRefs).not.toHaveBeenCalled();
+    });
+
+    it("orders the members by pending minutes, then declared minutes, then person id, and paginates in the query", async () => {
+      await service.getOverview(COORDINATOR, { page: 2, limit: 10 });
+
+      expect(builder.select).toHaveBeenCalledWith("entry.person_id", "personId");
+      expect(builder.addSelect.mock.calls).toEqual(
+        expect.arrayContaining([
+          ["COUNT(*)::int", "entries"],
+          ["COALESCE(SUM(entry.declared_minutes), 0)::int", "declaredMinutes"],
+          [
+            "COALESCE(SUM(entry.validated_minutes) FILTER (WHERE entry.status IN (:...bankStatuses)), 0)::int",
+            "bankMinutes",
+          ],
+          ["(COUNT(*) FILTER (WHERE entry.status = :pending))::int", "pendingEntries"],
+          [
+            "COALESCE(SUM(entry.declared_minutes) FILTER (WHERE entry.status = :pending), 0)::int",
+            "pendingMinutes",
+          ],
+        ]),
+      );
+      expect(builder.setParameters).toHaveBeenCalledWith({
+        pending: HourEntryStatus.PENDING,
+        bankStatuses: [HourEntryStatus.APPROVED, HourEntryStatus.ADJUSTED],
+      });
+      expect(builder.groupBy).toHaveBeenCalledWith("entry.person_id");
+      expect(builder.orderBy).toHaveBeenCalledWith('"pendingMinutes"', "DESC");
+      expect(builder.addOrderBy.mock.calls).toEqual([
+        ['"declaredMinutes"', "DESC"],
+        ["entry.person_id", "ASC"],
+      ]);
+      expect(builder.offset).toHaveBeenCalledWith(10);
+      expect(builder.limit).toHaveBeenCalledWith(10);
+    });
+
+    it("counts the members with COUNT(DISTINCT person_id) under the same filters", async () => {
+      const overview = await service.getOverview(COORDINATOR, {});
+
+      expect(builder.select).toHaveBeenCalledWith("COUNT(DISTINCT entry.person_id)::int", "total");
+      expect(builder.getRawOne).toHaveBeenCalledTimes(1);
+      expect(overview.members).toMatchObject({ total: 2, page: 1, limit: 20 });
+    });
+
+    it("names the members of the page with one call to findMemberRefs, and answers null for a person it no longer finds", async () => {
+      const overview = await service.getOverview(COORDINATOR, {});
+
+      expect(members.findMemberRefs).toHaveBeenCalledTimes(1);
+      expect(members.findMemberRefs).toHaveBeenCalledWith({ ids: [ANA, GONE] });
+      expect(overview.members.data).toEqual([
+        { ...anaRow, member: ANA_REF },
+        { ...goneRow, member: null },
+      ]);
+    });
+
+    it("does not call findMemberRefs for an empty page", async () => {
+      builder.getRawMany.mockReset();
+      builder.getRawMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+      const overview = await service.getOverview(COORDINATOR, { page: 9 });
+
+      expect(overview.members.data).toEqual([]);
+      expect(members.findMemberRefs).not.toHaveBeenCalled();
+    });
+
+    it("folds the totals with buildHoursSummary, echoing the period", async () => {
+      const overview = await service.getOverview(COORDINATOR, { from: "2026-03-01" });
+
+      expect(builder.groupBy).toHaveBeenCalledWith("entry.status");
+      expect(builder.addGroupBy).toHaveBeenCalledWith("entry.category");
+      expect(overview.summary).toMatchObject({ from: "2026-03-01", to: null, bankMinutes: 120 });
+      expect(overview.summary.byStatus).toEqual([
+        { status: "pending", entries: 1, declaredMinutes: 90, validatedMinutes: 0 },
+        { status: "approved", entries: 0, declaredMinutes: 0, validatedMinutes: 0 },
+        { status: "adjusted", entries: 1, declaredMinutes: 240, validatedMinutes: 120 },
+        { status: "rejected", entries: 2, declaredMinutes: 150, validatedMinutes: 0 },
+      ]);
+    });
+
+    it("throws on a member total that is not a whole number instead of publishing it", async () => {
+      builder.getRawMany.mockReset();
+      builder.getRawMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ ...anaRow, pendingMinutes: "90" }]);
+      await expect(service.getOverview(COORDINATOR, {})).rejects.toThrow(
+        "Hours overview row with a total that is not a whole number.",
+      );
+
+      builder.getRawMany.mockReset();
+      builder.getRawMany.mockResolvedValue([]);
+      for (const counted of [undefined, { total: "2" }, { total: 1.5 }]) {
+        builder.getRawOne.mockResolvedValueOnce(counted);
+        await expect(service.getOverview(COORDINATOR, {})).rejects.toThrow(
+          "Hours overview count that is not a whole number.",
+        );
+      }
+    });
+  });
+
+  describe("getMemberHours", () => {
+    beforeEach(() => {
+      builder.getManyAndCount.mockResolvedValue([[entryOf(ENTRY_A), entryOf(ENTRY_B)], 12]);
+    });
+
+    it("throws INVALID_PERIOD before reading the member", async () => {
+      const failure = await httpFailure(
+        service.getMemberHours(ANA, COORDINATOR, { from: "2026-03-31", to: "2026-03-01" }),
+      );
+
+      expect(codeOf(failure)).toBe("INVALID_PERIOD");
+      expect(members.findMemberRefs).not.toHaveBeenCalled();
+    });
+
+    it("throws MEMBER_NOT_FOUND when findMemberRefs does not find the person, before the scope", async () => {
+      members.findMemberRefs.mockResolvedValue([]);
+
+      const failure = await httpFailure(
+        service.getMemberHours(ANA.toUpperCase(), DIRECTOR_OF_OTHER_DEPARTMENT, {}),
+      );
+
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "MEMBER_NOT_FOUND",
+        message: "Member not found.",
+      });
+      expect(members.findMemberRefs).toHaveBeenCalledWith({ ids: [ANA.toUpperCase()] });
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it("throws FORBIDDEN_SCOPE to a director for a member of another department or without department", async () => {
+      const outside = await httpFailure(
+        service.getMemberHours(ANA, DIRECTOR_OF_OTHER_DEPARTMENT, {}),
+      );
+      expect(outside.getStatus()).toBe(403);
+      expect(codeOf(outside)).toBe("FORBIDDEN_SCOPE");
+
+      members.findMemberRefs.mockResolvedValue([{ ...ANA_REF, department: null }]);
+      const withoutDepartment = await httpFailure(service.getMemberHours(ANA, DIRECTOR, {}));
+      expect(codeOf(withoutDepartment)).toBe("FORBIDDEN_SCOPE");
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it("lets coordination read anyone, and a director a member of her own department, herself included", async () => {
+      for (const actor of [COORDINATOR, SUPERADMIN, DIRECTOR]) {
+        await expect(service.getMemberHours(ANA, actor, {})).resolves.toMatchObject({
+          member: ANA_REF,
+        });
+      }
+
+      const directorRef = { id: DIRECTOR.id, name: "Diego", department: ANA_REF.department };
+      members.findMemberRefs.mockResolvedValue([directorRef]);
+      await expect(service.getMemberHours(DIRECTOR.id, DIRECTOR, {})).resolves.toMatchObject({
+        member: directorRef,
+      });
+
+      members.findMemberRefs.mockResolvedValue([{ ...ANA_REF, department: null }]);
+      await expect(service.getMemberHours(ANA, COORDINATOR, {})).resolves.toMatchObject({
+        member: { department: null },
+      });
+    });
+
+    it("answers the member, the summary and the page of entries of the period, newest day first", async () => {
+      builder.getRawMany.mockResolvedValue([
+        {
+          status: "adjusted",
+          category: "meeting",
+          entries: 1,
+          declaredMinutes: 240,
+          validatedMinutes: 120,
+        },
+      ]);
+
+      const hours = await service.getMemberHours(ANA, COORDINATOR, {
+        from: "2026-03-01",
+        to: "2026-03-31",
+        page: 2,
+        limit: 5,
+      });
+
+      const filters = [
+        ["entry.date >= :from", { from: "2026-03-01" }],
+        ["entry.date <= :to", { to: "2026-03-31" }],
+        ["entry.person_id IN (:...personIds)", { personIds: [ANA] }],
+      ];
+      expect(builder.andWhere.mock.calls).toEqual([...filters, ...filters]);
+      expect(builder.orderBy).toHaveBeenCalledWith("entry.date", "DESC");
+      expect(builder.addOrderBy.mock.calls).toEqual([
+        ["entry.created_at", "DESC"],
+        ["entry.id", "DESC"],
+      ]);
+      expect(builder.offset).toHaveBeenCalledWith(5);
+      expect(builder.limit).toHaveBeenCalledWith(5);
+      expect(hours.member).toEqual(ANA_REF);
+      expect(hours.summary).toMatchObject({
+        from: "2026-03-01",
+        to: "2026-03-31",
+        bankMinutes: 120,
+      });
+      expect(hours.entries).toMatchObject({ total: 12, page: 2, limit: 5 });
+      expect(hours.entries.data.map((entry) => entry.id)).toEqual([ENTRY_A, ENTRY_B]);
+      expect(hours.entries.data[0]).not.toHaveProperty("deletedAt");
+    });
+  });
+
   describe("listEntries", () => {
     it("lists the pending entries by default, oldest day first, with the member of each from one call to findMemberRefs", async () => {
       builder.getManyAndCount.mockResolvedValue([

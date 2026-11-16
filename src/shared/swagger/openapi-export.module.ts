@@ -31,6 +31,8 @@ import { LessonsController } from "@modules/lessons/controllers/lessons.controll
 import { MemberHoursController } from "@modules/hours/controllers/member-hours.controller";
 import { MyHoursController } from "@modules/hours/controllers/my-hours.controller";
 import { HourEntriesController } from "@modules/hours/controllers/hour-entries.controller";
+import { HoursController } from "@modules/hours/controllers/hours.controller";
+import { MemberHoursViewController } from "@modules/hours/controllers/member-hours-view.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -82,6 +84,8 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     ClassLessonsController,
     MyHoursController,
     MemberHoursController,
+    MemberHoursViewController,
+    HoursController,
     HourEntriesController,
   ],
   providers: [
@@ -237,6 +241,8 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: HoursViewService,
       useValue: {
+        getOverview: async () => ({}),
+        getMemberHours: async () => ({}),
         listEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         getHistory: async () => [],
       },

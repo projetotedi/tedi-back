@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { ClassConstructor, plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { AdjustHourEntryDto } from "../dto/adjust-hour-entry.dto";
+import { HoursOverviewQueryDto } from "../dto/hours-overview-query.dto";
 import { ListHourEntriesQueryDto } from "../dto/list-hour-entries-query.dto";
 import { RejectHourEntryDto } from "../dto/reject-hour-entry.dto";
 import { ValidateHourEntriesDto } from "../dto/validate-hour-entries.dto";
@@ -95,6 +96,28 @@ describe("RejectHourEntryDto", () => {
 });
 
 describe("query DTOs", () => {
+  it("converts page and limit, and rejects a search over 100 characters (HoursOverviewQueryDto)", async () => {
+    const { instance, fields } = await check(HoursOverviewQueryDto, {
+      page: "3",
+      limit: "50",
+      search: "Ana",
+      from: "2026-03-01",
+      to: "2026-03-31",
+    });
+    expect(fields).toEqual([]);
+    expect(instance).toMatchObject({ page: 3, limit: 50, search: "Ana" });
+
+    expect((await check(HoursOverviewQueryDto, { search: "a".repeat(100) })).fields).toEqual([]);
+    expect((await check(HoursOverviewQueryDto, { search: "a".repeat(101) })).fields).toEqual([
+      "search",
+    ]);
+    expect((await check(HoursOverviewQueryDto, { page: "x", limit: "0" })).fields).toEqual([
+      "limit",
+      "page",
+    ]);
+    expect((await check(HoursOverviewQueryDto, { to: "2026-02-30" })).fields).toEqual(["to"]);
+  });
+
   it("accepts every status and a uuid as personId, and rejects others (ListHourEntriesQueryDto)", async () => {
     for (const status of Object.values(HourEntryStatus)) {
       expect((await check(ListHourEntriesQueryDto, { status })).fields).toEqual([]);

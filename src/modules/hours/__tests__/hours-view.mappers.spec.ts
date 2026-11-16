@@ -6,7 +6,11 @@ import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import { toHourEntryResponse } from "../services/hour-entry-response.mapper";
-import { toHourEntryEventResponse, toMemberHourEntry } from "../services/hours-view.mappers";
+import {
+  toHourEntryEventResponse,
+  toHoursMemberTotal,
+  toMemberHourEntry,
+} from "../services/hours-view.mappers";
 
 const AT = new Date("2026-03-12T13:00:00.000Z");
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
@@ -72,6 +76,24 @@ describe("hours view mappers", () => {
     expect(mapped).not.toHaveProperty("deletedAt");
     expect(mapped).not.toHaveProperty("actorId");
     expect(toHourEntryEventResponse(event, null).actor).toBeNull();
+  });
+
+  it("maps a member total and keeps the member null when it is not found", () => {
+    const row = {
+      personId: PERSON_ID,
+      entries: 4,
+      declaredMinutes: 600,
+      bankMinutes: 180,
+      pendingEntries: 1,
+      pendingMinutes: 90,
+    };
+    const member = { id: PERSON_ID, name: "Ana Souza", department: null };
+
+    expect(toHoursMemberTotal(row, member)).toEqual({ ...row, member });
+    expect(toHoursMemberTotal(row, null)).toEqual({ ...row, member: null });
+    expect(() => toHoursMemberTotal({ ...row, bankMinutes: Number.NaN }, null)).toThrow(
+      "Hours overview row with a total that is not a whole number.",
+    );
   });
 
   it("adds the member to every field of the entry", () => {
