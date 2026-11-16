@@ -1,0 +1,29 @@
+meta {
+  name: remove-my-hour-entry
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/me/hour-entries/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000010
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Remove um lançamento de horas da pessoa logada (F7.1). Só lançamento pending e só da própria pessoa, inclusive um que a diretoria lançou em nome dela.
+  Requer cookie tedi_session e a permissão account.manageOwn (@RequirePermission; todos os perfis).
+  É exclusão lógica: a linha fica com deleted_at, sai do extrato e do resumo, e o histórico ganha o evento removed (de pending e dos minutos declarados para nada, com quem removeu). O evento created continua lá.
+  Para corrigir um lançamento, remova e lance de novo: não existe edição.
+  O lançamento fica travado (FOR UPDATE) até o fim da transação: duas remoções ao mesmo tempo removem uma vez só, e a outra responde 404.
+  Retorna 204 sem corpo. Registra HOUR_ENTRY_REMOVED.
+  Erros possíveis: 401, 404 HOUR_ENTRY_NOT_FOUND (id mal formado, inexistente, de outra pessoa ou já removido), 409 ENTRY_NOT_PENDING (approved, adjusted ou rejected).
+}

@@ -78,6 +78,10 @@ export enum AuditableAction {
   LESSON_ASSIGNMENT_CONFIRMED = "LESSON_ASSIGNMENT_CONFIRMED",
   /** A pending or confirmed assignment was cancelled; the row stays. The note is never in the payload (RNF-13, GUS-158). */
   LESSON_ASSIGNMENT_CANCELLED = "LESSON_ASSIGNMENT_CANCELLED",
+  /** An hour entry was logged: by the person, on her behalf or by the attendance (GUS-162). No free text in the payload (RNF-13). */
+  HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
+  /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */
+  HOUR_ENTRY_REMOVED = "HOUR_ENTRY_REMOVED",
 }
 
 /**
@@ -87,7 +91,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change
