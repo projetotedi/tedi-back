@@ -10,12 +10,14 @@ import { Role } from "@shared/enums/role.enum";
 import { PeopleModule } from "../people.module";
 import { PeopleService } from "../services/people.service";
 import { StudentsService } from "../services/students.service";
+import { MEMBER_EXIT_REASON_MAX_LENGTH } from "../dto/member-exit-limits";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 
 config();
 
@@ -414,20 +416,65 @@ describe("people repository (e2e)", () => {
       expect(plan).toContain("idx_people_name_search");
     });
 
-    it("has the three named foreign keys of member_profiles", async () => {
+    it("has the four named foreign keys of member_profiles", async () => {
       const declared = declaredForeignKeys(MemberProfile);
 
       expect(declared.map((foreignKey) => foreignKey.constraint_name)).toEqual([
+        "fk_member_profiles_deactivated_by_id",
         "fk_member_profiles_department_id",
         "fk_member_profiles_person_id",
         "fk_member_profiles_reviewed_by_id",
       ]);
       expect(declared.map((foreignKey) => foreignKey.referenced_table)).toEqual([
+        "people",
         "departments",
         "people",
         "people",
       ]);
       expect(await actualForeignKeys("member_profiles")).toEqual(declared);
+    });
+
+    it("has the enum type member_profiles_status_enum with the values of MemberStatus, in order", async () => {
+      const rows: Array<{ enumlabel: string }> = await dataSource.query(
+        `SELECT e.enumlabel
+           FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'member_profiles_status_enum'
+          ORDER BY e.enumsortorder`,
+      );
+
+      expect(rows.map((row) => row.enumlabel)).toEqual(["active", "inactive"]);
+      expect(rows.map((row) => row.enumlabel)).toEqual(Object.values(MemberStatus));
+    });
+
+    it("has the check constraint ck_member_profiles_exit_date declared by the entity", async () => {
+      const declared = dataSource
+        .getMetadata(MemberProfile)
+        .checks.map((check) => ({ name: check.name, expression: check.expression }));
+      expect(declared).toEqual([
+        {
+          name: "ck_member_profiles_exit_date",
+          expression: `("status" = 'inactive') = ("exit_date" IS NOT NULL)`,
+        },
+      ]);
+
+      const actual: Array<{ conname: string; definition: string }> = await dataSource.query(
+        `SELECT conname, pg_get_constraintdef(oid) AS definition
+           FROM pg_constraint
+          WHERE conrelid = 'member_profiles'::regclass AND contype = 'c'`,
+      );
+
+      expect(actual.map((check) => check.conname)).toEqual(["ck_member_profiles_exit_date"]);
+      expect(actual[0].definition).toMatch(/status.*'inactive'/);
+      expect(actual[0].definition).toMatch(/exit_date IS NOT NULL/);
+    });
+
+    it("keeps MEMBER_EXIT_REASON_MAX_LENGTH equal to the length of exit_reason, and exit_note as text", async () => {
+      const columns = Object.fromEntries(
+        (await actualColumns("member_profiles")).map((column) => [column.name, column]),
+      );
+
+      expect(columns.exit_reason.length).toBe(MEMBER_EXIT_REASON_MAX_LENGTH);
+      expect(columns.exit_note).toMatchObject({ type: "text", length: null });
     });
 
     it("defaults accessibility_need to none", async () => {
@@ -628,6 +675,91 @@ describe("people repository (e2e)", () => {
         [person.id],
       );
       expect(rows).toEqual([{ joined_at: "2026-09-01" }]);
+    });
+
+    it("defaults status to active with the exit columns null", async () => {
+      const person = await service.save({ name: "Ana Torres" });
+
+      await dataSource.query(
+        `INSERT INTO member_profiles (id, person_id) VALUES (gen_random_uuid(), $1)`,
+        [person.id],
+      );
+
+      const rows: unknown[] = await dataSource.query(
+        `SELECT status, exit_date, exit_reason, exit_note, deactivated_at, deactivated_by_id
+           FROM member_profiles WHERE person_id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([
+        {
+          status: "active",
+          exit_date: null,
+          exit_reason: null,
+          exit_note: null,
+          deactivated_at: null,
+          deactivated_by_id: null,
+        },
+      ]);
+    });
+
+    it("rejects status inactive without exit_date, and an exit_date on an active profile, with 23514 on ck_member_profiles_exit_date", async () => {
+      const person = await service.save({ name: "Ana Torres" });
+
+      await expect(
+        dataSource.query(
+          `INSERT INTO member_profiles (id, person_id, status) VALUES (gen_random_uuid(), $1, 'inactive')`,
+          [person.id],
+        ),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_member_profiles_exit_date" });
+      await expect(
+        dataSource.query(
+          `INSERT INTO member_profiles (id, person_id, exit_date) VALUES (gen_random_uuid(), $1, '2026-09-30')`,
+          [person.id],
+        ),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_member_profiles_exit_date" });
+
+      await dataSource.query(
+        `INSERT INTO member_profiles (id, person_id, status, exit_date)
+         VALUES (gen_random_uuid(), $1, 'inactive', '2026-09-30')`,
+        [person.id],
+      );
+    });
+
+    it("round-trips the exit of an inactive profile, with exitDate as YYYY-MM-DD", async () => {
+      const coordinator = await service.save({ name: "Coordinator", role: Role.COORDINATOR });
+      const person = await service.save({ name: "Ana Torres", role: Role.MEMBER });
+      const deactivatedAt = new Date("2026-10-01T13:00:00.000Z");
+
+      const repository = dataSource.getRepository(MemberProfile);
+      await repository.save(
+        repository.create({
+          personId: person.id,
+          registrationStatus: MemberRegistrationStatus.APPROVED,
+          joinedAt: "2026-03-01",
+          status: MemberStatus.INACTIVE,
+          exitDate: "2026-09-30",
+          exitReason: "Formou-se.",
+          exitNote: "Vai fazer mestrado em outra cidade.",
+          deactivatedAt,
+          deactivatedById: coordinator.id,
+        }),
+      );
+
+      const loaded = await repository.findOneByOrFail({ personId: person.id });
+      expect(loaded).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+        exitNote: "Vai fazer mestrado em outra cidade.",
+        deactivatedById: coordinator.id,
+      });
+      expect(loaded.deactivatedAt).toEqual(deactivatedAt);
+
+      const rows: Array<{ exit_date: string }> = await dataSource.query(
+        `SELECT exit_date::text AS exit_date FROM member_profiles WHERE person_id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([{ exit_date: "2026-09-30" }]);
     });
 
     it("backfill approves existing members and directors once and skips coordinators, superadmin, people without role and soft-deleted people", async () => {
