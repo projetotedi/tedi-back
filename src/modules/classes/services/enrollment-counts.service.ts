@@ -14,12 +14,13 @@ export interface ActiveEnrollmentPreviewRow {
 }
 
 /**
- * What the module knows about the ACTIVE enrollments (not removed, status active) of a class or of a
- * student. Its consumers:
+ * What the module knows about the enrollments of a class or of a student: the ACTIVE ones (not
+ * removed, status active) and, for the change of course, the LIVE ones (not removed, any status).
+ * Its consumers:
  *
  * - ClassesService asks `countActive` before it archives a class (409
- *   CLASS_HAS_ACTIVE_ENROLLMENTS), before it lowers the seats (409 CAPACITY_BELOW_ENROLLED) and
- *   before it changes the course of a class (409 COURSE_CHANGE_NOT_ALLOWED, GUS-102).
+ *   CLASS_HAS_ACTIVE_ENROLLMENTS) and before it lowers the seats (409 CAPACITY_BELOW_ENROLLED), and
+ *   `countLive` before it changes the course of a class (409 COURSE_CHANGE_NOT_ALLOWED, GUS-102).
  * - EnrollmentsService (GUS-108) asks `countActive` for the seats left before it enrolls or
  *   reactivates.
  * - CourseClassesService asks `countActiveByClass` for the whole page of the classes of a course,
@@ -54,6 +55,23 @@ export class EnrollmentCountsService implements StudentEnrollmentsReader, OnModu
          FROM enrollments
         WHERE class_id = $1 AND status = $2 AND deleted_at IS NULL`,
       [classId, EnrollmentStatus.ACTIVE],
+    );
+    return rows[0].total;
+  }
+
+  /**
+   * The enrollments of the class that are not removed, in ANY status. It is what blocks the change
+   * of course (409 COURSE_CHANGE_NOT_ALLOWED): a completed enrollment is a course the student
+   * completed (RN-16, derived from the course of the class), and a dropped one is history of that
+   * course, so moving the class to another course would rewrite both. Archiving the class and
+   * lowering its seats look only at the active ones (`countActive`).
+   */
+  async countLive(manager: EntityManager, classId: string): Promise<number> {
+    const rows: Array<{ total: number }> = await manager.query(
+      `SELECT COUNT(*)::int AS "total"
+         FROM enrollments
+        WHERE class_id = $1 AND deleted_at IS NULL`,
+      [classId],
     );
     return rows[0].total;
   }

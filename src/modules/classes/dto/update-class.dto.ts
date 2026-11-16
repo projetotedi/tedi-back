@@ -28,7 +28,7 @@ import { CreateClassDto, lowerCase } from "./create-class.dto";
  * clear; every other field is never null.
  *
  * `courseId` moves the class to another course, and only while the class is planned and has no
- * active enrollments (RN-13, GUS-102): the service answers 409 COURSE_CHANGE_NOT_ALLOWED otherwise.
+ * enrollments, in any status (RN-13, GUS-102, GUS-108): the service answers 409 COURSE_CHANGE_NOT_ALLOWED otherwise.
  * The same course the class has is not a change. There is no `category`: a class shows the one of
  * its course (RN-14), so a `category` in the body is ignored.
  *
@@ -38,7 +38,7 @@ import { CreateClassDto, lowerCase } from "./create-class.dto";
  */
 @ApiSchema({
   description:
-    "Every field is optional: omit to keep. courseId moves the class to another course, only while it is planned and has no active enrollments. There is no category: the class shows the one of its course, and a category in the body is ignored.",
+    "Every field is optional: omit to keep. courseId moves the class to another course, only while it is planned and has no enrollments (active, dropped or completed; a removed one does not count). There is no category: the class shows the one of its course, and a category in the body is ignored.",
 })
 export class UpdateClassDto extends PartialType(
   OmitType(CreateClassDto, [
@@ -56,7 +56,7 @@ export class UpdateClassDto extends PartialType(
     format: "uuid",
     example: "01999a3e-7c1b-7000-8000-000000000001",
     description:
-      "Omit to keep. Never null. Id of another course. It changes only while the class is planned and has no active enrollments (409 COURSE_CHANGE_NOT_ALLOWED), and the new course must be active (400 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED). The course the class already has is not a change.",
+      "Omit to keep. Never null. Id of another course. It changes only while the class is planned and has no enrollments, in any status (409 COURSE_CHANGE_NOT_ALLOWED), and the new course must be active (400 COURSE_NOT_FOUND, 409 COURSE_ARCHIVED). The course the class already has is not a change.",
   })
   @ValidateIf((_, value) => value !== undefined)
   @Transform(lowerCase)

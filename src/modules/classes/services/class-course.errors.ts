@@ -32,13 +32,12 @@ export function courseArchived(): HttpException {
   );
 }
 
-/** The course of a class changes only while it is planned and has no active enrollments: 409. */
+/** The course of a class changes only while it is planned and has no enrollments, in any status: 409. */
 export function courseChangeNotAllowed(): HttpException {
   return new HttpException(
     {
       error: "COURSE_CHANGE_NOT_ALLOWED",
-      message:
-        "The course of a class can only change while it is planned and has no active enrollments.",
+      message: "The course of a class can only change while it is planned and has no enrollments.",
     },
     409,
   );

@@ -96,6 +96,7 @@ describe("ClassesController (e2e)", () => {
   // The rules that depend on the active enrollments (archive, seats, change of course) run on real
   // enrollments (GUS-108); the spy only records the calls of the real provider.
   let countActive: jest.SpyInstance;
+  let countLive: jest.SpyInstance;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -141,6 +142,7 @@ describe("ClassesController (e2e)", () => {
       "TRUNCATE TABLE enrollments, classes, editions, course_prerequisites, courses, student_profiles, people RESTART IDENTITY CASCADE",
     );
     countActive = jest.spyOn(module.get(EnrollmentCountsService), "countActive");
+    countLive = jest.spyOn(module.get(EnrollmentCountsService), "countLive");
 
     director = await createActor("Director", Role.DIRECTOR);
     coordinator = await createActor("Coordinator", Role.COORDINATOR);
@@ -151,6 +153,7 @@ describe("ClassesController (e2e)", () => {
   afterEach(() => {
     eventEmitter.removeAllListeners(AUDITABLE_ACTION_EVENT);
     countActive.mockRestore();
+    countLive.mockRestore();
   });
 
   /** `count` real students with an active enrollment in the class (by SQL: scenery, not the rule). */
@@ -1121,13 +1124,16 @@ describe("ClassesController (e2e)", () => {
           statusCode: 409,
           error: "COURSE_CHANGE_NOT_ALLOWED",
           message:
-            "The course of a class can only change while it is planned and has no active enrollments.",
+            "The course of a class can only change while it is planned and has no enrollments.",
         });
-        expect(countActive).toHaveBeenCalledWith(expect.anything(), created.id);
+        expect(countLive).toHaveBeenCalledWith(expect.anything(), created.id);
         expect(await storedClass(created.id)).toMatchObject({ course_id: courseId, capacity: 15 });
 
-        // Without an active enrollment it moves, and the answer is the class with the new course.
-        await dropAll(created.id);
+        // Without any enrollment left (the only one removed, by SQL) it moves, and the answer is the
+        // class with the new course. Dropping it is not enough: see the next test.
+        await dataSource.query(`UPDATE enrollments SET deleted_at = now() WHERE class_id = $1`, [
+          created.id,
+        ]);
         const moved = await patchClass(created.id, director, { courseId: intermediate }).expect(
           200,
         );
@@ -1196,6 +1202,30 @@ describe("ClassesController (e2e)", () => {
           changedFields: ["courseId", "code", "capacity"],
         });
       });
+
+      it.each([EnrollmentStatus.COMPLETED, EnrollmentStatus.DROPPED])(
+        "refuses COURSE_CHANGE_NOT_ALLOWED when the class has a %s enrollment",
+        async (status) => {
+          const created = await createClass();
+          const intermediate = await createCourse("Informática Intermediária", "intermediate");
+          // No active enrollment: only a completed (a course the student completed, RN-16) or a
+          // dropped one, which moving the class would rewrite as another course.
+          await insertEnrollments(dataSource, {
+            classId: created.id,
+            createdById: director.id,
+            count: 1,
+            status,
+          });
+
+          const res = await patchClass(created.id, director, { courseId: intermediate }).expect(
+            409,
+          );
+
+          expect(res.body.error).toBe("COURSE_CHANGE_NOT_ALLOWED");
+          expect(countLive).toHaveBeenCalledWith(expect.anything(), created.id);
+          expect(await storedClass(created.id)).toMatchObject({ course_id: courseId });
+        },
+      );
 
       it("returns 409 COURSE_CHANGE_NOT_ALLOWED for a class that is not planned, even if the body sends planned", async () => {
         const created = await createClass();

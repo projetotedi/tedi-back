@@ -84,4 +84,17 @@ describe("EnrollmentCountsService", () => {
     expect(calls[2].sql).toContain("ORDER BY enrolled_at, id");
     expect(calls[2].sql).toContain("LIMIT $3");
   });
+
+  it("counts the live enrollments of a class, in any status, for the change of course", async () => {
+    query.mockResolvedValueOnce([{ total: 3 }]);
+
+    await expect(service.countLive(manager, CLASS_ID)).resolves.toBe(3);
+
+    const [sql, parameters] = query.mock.calls[0];
+    expect(parameters).toEqual([CLASS_ID]);
+    expect(sql).toContain("deleted_at IS NULL");
+    // Every status counts: a completed enrollment is a course the student completed (RN-16).
+    expect(sql).not.toContain("status");
+    expect(sql).not.toMatch(/FOR (UPDATE|SHARE|NO KEY|KEY)/);
+  });
 });

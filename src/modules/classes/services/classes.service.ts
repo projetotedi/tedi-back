@@ -241,7 +241,9 @@ export class ClassesService {
    * Edits a class. Every field is optional: omitted keeps, `name` and `location` sent as null
    * clear. `editionName` moves the class to that edition, created on demand. `courseId` moves the
    * class to another course (RN-13, GUS-102), but only while the class is planned and has no
-   * active enrollments. The status that counts is the one stored, not the one in the body: the
+   * enrollment that is not removed, in any status: a completed enrollment is a course the student
+   * completed (RN-16), derived from the course of the class, so moving it would rewrite the history
+   * (GUS-108). The status that counts is the one stored, not the one in the body: the
    * rule protects a class that has already started, and a body that sends `planned` together with
    * a new course does not get around it. The same course the class has is not a change, so a form
    * that sends every field back works for a class in progress too. The status takes any value: the
@@ -251,7 +253,7 @@ export class ClassesService {
    * classes are read-only, RN-27), 400 INVALID_PERIOD (the period that results, with the dates
    * sent and the ones already stored, must end on or after it starts), 409
    * COURSE_CHANGE_NOT_ALLOWED (only when the course changes: the class is not planned, or has
-   * active enrollments), 400 COURSE_NOT_FOUND and 409 COURSE_ARCHIVED (only for the new course,
+   * enrollments that are not removed), 400 COURSE_NOT_FOUND and 409 COURSE_ARCHIVED (only for the new course,
    * read `FOR SHARE`, see `loadActiveCourse`), 409 CLASS_CODE_TAKEN (only when the code or the
    * edition changes; the class itself is left out of the check, so changing only the case of its
    * own code passes) and 409 CAPACITY_BELOW_ENROLLED (only when the seats change, and below the
@@ -295,8 +297,8 @@ export class ClassesService {
       let course: CourseSummary;
       if (courseChanged) {
         if (schoolClass.status !== ClassStatus.PLANNED) throw courseChangeNotAllowed();
-        const active = await this.enrollmentCounts.countActive(manager, schoolClass.id);
-        if (active > 0) throw courseChangeNotAllowed();
+        const live = await this.enrollmentCounts.countLive(manager, schoolClass.id);
+        if (live > 0) throw courseChangeNotAllowed();
 
         course = await this.loadActiveCourse(manager, nextCourseId);
 
