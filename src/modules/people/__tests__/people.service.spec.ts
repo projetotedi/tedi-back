@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { In, Repository } from "typeorm";
+import { HttpException } from "@nestjs/common";
+import { EntityManager, In, Repository } from "typeorm";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "../entities/person.entity";
 import { PeopleService } from "../services/people.service";
@@ -161,6 +162,45 @@ describe("PeopleService", () => {
         select: { id: true, name: true },
         where: { id: In([FIRST_ID, SECOND_ID]) },
       });
+    });
+  });
+
+  describe("assertNotLastActiveCoordinator", () => {
+    function managerCounting(count: number): { count: jest.Mock } {
+      return { count: jest.fn().mockResolvedValue(count) };
+    }
+
+    it("counts coordinators with access enabled on the given manager and passes with two", async () => {
+      const manager = managerCounting(2);
+
+      await expect(
+        service.assertNotLastActiveCoordinator(manager as unknown as EntityManager),
+      ).resolves.toBeUndefined();
+
+      expect(manager.count).toHaveBeenCalledTimes(1);
+      expect(manager.count).toHaveBeenCalledWith(Person, {
+        where: { role: Role.COORDINATOR, accessEnabled: true },
+      });
+      expect(repo.findOne).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 LAST_COORDINATOR with one or no active coordinator", async () => {
+      for (const count of [1, 0]) {
+        const failure: unknown = await service
+          .assertNotLastActiveCoordinator(managerCounting(count) as unknown as EntityManager)
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+
+        expect(failure).toBeInstanceOf(HttpException);
+        if (!(failure instanceof HttpException)) continue;
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "LAST_COORDINATOR",
+          message: "Cannot demote or disable the last active coordinator.",
+        });
+      }
     });
   });
 });
