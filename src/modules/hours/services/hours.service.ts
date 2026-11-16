@@ -210,10 +210,11 @@ export class HoursService {
    * `on_behalf` and authored by herself. A director only for a member of her own department;
    * coordination and the superadmin for any member.
    *
-   * Errors, in the order they are answered: 400 VALIDATION_FAILED (the DTO), 400
-   * SELF_ON_BEHALF_NOT_ALLOWED (the id is the actor's, in any letter case, before the target is
-   * read), 404 MEMBER_NOT_FOUND, 403 FORBIDDEN_SCOPE and 400 HOUR_ENTRY_DATE_IN_FUTURE. The 404
-   * comes before the 403, as in the member record. Emits HOUR_ENTRY_CREATED after the commit.
+   * Errors, in the order they are answered: 404 MEMBER_NOT_FOUND for a malformed id (the pipe of
+   * the route, before the body), 400 VALIDATION_FAILED (the DTO), 400 SELF_ON_BEHALF_NOT_ALLOWED
+   * (the id is the actor's, in any letter case, before the target is read), 404 MEMBER_NOT_FOUND,
+   * 403 FORBIDDEN_SCOPE and 400 HOUR_ENTRY_DATE_IN_FUTURE. The 404 comes before the 403, as in the
+   * member record. Emits HOUR_ENTRY_CREATED after the commit.
    *
    * The scope is read before the transaction: a change of department at the same instant is not
    * serialized with the entry (accepted, as in the member record).
