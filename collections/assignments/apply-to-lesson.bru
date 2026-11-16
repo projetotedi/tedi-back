@@ -1,0 +1,40 @@
+meta {
+  name: apply-to-lesson
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/lessons/:id/applications
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "role": "monitor",
+    "note": "Posso chegar 15 min antes para ligar os computadores."
+  }
+}
+
+docs {
+  Candidata-se a uma aula, como monitor ou professor (F5.1, modal Candidatar-se). O :id é o id da aula.
+  Requer cookie tedi_session e a permissão assignments.manageOwn (@RequirePermission; todo perfil, sobre si mesmo). O candidato é sempre quem está logado: o corpo não tem personId, e personId, status ou source enviados são ignorados. Membro, diretoria, coordenação e superadmin se candidatam para si; quem não é membro ativo (perfil inativo, por exemplo) recebe 409 MEMBER_INACTIVE.
+  Corpo: role (teacher ou monitor, obrigatório) e note (opcional, até 500 caracteres; null ou em branco significa sem nota). A nota é a "Observação para quem vai aprovar": texto livre, não registre informação de saúde (RNF-13). Só quem revisa (assignments.review) e a própria autora a leem.
+  A candidatura nasce pending, source application, com createdById = o próprio membro. Vaga é a cobertura: só alocação confirmada ocupa lugar, então candidatura pendente não ocupa vaga e várias candidaturas podem disputar o mesmo lugar (quem ocupa é a aprovação, approve-application). Professor tem vaga enquanto a aula não tem professor confirmado; monitor, enquanto os monitores confirmados estão abaixo de expectedMonitors (expectedMonitors nulo ou 0 não espera ninguém: sem vaga). Sem vaga para o papel: 409 ROLE_FULL.
+  Um membro ocupa um lugar por aula: se ele já tem alocação ou candidatura ativa (pending ou confirmed) na aula, direta ou candidatura, com qualquer papel, é 409 ALREADY_APPLIED. Candidatura recusada e alocação cancelada liberam o lugar: ele pode se candidatar de novo.
+  Aula cancelada não recebe candidatura (409 LESSON_CANCELLED), nem aula antes de hoje em America/Sao_Paulo (409 LESSON_IN_PAST); a aula de hoje ainda aceita.
+  Ordem dos erros: 400 VALIDATION_FAILED, 404 LESSON_NOT_FOUND, 409 LESSON_CANCELLED, 409 LESSON_IN_PAST, 409 MEMBER_INACTIVE, 409 ALREADY_APPLIED, 409 ROLE_FULL.
+  A aula e o membro ficam travados (FOR SHARE) até o fim da transação, como na alocação direta. Não há advisory lock aqui: como a candidatura não ocupa vaga, ela é exata na aprovação. Duas candidaturas do mesmo membro ao mesmo tempo terminam com uma só (o índice do lugar ativo recusa a segunda, que vira o mesmo 409 ALREADY_APPLIED).
+  Retorna 201 LessonAssignmentResponseDto, com a nota que a autora acabou de escrever. Depois do commit registra o evento LESSON_ASSIGNMENT_APPLIED, com o membro como ator e sem a nota. A situação aparece em list-my-assignments ("Aguardando confirmação").
+  Erros possíveis: 400, 401, 404 LESSON_NOT_FOUND (id inexistente ou mal formado), 409 (os códigos acima).
+}

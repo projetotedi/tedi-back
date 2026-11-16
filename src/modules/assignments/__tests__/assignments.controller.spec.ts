@@ -7,12 +7,14 @@ import { Role } from "@shared/enums/role.enum";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { AssignmentsController } from "../controllers/assignments.controller";
+import { LessonApplicationsController } from "../controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "../controllers/lesson-assignments.controller";
 import { MemberAssignmentsController } from "../controllers/member-assignments.controller";
 import { LessonAssignmentResponseDto } from "../dto/lesson-assignment.response.dto";
 import { MemberAssignmentResponseDto } from "../dto/member-assignment.response.dto";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
+import { ApplicationsService } from "../services/applications.service";
 import { AssignmentsService } from "../services/assignments.service";
 
 const LESSON_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
@@ -27,7 +29,16 @@ const ACTOR: AuthUser = {
 type Controller =
   | typeof LessonAssignmentsController
   | typeof AssignmentsController
-  | typeof MemberAssignmentsController;
+  | typeof MemberAssignmentsController
+  | typeof LessonApplicationsController;
+
+/** Every controller of the module: the three of the GUS-158 and the ones of the applications. */
+const CONTROLLERS = [
+  LessonAssignmentsController,
+  AssignmentsController,
+  MemberAssignmentsController,
+  LessonApplicationsController,
+] as const;
 
 function handlerOf(controller: Controller, name: string): () => void {
   return (controller.prototype as unknown as Record<string, () => void>)[name];
@@ -49,6 +60,7 @@ describe("the controllers of the assignments", () => {
     [AssignmentsController, "confirmAssignment", Permission.ASSIGNMENTS_CREATE],
     [AssignmentsController, "cancelAssignment", Permission.ASSIGNMENTS_CREATE],
     [MemberAssignmentsController, "listMemberAssignments", Permission.MEMBERS_VIEW],
+    [LessonApplicationsController, "applyToLesson", Permission.ASSIGNMENTS_MANAGE_OWN],
   ] as const)("protects %s.%s with %s and no @Roles", (controller, name, permission) => {
     const handler = handlerOf(controller, name);
 
@@ -92,6 +104,13 @@ describe("the controllers of the assignments", () => {
       path: "/",
       base: "members/:id/assignments",
     },
+    {
+      controller: LessonApplicationsController,
+      name: "applyToLesson",
+      method: RequestMethod.POST,
+      path: "/",
+      base: "lessons/:id/applications",
+    },
   ] as const)("routes $name on $method $base/$path", ({ controller, name, method, path, base }) => {
     const handler = handlerOf(controller, name);
 
@@ -100,10 +119,8 @@ describe("the controllers of the assignments", () => {
     expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(base);
   });
 
-  it("has exactly the five routes of the card, and none to delete an assignment: it is cancelled and stays", () => {
-    const routes = (
-      [LessonAssignmentsController, AssignmentsController, MemberAssignmentsController] as const
-    ).flatMap((controller) =>
+  it("has exactly the six routes of the two cards, and none to delete an assignment: it is cancelled and stays", () => {
+    const routes = CONTROLLERS.flatMap((controller: Controller) =>
       Object.getOwnPropertyNames(controller.prototype)
         .filter((name) => name !== "constructor")
         .map((name) => ({
@@ -113,6 +130,7 @@ describe("the controllers of the assignments", () => {
     );
 
     expect(routes.map((route) => route.name).sort()).toEqual([
+      "applyToLesson",
       "cancelAssignment",
       "confirmAssignment",
       "createAssignment",
@@ -129,6 +147,7 @@ describe("the controllers of the assignments", () => {
       [AssignmentsController, "confirmAssignment"],
       [AssignmentsController, "cancelAssignment"],
       [MemberAssignmentsController, "listMemberAssignments"],
+      [LessonApplicationsController, "applyToLesson"],
     ] as const) {
       expect(pipesOfId(controller, name)).toHaveLength(1);
     }
@@ -202,6 +221,28 @@ describe("the controllers of the assignments", () => {
       ).resolves.toBe(memberAssignments);
 
       expect(service.listByMember).toHaveBeenCalledWith(PERSON_ID, ACTOR);
+    });
+
+    describe("the applications (GUS-160)", () => {
+      const applications = { apply: jest.fn() };
+      const lessonApplications = new LessonApplicationsController(
+        applications as unknown as ApplicationsService,
+      );
+
+      beforeEach(() => {
+        applications.apply.mockResolvedValue(assignment);
+      });
+
+      it("delegates applyToLesson with the lesson, the body and the whole actor", async () => {
+        const dto = { role: AssignmentRole.MONITOR, note: "Chego antes." };
+
+        await expect(lessonApplications.applyToLesson(LESSON_ID, dto, ACTOR)).resolves.toBe(
+          assignment,
+        );
+
+        // The whole AuthUser: the applicant is the person of the session.
+        expect(applications.apply).toHaveBeenCalledWith(LESSON_ID, dto, ACTOR);
+      });
     });
 
     it("passes the failure of the service on as it is", async () => {

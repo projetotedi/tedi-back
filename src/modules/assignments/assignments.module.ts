@@ -5,9 +5,11 @@ import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { AssignmentsController } from "./controllers/assignments.controller";
+import { LessonApplicationsController } from "./controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "./controllers/lesson-assignments.controller";
 import { MemberAssignmentsController } from "./controllers/member-assignments.controller";
 import { LessonAssignment } from "./entities/lesson-assignment.entity";
+import { ApplicationsService } from "./services/applications.service";
 import { AssignmentsService } from "./services/assignments.service";
 import { LessonStaffCounterService } from "./services/lesson-staff-counter.service";
 
@@ -27,10 +29,15 @@ import { LessonStaffCounterService } from "./services/lesson-staff-counter.servi
     PeopleModule,
     PermissionsModule,
   ],
-  controllers: [LessonAssignmentsController, AssignmentsController, MemberAssignmentsController],
+  controllers: [
+    LessonAssignmentsController,
+    LessonApplicationsController,
+    AssignmentsController,
+    MemberAssignmentsController,
+  ],
   // LessonStaffCounterService plugs itself in the LessonCoverageRegistry in onModuleInit, so every
   // answer of the lessons counts the confirmed staff through it (F5.4).
-  providers: [AssignmentsService, LessonStaffCounterService, Clock],
+  providers: [AssignmentsService, ApplicationsService, LessonStaffCounterService, Clock],
   // Nobody consumes the assignments yet: the attendance and the hours (GUS-166, GUS-168) will say
   // what they need, and the export is added then.
   exports: [],

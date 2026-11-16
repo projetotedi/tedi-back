@@ -1,5 +1,7 @@
+import { LessonAgendaRef } from "@modules/lessons/services/lesson-listing.service";
 import { LessonSummary } from "@modules/lessons/services/lessons.service";
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
+import { AssignmentLessonResponseDto } from "../dto/assignment-lesson.response.dto";
 import { LessonAssignmentResponseDto } from "../dto/lesson-assignment.response.dto";
 import { MemberAssignmentResponseDto } from "../dto/member-assignment.response.dto";
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
@@ -69,5 +71,23 @@ export function toMemberAssignmentResponse(
     status: assignment.status,
     source: assignment.source,
     createdAt: assignment.createdAt,
+  };
+}
+
+/**
+ * The lesson as the agenda of the member and the pending applications show it (GUS-160): what says
+ * which one it is, when and where, its position in the sequence and its class.
+ */
+export function toAssignmentLesson(ref: LessonAgendaRef): AssignmentLessonResponseDto {
+  return {
+    id: ref.id,
+    title: ref.title,
+    date: ref.date,
+    startTime: ref.startTime,
+    endTime: ref.endTime,
+    status: ref.status,
+    sequenceOrder: ref.sequenceOrder,
+    location: ref.location,
+    class: { id: ref.class.id, code: ref.class.code, name: ref.class.name },
   };
 }

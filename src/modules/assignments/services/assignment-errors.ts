@@ -110,3 +110,43 @@ export function assignmentNotActive(): HttpException {
     409,
   );
 }
+
+/**
+ * 409 for the application of a member (GUS-160): she already holds a place in the lesson, pending or
+ * confirmed, direct or applied for, as either role. Also the answer to the unique violation
+ * `uq_lesson_assignments_lesson_id_person_id_active` on the routes of the applications. The routes
+ * of the direct assignment answer DUPLICATE_ROLE_IN_LESSON for the same thing.
+ */
+export function alreadyApplied(): HttpException {
+  return new HttpException(
+    {
+      error: "ALREADY_APPLIED",
+      message: "The member already has an assignment or an application in this lesson.",
+    },
+    409,
+  );
+}
+
+/**
+ * 409: the lesson has no open place for the role (GUS-160): a teacher is already confirmed, or the
+ * confirmed monitors reach the expected ones (or none are expected). Only confirmed assignments take
+ * a place, so a pending application never fills one. On the approval, also the answer to the unique
+ * violation `uq_lesson_assignments_lesson_id_confirmed_teacher`.
+ */
+export function roleFull(): HttpException {
+  return new HttpException(
+    { error: "ROLE_FULL", message: "The lesson has no open place for this role." },
+    409,
+  );
+}
+
+/** 409: a member applies to a lesson from today on, in America/Sao_Paulo (GUS-160). */
+export function lessonInPast(): HttpException {
+  return new HttpException(
+    {
+      error: "LESSON_IN_PAST",
+      message: "Applications are only taken for lessons from today on.",
+    },
+    409,
+  );
+}

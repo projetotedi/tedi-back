@@ -149,6 +149,31 @@
         ],
         "type": "object"
       },
+      "ApplyToLessonDto": {
+        "description": "The role the member of the session applies for in the lesson of the URL, and an optional note for whoever reviews it. The application is born pending, source application, and the applicant is always the person of the session: personId, status and source are ignored. The role needs an open place: only confirmed assignments take one, so a teacher place is open while the lesson has no confirmed teacher, and a monitor place while the confirmed monitors are below expectedMonitors (null or 0 expect nobody); otherwise 409 ROLE_FULL. A member who already holds a place in the lesson, pending or confirmed, as either role, gets 409 ALREADY_APPLIED.",
+        "properties": {
+          "note": {
+            "description": "Note for whoever reviews the application. Optional; null or blank means none. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Posso chegar 15 min antes para ligar os computadores.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "description": "What the member does in the lesson: the teacher gives it and a monitor helps.",
+            "example": "monitor"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
       "ApproveMemberRegistrationDto": {
         "properties": {
           "departmentId": {
@@ -11070,6 +11095,108 @@
         },
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/lessons/{id}/applications": {
+      "post": {
+        "operationId": "applyToLesson",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyToLessonDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The application: pending, source application, with the member of the session as person and as createdById, and the note she wrote."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | LESSON_IN_PAST | MEMBER_INACTIVE | ALREADY_APPLIED | ROLE_FULL"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },

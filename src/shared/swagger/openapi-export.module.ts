@@ -18,6 +18,7 @@ import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
 import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
+import { LessonApplicationsController } from "@modules/assignments/controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
 import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
@@ -41,6 +42,7 @@ import { MembersController } from "@modules/people/controllers/members.controlle
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
+import { ApplicationsService } from "@modules/assignments/services/applications.service";
 import { AssignmentsService } from "@modules/assignments/services/assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
@@ -89,6 +91,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     LessonsController,
     ClassLessonsController,
     LessonAssignmentsController,
+    LessonApplicationsController,
     AssignmentsController,
     MemberAssignmentsController,
     MyHoursController,
@@ -256,6 +259,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         cancel: async () => ({}),
         listByMember: async () => [],
       },
+    },
+    {
+      provide: ApplicationsService,
+      useValue: { apply: async () => ({}) },
     },
     {
       provide: HoursService,
