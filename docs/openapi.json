@@ -14924,6 +14924,16 @@
             },
             "description": "STUDENT_NOT_FOUND"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_HAS_ACTIVE_ENROLLMENTS"
+          },
           "500": {
             "content": {
               "application/json": {

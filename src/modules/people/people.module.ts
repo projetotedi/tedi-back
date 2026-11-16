@@ -15,6 +15,7 @@ import { DepartmentsService } from "./services/departments.service";
 import { MembersService } from "./services/members.service";
 import { MyProfileService } from "./services/my-profile.service";
 import { PeopleService } from "./services/people.service";
+import { StudentEnrollmentsRegistry } from "./services/student-enrollments.registry";
 import { StudentsService } from "./services/students.service";
 
 @Module({
@@ -38,8 +39,17 @@ import { StudentsService } from "./services/students.service";
     MembersService,
     MyProfileService,
     DepartmentsService,
+    StudentEnrollmentsRegistry,
     Clock,
   ],
-  exports: [PeopleService, StudentsService, MembersService, DepartmentsService],
+  // classes registers the reader of the active enrollments in StudentEnrollmentsRegistry (GUS-108):
+  // StudentsService.archive asks it before archiving a student.
+  exports: [
+    PeopleService,
+    StudentsService,
+    MembersService,
+    DepartmentsService,
+    StudentEnrollmentsRegistry,
+  ],
 })
 export class PeopleModule {}
