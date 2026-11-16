@@ -1,6 +1,7 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { TIME_OF_DAY_PATTERN } from "@shared/dates/time-of-day";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { LessonAttendanceDto } from "./lesson-attendance.response.dto";
 import { LessonClassRefDto } from "./lesson-class-ref.response.dto";
 import { LessonCourseRefDto } from "./lesson-course-ref.response.dto";
 import { LessonCoverageDto } from "./lesson-coverage.response.dto";
@@ -10,7 +11,9 @@ import { LessonPlanRefDto } from "./lesson-plan-ref.response.dto";
 /**
  * A lesson, with the class, the course, the edition and the lesson plan it comes from. The one
  * answer of every route of the module: the five of them return it, so the client has a single type
- * (create, read, edit, cancel and reschedule).
+ * (create, read, edit, cancel and reschedule). The summary of the roll call of the students
+ * (`attendance`, GUS-166) comes through the port `LessonRollCallRegistry`, which the attendance
+ * module implements.
  */
 export class LessonResponseDto {
   @ApiProperty({ type: String, format: "uuid", example: "01999a3e-7c1b-7000-8000-0000000000f1" })
@@ -119,6 +122,13 @@ export class LessonResponseDto {
       "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
   })
   belowExpectedMonitors!: boolean;
+
+  @ApiProperty({
+    type: () => LessonAttendanceDto,
+    description:
+      "The roll call of the students of the lesson (F6.1, GUS-166): how many students it has, how many are signed, and whether it is pending. Zeros and pending false without the attendance module.",
+  })
+  attendance!: LessonAttendanceDto;
 
   @ApiProperty({
     type: String,

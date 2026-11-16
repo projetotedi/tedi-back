@@ -613,6 +613,8 @@ describe("Generation of the lessons of a class (e2e)", () => {
             monitors: { confirmed: 0, expected: null },
           },
           belowExpectedMonitors: false,
+          // Without the attendance module nobody is in a roll call (GUS-166).
+          attendance: { students: { total: 0, signed: 0 }, pending: false },
           createdById: coordinator.id,
           createdAt: expect.any(String),
           updatedAt: expect.any(String),

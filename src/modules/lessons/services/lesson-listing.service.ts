@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { isUUID } from "class-validator";
 import { DataSource, In, SelectQueryBuilder } from "typeorm";
 import { ClassesService, ClassRef } from "@modules/classes/services/classes.service";
+import { Clock } from "@shared/dates/clock";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
 import { applyTextSearchAllWords } from "@shared/search/search.util";
 import { LessonsCalendarQueryDto } from "../dto/calendar-query.dto";
@@ -14,6 +15,8 @@ import { ConfirmedStaff, NO_CONFIRMED_STAFF } from "./lesson-coverage";
 import { LessonCoverageRegistry } from "./lesson-coverage.registry";
 import { assertDateRange } from "./lesson-date-range";
 import { toLessonListItem } from "./lesson-list-item.mapper";
+import { isAttendancePending, NO_STUDENT_ROLL_CALL, rollCallLessonOf } from "./lesson-roll-call";
+import { LessonRollCallRegistry } from "./lesson-roll-call.registry";
 
 /** What the list and the calendar both filter by: the calendar is the list without the page. */
 type LessonFilters = Pick<
@@ -100,6 +103,12 @@ function toLessonAgendaRef(lesson: Lesson, schoolClass: ClassRef): LessonAgendaR
  * confirmed. Without a counter registered nobody is allocated as far as this module knows, so every
  * lesson reads as `NO_CONFIRMED_STAFF`: no teacher, and the monitors it expects are all missing.
  *
+ * `attendancePending` comes from the roll call of the students (GUS-166), which this module does not
+ * know either: it asks the `LessonRollCallRegistry`, the port the attendance module plugs its
+ * counter in (section 18.1), the same way (once per page, once per period, with the id, the class
+ * and the day of each lesson), and decides with `isAttendancePending` against one instant of the
+ * clock, read once per call. Without a counter no lesson is pending.
+ *
  * Two more reads are the contract of the agenda for another module (the assignments, GUS-160:
  * "Minhas aulas", the lessons with an open place and the pending applications), which needs the
  * class of each lesson and cannot import `classes`: `findAgendaBetween` (the lessons that will
@@ -113,6 +122,8 @@ export class LessonListingService {
     private readonly dataSource: DataSource,
     private readonly classes: ClassesService,
     private readonly coverage: LessonCoverageRegistry,
+    private readonly rollCalls: LessonRollCallRegistry,
+    private readonly clock: Clock,
   ) {}
 
   /**
@@ -267,10 +278,12 @@ export class LessonListingService {
   }
 
   /**
-   * The items of a page, or of a period: the lessons with the class of each one and the confirmed
-   * staff of each one, which comes from ONE call to the registry with the ids of all of them (the
-   * N+1 this avoids is one call per lesson). A lesson that the registry does not list has nobody
-   * confirmed. An empty page asks for nothing.
+   * The items of a page, or of a period: the lessons with the class of each one, the confirmed
+   * staff of each one and whether its roll call is pending. The staff comes from ONE call to the
+   * coverage registry and the roll calls from ONE call to the roll call registry, each with all the
+   * lessons (the N+1 this avoids is one call per lesson), one after the other. A lesson that a
+   * registry does not list has nobody confirmed, or nobody in its roll call. An empty page asks for
+   * nothing.
    */
   private async toItems(
     lessons: Lesson[],
@@ -279,9 +292,16 @@ export class LessonListingService {
     if (lessons.length === 0) return [];
 
     const staff = await this.coverage.findConfirmedStaff(lessons.map((lesson) => lesson.id));
+    const rollCalls = await this.rollCalls.countStudentRollCalls(lessons.map(rollCallLessonOf));
+    const now = this.clock.now();
 
     return lessons.map((lesson) =>
-      this.toItem(lesson, classes, staff.get(lesson.id) ?? NO_CONFIRMED_STAFF),
+      this.toItem(
+        lesson,
+        classes,
+        staff.get(lesson.id) ?? NO_CONFIRMED_STAFF,
+        isAttendancePending(lesson, rollCalls.get(lesson.id) ?? NO_STUDENT_ROLL_CALL, now),
+      ),
     );
   }
 
@@ -290,8 +310,9 @@ export class LessonListingService {
     lesson: Lesson,
     classes: ReadonlyMap<string, ClassRef>,
     staff: ConfirmedStaff,
+    attendancePending: boolean,
   ): LessonListItemResponseDto {
-    return toLessonListItem(lesson, this.classOf(lesson, classes), staff);
+    return toLessonListItem(lesson, this.classOf(lesson, classes), staff, attendancePending);
   }
 
   /**

@@ -90,6 +90,25 @@ export function todayInAppTimeZone(now: Date = new Date()): string {
 }
 
 /**
+ * The time of day in APP_TIME_ZONE as "HH:mm", the shape of the times of a lesson, so the two compare
+ * as strings ("is the lesson over?", GUS-166). `hourCycle: "h23"` keeps the hour after midnight at
+ * "00": `hour12: false` alone answers "24:05" on some ICU versions.
+ */
+export function timeOfDayInAppTimeZone(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((p) => p.type === type)?.value ?? "";
+
+  return `${part("hour")}:${part("minute")}`;
+}
+
+/**
  * Whole years between birthDate and today (both "YYYY-MM-DD").
  * A Feb 29 birthday is reached on Mar 1 in non-leap years.
  */

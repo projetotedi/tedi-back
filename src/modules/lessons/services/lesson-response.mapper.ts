@@ -2,6 +2,7 @@ import { ClassSummary } from "@modules/classes/services/classes.service";
 import { CourseSummary } from "@modules/catalog/services/courses.service";
 import { LessonPlanSummary } from "@modules/catalog/services/lesson-plans.service";
 import { minutesBetween } from "@shared/dates/time-of-day";
+import { LessonAttendanceDto } from "../dto/lesson-attendance.response.dto";
 import { LessonResponseDto } from "../dto/lesson.response.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { ConfirmedStaffCount, toLessonCoverage } from "./lesson-coverage";
@@ -14,6 +15,11 @@ export interface LessonRefs {
   lessonPlan: LessonPlanSummary | null;
   /** The confirmed teachers and monitors of the lesson (F5.4); zeros when nobody is assigned. */
   staff: ConfirmedStaffCount;
+  /**
+   * The roll call of the students (GUS-166), already decided by the caller with `toLessonAttendance`
+   * from what the port counted; no default, so a caller that forgets to ask does not compile.
+   */
+  attendance: LessonAttendanceDto;
 }
 
 /**
@@ -22,7 +28,7 @@ export interface LessonRefs {
  * so is the coverage: the confirmed staff against what the lesson expects (F5.4).
  */
 export function toLessonResponse(lesson: Lesson, refs: LessonRefs): LessonResponseDto {
-  const { schoolClass, course, lessonPlan, staff } = refs;
+  const { schoolClass, course, lessonPlan, staff, attendance } = refs;
 
   return {
     id: lesson.id,
@@ -52,6 +58,7 @@ export function toLessonResponse(lesson: Lesson, refs: LessonRefs): LessonRespon
     expectedStudents: lesson.expectedStudents ?? null,
     expectedMonitors: lesson.expectedMonitors ?? null,
     ...toLessonCoverage(lesson, staff),
+    attendance,
     subject: lesson.subject ?? null,
     postNotes: lesson.postNotes ?? null,
     status: lesson.status,

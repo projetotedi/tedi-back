@@ -93,6 +93,7 @@ interface LessonBody extends Record<string, unknown> {
     monitors: { confirmed: number; expected: number | null };
   };
   belowExpectedMonitors: boolean;
+  attendance: { students: { total: number; signed: number }; pending: boolean };
   subject: string | null;
   postNotes: string | null;
   status: string;
@@ -386,6 +387,8 @@ describe("LessonsController (e2e)", () => {
           monitors: { confirmed: 0, expected: null },
         },
         belowExpectedMonitors: false,
+        // Without the attendance module nobody is in a roll call (GUS-166).
+        attendance: { students: { total: 0, signed: 0 }, pending: false },
         subject: null,
         postNotes: null,
         status: "planned",

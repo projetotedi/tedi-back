@@ -67,6 +67,7 @@ interface ItemBody {
   status: string;
   teacher: { id: string; name: string } | null;
   belowExpectedMonitors: boolean;
+  attendancePending: boolean;
 }
 
 interface PageBody {
@@ -367,6 +368,8 @@ describe("Lessons list and calendar (e2e)", () => {
             status: "planned",
             teacher: null,
             belowExpectedMonitors: false,
+            // Without the attendance module nobody is in a roll call: never pending (GUS-166).
+            attendancePending: false,
           },
         ]);
       });
@@ -448,6 +451,7 @@ describe("Lessons list and calendar (e2e)", () => {
         const [item] = await itemsOf(route);
 
         expect(Object.keys(item).sort()).toEqual([
+          "attendancePending",
           "belowExpectedMonitors",
           "class",
           "date",

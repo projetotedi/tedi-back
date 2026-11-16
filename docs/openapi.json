@@ -3357,6 +3357,23 @@
         ],
         "type": "object"
       },
+      "LessonAttendanceDto": {
+        "properties": {
+          "pending": {
+            "description": "True when the roll call is pending: the lesson is not cancelled, it has ended (its day is before today, or it is today and its endTime has come, in America/Sao_Paulo) and students.signed is below students.total. False for a lesson without students, and without the attendance module.",
+            "example": false,
+            "type": "boolean"
+          },
+          "students": {
+            "$ref": "#/components/schemas/LessonStudentAttendanceCountDto"
+          }
+        },
+        "required": [
+          "students",
+          "pending"
+        ],
+        "type": "object"
+      },
       "LessonClassRefDto": {
         "properties": {
           "archivedAt": {
@@ -3492,6 +3509,11 @@
       },
       "LessonListItemResponseDto": {
         "properties": {
+          "attendancePending": {
+            "description": "True when the roll call of the students is pending, the \"Chamada pendente\" of the row (GUS-166): the lesson is not cancelled, it has ended and some student has no attendance. The same rule as attendance.pending of the lesson in full. False without the attendance module.",
+            "example": false,
+            "type": "boolean"
+          },
           "belowExpectedMonitors": {
             "description": "True when the lesson has fewer CONFIRMED monitors than it expects (F4.4, F5.4, RF-050): a pending monitor does not count. False for a cancelled lesson and when the lesson does not say how many monitors it expects (expectedMonitors null, so nothing is missing). The teacher is not part of it: a lesson without a teacher shows a dash in teacher. It is the same rule as belowExpectedMonitors of the lesson in full.",
             "example": false,
@@ -3559,7 +3581,8 @@
           "title",
           "status",
           "teacher",
-          "belowExpectedMonitors"
+          "belowExpectedMonitors",
+          "attendancePending"
         ],
         "type": "object"
       },
@@ -3980,6 +4003,14 @@
       },
       "LessonResponseDto": {
         "properties": {
+          "attendance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonAttendanceDto"
+              }
+            ],
+            "description": "The roll call of the students of the lesson (F6.1, GUS-166): how many students it has, how many are signed, and whether it is pending. Zeros and pending false without the attendance module."
+          },
           "belowExpectedMonitors": {
             "description": "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
             "example": false,
@@ -4178,6 +4209,7 @@
           "expectedMonitors",
           "coverage",
           "belowExpectedMonitors",
+          "attendance",
           "subject",
           "postNotes",
           "status",
@@ -4202,6 +4234,25 @@
           "cancelled"
         ],
         "type": "string"
+      },
+      "LessonStudentAttendanceCountDto": {
+        "properties": {
+          "signed": {
+            "description": "The students with an attendance signed in the lesson, present or absent. Never above total. 0 without the attendance module.",
+            "example": 10,
+            "type": "integer"
+          },
+          "total": {
+            "description": "The students of the roll call of the lesson: the enrollments of the class the lesson expects on its day (enrolled on or before it, and active, or dropped or completed only after it), plus the ones with an attendance signed in the lesson whatever their status today. 0 without the attendance module.",
+            "example": 12,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "signed"
+        ],
+        "type": "object"
       },
       "LessonTeacherCoverageDto": {
         "properties": {

@@ -21,6 +21,8 @@ import { LessonStatus } from "../enums/lesson-status.enum";
 import { Weekday } from "../enums/weekday.enum";
 import { LessonCreationService } from "../services/lesson-creation.service";
 import { LessonGenerationService } from "../services/lesson-generation.service";
+import { StudentRollCallCount } from "../services/lesson-roll-call";
+import { LessonRollCallRegistry } from "../services/lesson-roll-call.registry";
 
 const NOW = new Date("2026-04-01T12:00:00.000Z");
 const CREATED_AT = new Date("2026-03-01T12:00:00.000Z");
@@ -128,6 +130,7 @@ describe("LessonGenerationService", () => {
   const classes = { getClassSummary: jest.fn() };
   const courses = { getCourseSummary: jest.fn() };
   const courseLessonPlans = { getSequenceSummaries: jest.fn() };
+  const rollCalls = { countStudentRollCalls: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -142,6 +145,8 @@ describe("LessonGenerationService", () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    // No counter registered, or nobody in the roll call: the registry answers an empty map.
+    rollCalls.countStudentRollCalls.mockResolvedValue(new Map());
     order = [];
     state = {
       schoolClass: buildClass(),
@@ -217,6 +222,7 @@ describe("LessonGenerationService", () => {
         { provide: ClassesService, useValue: classes },
         { provide: CoursesService, useValue: courses },
         { provide: CourseLessonPlansService, useValue: courseLessonPlans },
+        { provide: LessonRollCallRegistry, useValue: rollCalls },
       ],
     }).compile();
 
@@ -354,6 +360,7 @@ describe("LessonGenerationService", () => {
           monitors: { confirmed: 0, expected: null },
         },
         belowExpectedMonitors: false,
+        attendance: { students: { total: 0, signed: 0 }, pending: false },
         createdById: ACTOR_ID,
         createdAt: CREATED_AT,
         updatedAt: CREATED_AT,
@@ -362,6 +369,32 @@ describe("LessonGenerationService", () => {
       expect(classes.getClassSummary).toHaveBeenCalledTimes(1);
       expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
       expect(courseLessonPlans.getSequenceSummaries).toHaveBeenCalledTimes(1);
+    });
+
+    it("asks the roll call registry once for every generated lesson, with the manager of the transaction", async () => {
+      rollCalls.countStudentRollCalls.mockResolvedValue(
+        new Map<string, StudentRollCallCount>([["lesson-2", { total: 5, signed: 0 }]]),
+      );
+
+      const result = await service.generate(CLASS_ID, BODY, ACTOR_ID);
+
+      expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
+      expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
+        [
+          { id: "lesson-1", classId: CLASS_ID, date: "2026-04-07" },
+          { id: "lesson-2", classId: CLASS_ID, date: "2026-04-14" },
+          { id: "lesson-3", classId: CLASS_ID, date: "2026-04-21" },
+          { id: "lesson-4", classId: CLASS_ID, date: "2026-04-28" },
+        ],
+        manager,
+      );
+      // NOW is 2026-04-01: none of them has happened, so none is pending.
+      expect(result.lessons.map((lesson) => lesson.attendance)).toEqual([
+        { students: { total: 0, signed: 0 }, pending: false },
+        { students: { total: 5, signed: 0 }, pending: false },
+        { students: { total: 0, signed: 0 }, pending: false },
+        { students: { total: 0, signed: 0 }, pending: false },
+      ]);
     });
 
     it("reads and locks in the documented order, inside the transaction, and emits after the commit", async () => {

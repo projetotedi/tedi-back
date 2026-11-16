@@ -27,6 +27,8 @@ import { LessonStatus } from "../enums/lesson-status.enum";
 import { ConfirmedStaffCount } from "../services/lesson-coverage";
 import { LessonCoverageRegistry } from "../services/lesson-coverage.registry";
 import { LessonCreationService } from "../services/lesson-creation.service";
+import { StudentRollCallCount } from "../services/lesson-roll-call";
+import { LessonRollCallRegistry } from "../services/lesson-roll-call.registry";
 import { LessonsService } from "../services/lessons.service";
 
 const NOW = new Date("2026-03-09T12:00:00.000Z");
@@ -158,6 +160,7 @@ describe("LessonsService", () => {
   const lessonPlans = { getLessonPlanSummary: jest.fn() };
   const courseLessonPlans = { findPosition: jest.fn() };
   const coverage = { countConfirmedStaff: jest.fn() };
+  const rollCalls = { countStudentRollCalls: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -244,6 +247,8 @@ describe("LessonsService", () => {
       order.push("count-staff");
       return state.staff;
     });
+    // No counter registered, or nobody in the roll call: the registry answers an empty map.
+    rollCalls.countStudentRollCalls.mockResolvedValue(new Map());
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -258,6 +263,7 @@ describe("LessonsService", () => {
         { provide: LessonPlansService, useValue: lessonPlans },
         { provide: CourseLessonPlansService, useValue: courseLessonPlans },
         { provide: LessonCoverageRegistry, useValue: coverage },
+        { provide: LessonRollCallRegistry, useValue: rollCalls },
       ],
     }).compile();
 
@@ -329,6 +335,7 @@ describe("LessonsService", () => {
           monitors: { confirmed: 0, expected: null },
         },
         belowExpectedMonitors: false,
+        attendance: { students: { total: 0, signed: 0 }, pending: false },
         subject: null,
         postNotes: null,
         status: LessonStatus.PLANNED,
@@ -2236,6 +2243,93 @@ describe("LessonsService", () => {
       }
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("attendance: the roll call of the students (GUS-166)", () => {
+    /** 15:30 of 2026-03-10 in America/Sao_Paulo: the lesson of 14:00 to 15:30 has just ended. */
+    const AFTER_THE_LESSON = new Date("2026-03-10T18:30:00.000Z");
+
+    function rollCallOf(count: StudentRollCallCount): Map<string, StudentRollCallCount> {
+      return new Map([[LESSON_ID, count]]);
+    }
+
+    it("asks the roll call registry once for the lesson, with the manager of the transaction, and answers attendance", async () => {
+      rollCalls.countStudentRollCalls.mockResolvedValue(rollCallOf({ total: 3, signed: 1 }));
+
+      const result = await service.update(LESSON_ID, { title: "Novo título" }, ACTOR_ID);
+
+      expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
+      expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
+        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10" }],
+        manager,
+      );
+      // NOW is the morning of 2026-03-09: the lesson of the 10th has not happened yet.
+      expect(result.attendance).toEqual({ students: { total: 3, signed: 1 }, pending: false });
+    });
+
+    it("answers pending true for an ended lesson with unsigned students, against the clock", async () => {
+      clock.now.mockReturnValue(AFTER_THE_LESSON);
+      rollCalls.countStudentRollCalls.mockResolvedValue(rollCallOf({ total: 3, signed: 2 }));
+
+      const result = await service.findById(LESSON_ID);
+
+      // A plain read asks without a manager.
+      expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
+        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10" }],
+        undefined,
+      );
+      expect(result.attendance).toEqual({ students: { total: 3, signed: 2 }, pending: true });
+
+      rollCalls.countStudentRollCalls.mockResolvedValue(rollCallOf({ total: 3, signed: 3 }));
+      expect((await service.findById(LESSON_ID)).attendance.pending).toBe(false);
+    });
+
+    it("answers zeros and pending false when the registry knows nothing", async () => {
+      clock.now.mockReturnValue(AFTER_THE_LESSON);
+
+      const result = await service.findById(LESSON_ID);
+
+      expect(result.attendance).toEqual({ students: { total: 0, signed: 0 }, pending: false });
+    });
+
+    it("asks the roll call also when it creates a lesson: a class with students makes total > 0", async () => {
+      clock.now.mockReturnValue(AFTER_THE_LESSON);
+      rollCalls.countStudentRollCalls.mockResolvedValue(rollCallOf({ total: 2, signed: 0 }));
+
+      const result = await service.create(
+        {
+          classId: CLASS_ID,
+          title: "Teclado, mouse e janelas",
+          date: "2026-03-10",
+          startTime: "14:00",
+          endTime: "15:30",
+        },
+        ACTOR_ID,
+      );
+
+      expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
+        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10" }],
+        manager,
+      );
+      // A lesson created after its end, in a class with students, is born pending.
+      expect(result.attendance).toEqual({ students: { total: 2, signed: 0 }, pending: true });
+    });
+
+    it("answers attendance in cancel and reschedule too, and a cancelled lesson is never pending", async () => {
+      clock.now.mockReturnValue(AFTER_THE_LESSON);
+      rollCalls.countStudentRollCalls.mockResolvedValue(rollCallOf({ total: 3, signed: 0 }));
+
+      const rescheduled = await service.reschedule(
+        LESSON_ID,
+        { date: "2026-03-09", startTime: "14:00", endTime: "15:30" },
+        ACTOR_ID,
+      );
+      expect(rescheduled.attendance).toEqual({ students: { total: 3, signed: 0 }, pending: true });
+
+      state.lesson = buildLesson();
+      const cancelled = await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
+      expect(cancelled.attendance).toEqual({ students: { total: 3, signed: 0 }, pending: false });
     });
   });
 });
