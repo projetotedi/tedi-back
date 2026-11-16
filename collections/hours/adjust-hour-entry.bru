@@ -1,0 +1,36 @@
+meta {
+  name: adjust-hour-entry
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/hour-entries/:id/adjust
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000010
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "validatedMinutes": 120,
+    "justification": "A reunião durou duas horas, conforme a ata."
+  }
+}
+
+docs {
+  Ajusta um lançamento pendente (F7.3): status adjusted, validatedMinutes do corpo e a justificativa como reviewNote. O declarado continua guardado (declaredMinutes).
+  Requer cookie tedi_session e a permissão hours.review (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  validatedMinutes é inteiro de 1 a 1440, diferente do declarado (igual: 400 ADJUSTED_MINUTES_UNCHANGED; para aceitar o declarado, valide). Pode passar do declarado. Zero é rejeição (use reject).
+  justification é obrigatória, aparada, até 500 caracteres. O membro vê a justificativa no extrato dele.
+  Retorna 200 HourEntryResponseDto. Grava o evento adjusted (de pending e do declarado para adjusted e o validado, com a nota) e registra HOUR_ENTRY_ADJUSTED, sem a justificativa (RNF-13).
+  Ordem dos erros: 404 HOUR_ENTRY_NOT_FOUND (id mal formado, no pipe), 400 VALIDATION_FAILED, 404 HOUR_ENTRY_NOT_FOUND (inexistente ou removido), 409 SELF_REVIEW_NOT_ALLOWED, 409 ENTRY_NOT_PENDING, 400 ADJUSTED_MINUTES_UNCHANGED.
+}

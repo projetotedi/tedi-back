@@ -1,0 +1,34 @@
+meta {
+  name: reject-hour-entry
+  type: http
+  seq: 11
+}
+
+patch {
+  url: {{baseUrl}}/hour-entries/:id/reject
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000010
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "Atividade fora do projeto."
+  }
+}
+
+docs {
+  Rejeita um lançamento pendente (F7.3): status rejected, validatedMinutes 0 (fora do banco de horas) e o motivo como reviewNote.
+  Requer cookie tedi_session e a permissão hours.review (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  reason é obrigatório, aparado, até 500 caracteres. O membro vê o motivo no extrato dele.
+  Retorna 200 HourEntryResponseDto. Grava o evento rejected (de pending e do declarado para rejected e 0, com a nota) e registra HOUR_ENTRY_REJECTED, sem o motivo (RNF-13).
+  Erros possíveis, na ordem: 404 HOUR_ENTRY_NOT_FOUND (mal formado), 400 VALIDATION_FAILED, 404 HOUR_ENTRY_NOT_FOUND (inexistente ou removido), 409 SELF_REVIEW_NOT_ALLOWED, 409 ENTRY_NOT_PENDING; e 401, 403 FORBIDDEN.
+}

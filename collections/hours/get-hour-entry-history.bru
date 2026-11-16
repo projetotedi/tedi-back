@@ -1,0 +1,27 @@
+meta {
+  name: get-hour-entry-history
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/hour-entries/:id/history
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000010
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Histórico de um lançamento: os eventos imutáveis em ordem (created, approved, adjusted, rejected, removed), cada um com actor (id e nome de quem fez; null se a pessoa foi removida), createdAt (quando), de qual status e minutos para quais, e a nota (justificativa ou motivo).
+  Requer cookie tedi_session e a permissão account.manageOwn (@RequirePermission; todos os perfis).
+  Quem lê: a própria pessoa do lançamento, ou quem tem hours.viewOthers no escopo (diretoria: o departamento atual do dono; coordenação e superadmin: todos). Lançamento de outra pessoa fora disso: 403 FORBIDDEN_SCOPE.
+  Lançamento removido continua com histórico (created e removed).
+  Erros possíveis: 401, 404 HOUR_ENTRY_NOT_FOUND (id mal formado ou inexistente, antes do 403), 403 FORBIDDEN_SCOPE.
+}
