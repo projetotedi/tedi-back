@@ -13,6 +13,7 @@ import { MyAssignmentsController } from "./controllers/my-assignments.controller
 import { LessonAssignment } from "./entities/lesson-assignment.entity";
 import { ApplicationsService } from "./services/applications.service";
 import { AssignmentsService } from "./services/assignments.service";
+import { ConfirmedStaffService } from "./services/confirmed-staff.service";
 import { LessonStaffCounterService } from "./services/lesson-staff-counter.service";
 import { MyAssignmentsService } from "./services/my-assignments.service";
 
@@ -50,10 +51,11 @@ import { MyAssignmentsService } from "./services/my-assignments.service";
     ApplicationsService,
     MyAssignmentsService,
     LessonStaffCounterService,
+    ConfirmedStaffService,
     Clock,
   ],
-  // Nobody consumes the assignments yet: the attendance and the hours (GUS-166, GUS-168) will say
-  // what they need, and the export is added then.
-  exports: [],
+  // The attendance (GUS-168) reads the confirmed assignments of a lesson (ConfirmedStaffService);
+  // the student roll call (GUS-166) will add what it needs.
+  exports: [ConfirmedStaffService],
 })
 export class AssignmentsModule {}

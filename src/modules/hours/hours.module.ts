@@ -10,11 +10,14 @@ import { MemberHoursController } from "./controllers/member-hours.controller";
 import { MyHoursController } from "./controllers/my-hours.controller";
 import { HourEntryEvent } from "./entities/hour-entry-event.entity";
 import { HourEntry } from "./entities/hour-entry.entity";
+import { HourEntryStatus } from "./enums/hour-entry-status.enum";
+import { LessonCancelledListener } from "./listeners/lesson-cancelled.listener";
 import { HoursExportService } from "./services/hours-export.service";
 import { HoursReviewService } from "./services/hours-review.service";
 import { HoursScopeService } from "./services/hours-scope.service";
 import { HoursViewService } from "./services/hours-view.service";
 import { HoursService } from "./services/hours.service";
+import { LESSON_HOURS_INITIAL_STATUS, LessonHoursService } from "./services/lesson-hours.service";
 
 /**
  * The bank of hours (E7). As docs/ARCHITECTURE.md section 3 draws it (people <- hours):
@@ -25,9 +28,11 @@ import { HoursService } from "./services/hours.service";
  * - PermissionsModule: the `department` scope of hours.logForOthers, hours.viewOthers and
  *   hours.export (PermissionPolicy).
  *
- * Nothing leaves the module (`exports: []`): the attendance (GUS-168) and the cancellation of a
- * lesson (RN-07) reach it through events, heard by listeners inside `hours/listeners/` that call
- * HoursService.createEntry.
+ * It exports only the LessonHoursService (GUS-168): the attendance writes and reverses the lesson
+ * hours inside its own transaction, because the row of the presence keeps the entry it generated
+ * (`hourEntryId`). The cancellation of a lesson (RN-07) arrives by event (LessonCancelledListener).
+ * LESSON_HOURS_INITIAL_STATUS: lesson hours are born `approved` (Q6.6 still open; `pending` sends
+ * them to the queue of the review, GUS-164).
  */
 @Module({
   imports: [TypeOrmModule.forFeature([HourEntry, HourEntryEvent]), PeopleModule, PermissionsModule],
@@ -44,8 +49,11 @@ import { HoursService } from "./services/hours.service";
     HoursReviewService,
     HoursExportService,
     HoursScopeService,
+    LessonHoursService,
+    LessonCancelledListener,
+    { provide: LESSON_HOURS_INITIAL_STATUS, useValue: HourEntryStatus.APPROVED },
     Clock,
   ],
-  exports: [],
+  exports: [LessonHoursService],
 })
 export class HoursModule {}

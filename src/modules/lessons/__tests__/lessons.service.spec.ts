@@ -1607,7 +1607,7 @@ describe("LessonsService", () => {
       expect(event.after).not.toHaveProperty("cancelReason");
     });
 
-    it("cancel emits LessonCancelledEvent after the commit, only when it changed", async () => {
+    it("cancel emits the audit event and then LessonCancelledEvent, after the commit", async () => {
       await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
 
       // The audit trail first, then the hook of the hours, both after the commit.
@@ -1654,7 +1654,32 @@ describe("LessonsService", () => {
         updatedAt: new Date("2026-03-05T12:00:00.000Z"),
       });
       expect(manager.save).not.toHaveBeenCalled();
-      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(auditEvents()).toEqual([]);
+    });
+
+    it("re-emits LessonCancelledEvent for a lesson already cancelled, after the commit, with who asked and when, and no audit event (GUS-168)", async () => {
+      state.lesson = buildLesson({
+        status: LessonStatus.CANCELLED,
+        cancelReason: "Primeiro motivo.",
+        cancelledAt: new Date("2026-03-05T12:00:00.000Z"),
+        cancelledById: OTHER_ID,
+      });
+
+      await service.cancel(LESSON_ID, { reason: "Segundo motivo." }, ACTOR_ID);
+
+      expect(order.slice(-2)).toEqual(["commit", "emit-cancelled"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      const events = cancelledEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toBeInstanceOf(LessonCancelledEvent);
+      expect(events[0]).toEqual({
+        lessonId: LESSON_ID,
+        classId: CLASS_ID,
+        date: "2026-03-10",
+        cancelledById: ACTOR_ID,
+        cancelledAt: NOW,
+      });
+      expect(JSON.stringify(events[0])).not.toContain("motivo");
     });
 
     it("answers 200 for a cancelled lesson of an archived class: the no-op comes before the check of the class", async () => {
@@ -1671,7 +1696,8 @@ describe("LessonsService", () => {
       expect(result.status).toBe(LessonStatus.CANCELLED);
       expect(result.class.archivedAt).toEqual(ARCHIVED_AT);
       expect(manager.save).not.toHaveBeenCalled();
-      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(auditEvents()).toEqual([]);
+      expect(cancelledEvents()).toHaveLength(1);
       // The class is only read to answer: no lock.
       expect(classes.getClassSummary).not.toHaveBeenCalledWith(CLASS_ID, manager, {
         forShare: true,

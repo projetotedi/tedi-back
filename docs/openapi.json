@@ -389,6 +389,42 @@
         ],
         "type": "string"
       },
+      "AttendanceLessonRefResponseDto": {
+        "properties": {
+          "date": {
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "startTime",
+          "endTime"
+        ],
+        "type": "object"
+      },
       "BrazilianState": {
         "description": "Federative unit (UF). Upper-cased.",
         "enum": [
@@ -1015,6 +1051,24 @@
           "courseId",
           "total",
           "active"
+        ],
+        "type": "object"
+      },
+      "ConfirmMemberAttendanceDto": {
+        "description": "The attendance of confirmed assignments of the lesson of the URL, from 1 to 100 entries, all or none. The first signature of a member signs it; the same status again changes nothing; the other status is a correction (attendance.correct). Present records the lesson hours of the member; correcting to absent reverses them. Nobody signs her own attendance.",
+        "properties": {
+          "entries": {
+            "description": "From 1 to 100 entries. The same assignment twice, in any letter case, is 400 DUPLICATE_ASSIGNMENT.",
+            "items": {
+              "$ref": "#/components/schemas/MemberAttendanceEntryDto"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
         ],
         "type": "object"
       },
@@ -2249,7 +2303,7 @@
                 "$ref": "#/components/schemas/HourEntryEventType"
               }
             ],
-            "description": "created, approved, adjusted, rejected or removed. The history cannot be edited or deleted.",
+            "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
             "example": "adjusted"
           }
         },
@@ -2268,13 +2322,14 @@
         "type": "object"
       },
       "HourEntryEventType": {
-        "description": "created, approved, adjusted, rejected or removed. The history cannot be edited or deleted.",
+        "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
         "enum": [
           "created",
           "approved",
           "adjusted",
           "rejected",
-          "removed"
+          "removed",
+          "reversed"
         ],
         "type": "string"
       },
@@ -3897,6 +3952,175 @@
           "status",
           "source",
           "createdAt"
+        ],
+        "type": "object"
+      },
+      "MemberAttendanceEntryDto": {
+        "properties": {
+          "assignmentId": {
+            "description": "A CONFIRMED assignment of the lesson of the URL; any other (pending, declined, cancelled, of another lesson or unknown) is 400 ASSIGNMENT_NOT_CONFIRMED.",
+            "example": "01952ef7-0000-7000-8000-000000000006",
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A presence generates the lesson hours of the member (an hour entry of origin attendance); an absence generates nothing.",
+            "example": "present"
+          }
+        },
+        "required": [
+          "assignmentId",
+          "status"
+        ],
+        "type": "object"
+      },
+      "MemberAttendanceHistoryItemResponseDto": {
+        "properties": {
+          "confirmedAt": {
+            "description": "When it was signed the last time (the first signature or a correction).",
+            "example": "2026-03-10T18:30:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AttendanceLessonRefResponseDto"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A presence generates the lesson hours of the member (an hour entry of origin attendance); an absence generates nothing.",
+            "example": "absent"
+          }
+        },
+        "required": [
+          "lesson",
+          "status",
+          "confirmedAt"
+        ],
+        "type": "object"
+      },
+      "MemberAttendanceHistoryResponseDto": {
+        "properties": {
+          "items": {
+            "description": "Presences and absences, the latest lesson first (day, then start time, both descending). Cancelled lessons are left out: they did not happen (RN-07). Not paginated.",
+            "items": {
+              "$ref": "#/components/schemas/MemberAttendanceHistoryItemResponseDto"
+            },
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/MemberAttendanceTotalsResponseDto"
+          }
+        },
+        "required": [
+          "totals",
+          "items"
+        ],
+        "type": "object"
+      },
+      "MemberAttendanceResponseDto": {
+        "description": "A confirmed assignment of the lesson, the teacher first, with the attendance of its member. status, confirmedBy, confirmedAt and hourEntryId are null while the attendance is not signed.",
+        "properties": {
+          "assignmentId": {
+            "description": "The confirmed assignment of the line: the id the PUT takes in assignmentId.",
+            "example": "01952ef7-0000-7000-8000-000000000006",
+            "format": "uuid",
+            "type": "string"
+          },
+          "confirmedAt": {
+            "description": "When it was signed the last time. Null while it is not signed.",
+            "example": "2026-03-10T18:30:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "confirmedBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who signed the attendance the last time (the first signature or a correction). Null while it is not signed, or when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "hourEntryId": {
+            "description": "The hour entry the presence generated; its history is GET /hour-entries/:id/history (a reversed one stays there). Null for an absence and while it is not signed.",
+            "example": "01999a3e-7c1b-7000-8000-000000000a01",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "person": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "The member. Null when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A presence generates the lesson hours of the member (an hour entry of origin attendance); an absence generates nothing.",
+            "example": "present",
+            "nullable": true
+          }
+        },
+        "required": [
+          "assignmentId",
+          "person",
+          "role",
+          "status",
+          "confirmedBy",
+          "confirmedAt",
+          "hourEntryId"
+        ],
+        "type": "object"
+      },
+      "MemberAttendanceStatus": {
+        "description": "present or absent. A presence generates the lesson hours of the member (an hour entry of origin attendance); an absence generates nothing.",
+        "enum": [
+          "present",
+          "absent"
+        ],
+        "type": "string"
+      },
+      "MemberAttendanceTotalsResponseDto": {
+        "properties": {
+          "absent": {
+            "example": 1,
+            "type": "integer"
+          },
+          "present": {
+            "example": 12,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "present",
+          "absent"
         ],
         "type": "object"
       },
@@ -11932,6 +12156,194 @@
         ]
       }
     },
+    "/lessons/{id}/attendance/members": {
+      "get": {
+        "operationId": "listMemberAttendance",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberAttendanceResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The confirmed assignments of the lesson, the teacher first, each with the attendance of its member, who signed it and the hour entry it generated. An attendance not signed yet has status, confirmedBy, confirmedAt and hourEntryId null. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
+        ]
+      },
+      "put": {
+        "operationId": "confirmMemberAttendance",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmMemberAttendanceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberAttendanceResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The attendance of the lesson after the commit, the same list as the GET. All or none: any error writes nothing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | DUPLICATE_ASSIGNMENT | ASSIGNMENT_NOT_CONFIRMED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE | SELF_ATTENDANCE_NOT_ALLOWED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | LESSON_IN_FUTURE"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
+        ]
+      }
+    },
     "/lessons/{id}/cancel": {
       "patch": {
         "operationId": "cancelLesson",
@@ -11966,7 +12378,7 @@
                 }
               }
             },
-            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason."
+            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the attendance hours of the lesson if that had failed."
           },
           "400": {
             "content": {
@@ -12535,7 +12947,7 @@
                 }
               }
             },
-            "description": "ENTRY_NOT_PENDING"
+            "description": "ATTENDANCE_ENTRY_NOT_REMOVABLE: lesson hours of an attendance, in any status (they change only with the attendance) | ENTRY_NOT_PENDING"
           },
           "500": {
             "content": {
@@ -13677,6 +14089,88 @@
         },
         "tags": [
           "assignments"
+        ]
+      }
+    },
+    "/members/{id}/attendance": {
+      "get": {
+        "operationId": "getMemberAttendanceHistory",
+        "parameters": [
+          {
+            "description": "Person id of the member.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberAttendanceHistoryResponseDto"
+                }
+              }
+            },
+            "description": "The presences and absences of the member, the latest lesson first, with the totals; cancelled lessons are left out of both. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
         ]
       }
     },

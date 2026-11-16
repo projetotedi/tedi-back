@@ -30,7 +30,13 @@ import { HourEntryStatus } from "../enums/hour-entry-status.enum";
  *   reviewer and no instant of review (GUS-164);
  * - `ck_hour_entries_review_minutes`: approved keeps the declared minutes, adjusted changes them and
  *   rejected is 0 (GUS-164);
- * - `ck_hour_entries_review_note`: a review note if and only if adjusted or rejected (GUS-164).
+ * - `ck_hour_entries_review_note`: a review note if and only if adjusted or rejected (GUS-164);
+ * - `ck_hour_entries_attendance_lesson`: an attendance entry is lesson hours, with its lesson and
+ *   its class (GUS-168). Without it the unique index below would have a hole: NULLs are distinct.
+ *
+ * `uq_hour_entries_lesson_id_person_id_attendance` keeps at most one ACTIVE attendance entry per
+ * person per lesson (GUS-168): a reversed one is soft-deleted and leaves the index, so a presence
+ * corrected to absent and back to present gets a new entry.
  *
  * The foreign keys are declared on the class, by table name and without relations, the same
  * pattern as Lesson: `people`, `classes` and `lessons` belong to other modules, whose entities this
@@ -41,6 +47,10 @@ import { HourEntryStatus } from "../enums/hour-entry-status.enum";
  */
 @Entity({ name: "hour_entries" })
 @Index("idx_hour_entries_person_id_date", ["personId", "date"])
+@Index("uq_hour_entries_lesson_id_person_id_attendance", ["lessonId", "personId"], {
+  unique: true,
+  where: `"origin" = 'attendance' AND "deleted_at" IS NULL`,
+})
 @Check("ck_hour_entries_declared_minutes", '"declared_minutes" > 0 AND "declared_minutes" <= 1440')
 @Check(
   "ck_hour_entries_validated_minutes",
@@ -65,6 +75,10 @@ import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 @Check(
   "ck_hour_entries_review_note",
   `("status" IN ('adjusted', 'rejected')) = ("review_note" IS NOT NULL)`,
+)
+@Check(
+  "ck_hour_entries_attendance_lesson",
+  `"origin" <> 'attendance' OR ("category" = 'lesson' AND "lesson_id" IS NOT NULL AND "class_id" IS NOT NULL)`,
 )
 @ForeignKey("people", ["person_id"], ["id"], { name: "fk_hour_entries_person_id" })
 @ForeignKey("people", ["created_by_id"], ["id"], { name: "fk_hour_entries_created_by_id" })

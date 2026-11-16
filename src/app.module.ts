@@ -12,6 +12,7 @@ import { ClassesModule } from "@modules/classes/classes.module";
 import { LessonsModule } from "@modules/lessons/lessons.module";
 import { AssignmentsModule } from "@modules/assignments/assignments.module";
 import { HoursModule } from "@modules/hours/hours.module";
+import { AttendanceModule } from "@modules/attendance/attendance.module";
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { HoursModule } from "@modules/hours/hours.module";
     LessonsModule,
     AssignmentsModule,
     HoursModule,
+    AttendanceModule,
     // Os próximos módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md).
   ],
   controllers: [HealthController],

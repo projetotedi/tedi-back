@@ -9,6 +9,8 @@ import { CatalogModule } from "@modules/catalog/catalog.module";
 import { CourseCategory, CoursesService } from "@modules/catalog/services/courses.service";
 import { ClassesModule } from "@modules/classes/classes.module";
 import { ClassesService } from "@modules/classes/services/classes.service";
+import { LessonsModule } from "@modules/lessons/lessons.module";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { PeopleModule } from "@modules/people/people.module";
 import { PeopleService } from "@modules/people/services/people.service";
 import { HOUR_ENTRY_ACTIVITY_MAX_LENGTH, HOUR_ENTRY_MAX_MINUTES } from "../dto/hour-entry-limits";
@@ -40,9 +42,6 @@ const UNKNOWN_ID = "01999a3e-0000-7000-8000-000000000000";
  */
 const ALL_ENTITIES = [join(__dirname, "..", "..", "..", "**", "*.entity.{ts,js}")];
 
-/** Attendance takes any author, so an unknown person or author breaks only its foreign key. */
-const ATTENDANCE = { origin: HourEntryOrigin.ATTENDANCE };
-
 /** Postgres udt_name for each TypeORM column type used by the entities. */
 const UDT_NAME: Record<string, string> = {
   uuid: "uuid",
@@ -73,6 +72,22 @@ interface Scenery {
   memberId: string;
   directorId: string;
   classId: string;
+  lessonId: string;
+  otherLessonId: string;
+}
+
+/**
+ * The columns of an attendance entry of a lesson of the scenery: lesson hours, with the lesson and
+ * its class (ck_hour_entries_attendance_lesson). Attendance takes any author, so an unknown person
+ * or author breaks only its foreign key.
+ */
+function attendanceOf(scenery: Scenery, lessonId = scenery.lessonId): Partial<HourEntry> {
+  return {
+    origin: HourEntryOrigin.ATTENDANCE,
+    category: HourEntryCategory.LESSON,
+    classId: scenery.classId,
+    lessonId,
+  };
 }
 
 function byName(a: ColumnShape, b: ColumnShape): number {
@@ -85,6 +100,7 @@ describe("hour entries repository (e2e)", () => {
   let peopleService: PeopleService;
   let coursesService: CoursesService;
   let classesService: ClassesService;
+  let lessonsService: LessonsService;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -101,6 +117,7 @@ describe("hour entries repository (e2e)", () => {
         PeopleModule,
         CatalogModule,
         ClassesModule,
+        LessonsModule,
       ],
     }).compile();
 
@@ -108,6 +125,7 @@ describe("hour entries repository (e2e)", () => {
     peopleService = module.get(PeopleService);
     coursesService = module.get(CoursesService);
     classesService = module.get(ClassesService);
+    lessonsService = module.get(LessonsService);
   });
 
   afterAll(async () => {
@@ -222,9 +240,10 @@ describe("hour entries repository (e2e)", () => {
   }
 
   /**
-   * The people of an entry (the member and a director who logs on her behalf) and a class. They
-   * come from the services the other modules export, not from their tables: it is scenery here. No
-   * lesson: the lessons module exports nothing, so `lesson_id` is only exercised by its foreign key.
+   * The people of an entry (the member and a director who logs on her behalf), a class and two of
+   * its lessons. They come from the services the other modules export, not from their tables: it is
+   * scenery here. Two lessons, because one person has at most one active attendance entry per
+   * lesson (uq_hour_entries_lesson_id_person_id_attendance).
    */
   async function setUp(): Promise<Scenery> {
     const member = await peopleService.save({ name: "Member" });
@@ -249,7 +268,34 @@ describe("hour entries repository (e2e)", () => {
       director.id,
     );
 
-    return { memberId: member.id, directorId: director.id, classId: schoolClass.id };
+    const lesson = await lessonsService.create(
+      {
+        classId: schoolClass.id,
+        title: "Teclado, mouse e janelas",
+        date: "2026-03-10",
+        startTime: "14:00",
+        endTime: "15:30",
+      },
+      director.id,
+    );
+    const otherLesson = await lessonsService.create(
+      {
+        classId: schoolClass.id,
+        title: "Navegando na internet",
+        date: "2026-03-17",
+        startTime: "14:00",
+        endTime: "15:30",
+      },
+      director.id,
+    );
+
+    return {
+      memberId: member.id,
+      directorId: director.id,
+      classId: schoolClass.id,
+      lessonId: lesson.id,
+      otherLessonId: otherLesson.id,
+    };
   }
 
   /** A pending manual entry of the member, logged by herself, unless `overrides` says otherwise. */
@@ -340,23 +386,47 @@ describe("hour entries repository (e2e)", () => {
       expect(await actualForeignKeys("hour_entry_events")).toEqual(declared);
     });
 
-    it("has idx_hour_entries_person_id_date and idx_hour_entry_events_hour_entry_id, declared by the entities", async () => {
+    it("has idx_hour_entries_person_id_date, uq_hour_entries_lesson_id_person_id_attendance and idx_hour_entry_events_hour_entry_id, declared by the entities", async () => {
+      // Sorted by name: class decorators apply bottom up, so the metadata is not in code order.
       const indicesOf = (entity: EntityTarget<unknown>) =>
-        dataSource.getMetadata(entity).indices.map((index) => ({
-          name: index.name,
-          unique: index.isUnique,
-          columns: index.columns.map((column) => column.databaseName),
-        }));
+        dataSource
+          .getMetadata(entity)
+          .indices.map((index) => ({
+            name: index.name,
+            unique: index.isUnique,
+            where: index.where,
+            columns: index.columns.map((column) => column.databaseName),
+          }))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
       expect(indicesOf(HourEntry)).toEqual([
-        { name: "idx_hour_entries_person_id_date", unique: false, columns: ["person_id", "date"] },
+        {
+          name: "idx_hour_entries_person_id_date",
+          unique: false,
+          where: undefined,
+          columns: ["person_id", "date"],
+        },
+        {
+          name: "uq_hour_entries_lesson_id_person_id_attendance",
+          unique: true,
+          where: `"origin" = 'attendance' AND "deleted_at" IS NULL`,
+          columns: ["lesson_id", "person_id"],
+        },
       ]);
       expect(indicesOf(HourEntryEvent)).toEqual([
         {
           name: "idx_hour_entry_events_hour_entry_id",
           unique: false,
+          where: undefined,
           columns: ["hour_entry_id"],
         },
+      ]);
+
+      // What the migration created, as Postgres normalizes it (pg_indexes.indexdef).
+      expect(
+        await indexDefinition("hour_entries", "uq_hour_entries_lesson_id_person_id_attendance"),
+      ).toEqual([
+        "CREATE UNIQUE INDEX uq_hour_entries_lesson_id_person_id_attendance ON public.hour_entries USING btree (lesson_id, person_id) WHERE ((origin = 'attendance'::hour_entries_origin_enum) AND (deleted_at IS NULL))",
       ]);
 
       const entries = await indexDefinition("hour_entries", "idx_hour_entries_person_id_date");
@@ -373,12 +443,16 @@ describe("hour entries repository (e2e)", () => {
       expect(events[0]).toMatch(/\(hour_entry_id\)/);
     });
 
-    it("has the seven check constraints declared by HourEntry", async () => {
+    it("has the eight check constraints declared by HourEntry", async () => {
       const declared = dataSource
         .getMetadata(HourEntry)
         .checks.map((check) => ({ name: check.name, expression: check.expression }))
         .sort((a, b) => String(a.name).localeCompare(String(b.name)));
       expect(declared).toEqual([
+        {
+          name: "ck_hour_entries_attendance_lesson",
+          expression: `"origin" <> 'attendance' OR ("category" = 'lesson' AND "lesson_id" IS NOT NULL AND "class_id" IS NOT NULL)`,
+        },
         {
           name: "ck_hour_entries_declared_minutes",
           expression: '"declared_minutes" > 0 AND "declared_minutes" <= 1440',
@@ -430,6 +504,10 @@ describe("hour entries repository (e2e)", () => {
       expect(definitions.ck_hour_entries_review_note).toMatch(/'adjusted'/);
       expect(definitions.ck_hour_entries_review_note).toMatch(/'rejected'/);
       expect(definitions.ck_hour_entries_review_note).toMatch(/review_note IS NOT NULL/);
+      expect(definitions.ck_hour_entries_attendance_lesson).toMatch(/'attendance'/);
+      expect(definitions.ck_hour_entries_attendance_lesson).toMatch(/'lesson'/);
+      expect(definitions.ck_hour_entries_attendance_lesson).toMatch(/lesson_id IS NOT NULL/);
+      expect(definitions.ck_hour_entries_attendance_lesson).toMatch(/class_id IS NOT NULL/);
       expect(await checkDefinitions("hour_entry_events")).toEqual({});
     });
 
@@ -548,12 +626,13 @@ describe("hour entries repository (e2e)", () => {
         origin: HourEntryOrigin.ON_BEHALF,
         createdById: scenery.directorId,
       });
+      // One lesson for each: a person has one active attendance entry per lesson.
       await createEntry(scenery, {
-        origin: HourEntryOrigin.ATTENDANCE,
+        ...attendanceOf(scenery),
         createdById: scenery.directorId,
       });
       await createEntry(scenery, {
-        origin: HourEntryOrigin.ATTENDANCE,
+        ...attendanceOf(scenery, scenery.otherLessonId),
         createdById: scenery.memberId,
       });
     });
@@ -562,10 +641,10 @@ describe("hour entries repository (e2e)", () => {
       const scenery = await setUp();
 
       await expect(
-        createEntry(scenery, { ...ATTENDANCE, personId: UNKNOWN_ID }),
+        createEntry(scenery, { ...attendanceOf(scenery), personId: UNKNOWN_ID }),
       ).rejects.toMatchObject({ code: "23503", constraint: "fk_hour_entries_person_id" });
       await expect(
-        createEntry(scenery, { ...ATTENDANCE, createdById: UNKNOWN_ID }),
+        createEntry(scenery, { ...attendanceOf(scenery), createdById: UNKNOWN_ID }),
       ).rejects.toMatchObject({ code: "23503", constraint: "fk_hour_entries_created_by_id" });
       await expect(
         createEntry(scenery, {
@@ -576,10 +655,10 @@ describe("hour entries repository (e2e)", () => {
         }),
       ).rejects.toMatchObject({ code: "23503", constraint: "fk_hour_entries_reviewed_by_id" });
       await expect(
-        createEntry(scenery, { ...ATTENDANCE, classId: UNKNOWN_ID }),
+        createEntry(scenery, { ...attendanceOf(scenery), classId: UNKNOWN_ID }),
       ).rejects.toMatchObject({ code: "23503", constraint: "fk_hour_entries_class_id" });
       await expect(
-        createEntry(scenery, { ...ATTENDANCE, lessonId: UNKNOWN_ID }),
+        createEntry(scenery, { ...attendanceOf(scenery), lessonId: UNKNOWN_ID }),
       ).rejects.toMatchObject({ code: "23503", constraint: "fk_hour_entries_lesson_id" });
     });
 
@@ -735,6 +814,99 @@ describe("hour entries repository (e2e)", () => {
       await expect(
         createEntry(scenery, { status: HourEntryStatus.PENDING, reviewNote: "Ainda não." }),
       ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_review_note" });
+    });
+
+    it("rejects an attendance entry without lesson, without class or of another category with 23514 on ck_hour_entries_attendance_lesson", async () => {
+      const scenery = await setUp();
+
+      for (const broken of [
+        { lessonId: null },
+        { classId: null },
+        { category: HourEntryCategory.PLANNING },
+      ]) {
+        await expect(
+          createEntry(scenery, { ...attendanceOf(scenery), ...broken }),
+        ).rejects.toMatchObject({ code: "23514", constraint: "ck_hour_entries_attendance_lesson" });
+      }
+      // The other origins keep the category they log and take no lesson.
+      await createEntry(scenery, { category: HourEntryCategory.LESSON });
+      await createEntry(scenery, attendanceOf(scenery));
+    });
+
+    it("rejects a second active attendance entry of the same person in the same lesson with 23505 on uq_hour_entries_lesson_id_person_id_attendance, and accepts it once the first is removed; manual entries do not count", async () => {
+      const scenery = await setUp();
+      const first = await createEntry(scenery, attendanceOf(scenery));
+
+      await expect(createEntry(scenery, attendanceOf(scenery))).rejects.toMatchObject({
+        code: "23505",
+        constraint: "uq_hour_entries_lesson_id_person_id_attendance",
+      });
+
+      // Another person in the same lesson, and the same person in another lesson, are fine.
+      await createEntry(scenery, {
+        ...attendanceOf(scenery),
+        personId: scenery.directorId,
+        createdById: scenery.memberId,
+      });
+      await createEntry(scenery, attendanceOf(scenery, scenery.otherLessonId));
+      // Manual entries of the person are outside the index, even with the lesson filled.
+      await createEntry(scenery, { lessonId: scenery.lessonId, classId: scenery.classId });
+      await createEntry(scenery, { lessonId: scenery.lessonId, classId: scenery.classId });
+
+      // A reversed entry is soft-deleted and leaves the index.
+      await dataSource
+        .getRepository(HourEntry)
+        .update({ id: first.id }, { deletedAt: new Date("2026-03-12T13:00:00.000Z") });
+      await createEntry(scenery, attendanceOf(scenery));
+    });
+
+    it("accepts the attendance entry born approved and the one born pending, as LessonHoursService writes them", async () => {
+      const scenery = await setUp();
+      const now = new Date("2026-03-10T18:30:00.000Z");
+      const lessonHours = {
+        ...attendanceOf(scenery),
+        createdById: scenery.directorId,
+        activity: "Teclado, mouse e janelas",
+        date: "2026-03-10",
+        declaredMinutes: 90,
+        notes: null,
+        reviewNote: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const approved = await createEntry(scenery, {
+        ...lessonHours,
+        status: HourEntryStatus.APPROVED,
+        validatedMinutes: 90,
+        reviewedById: scenery.directorId,
+        reviewedAt: now,
+      });
+      const pending = await createEntry(scenery, {
+        ...lessonHours,
+        lessonId: scenery.otherLessonId,
+        status: HourEntryStatus.PENDING,
+        validatedMinutes: null,
+        reviewedById: null,
+        reviewedAt: null,
+      });
+
+      const repository = dataSource.getRepository(HourEntry);
+      expect(await repository.findOneByOrFail({ id: approved.id })).toMatchObject({
+        origin: HourEntryOrigin.ATTENDANCE,
+        category: HourEntryCategory.LESSON,
+        status: HourEntryStatus.APPROVED,
+        declaredMinutes: 90,
+        validatedMinutes: 90,
+        reviewedById: scenery.directorId,
+        reviewedAt: now,
+      });
+      expect(await repository.findOneByOrFail({ id: pending.id })).toMatchObject({
+        status: HourEntryStatus.PENDING,
+        validatedMinutes: null,
+        reviewedById: null,
+        reviewedAt: null,
+      });
     });
   });
 

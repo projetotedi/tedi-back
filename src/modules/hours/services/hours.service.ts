@@ -26,6 +26,7 @@ import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import {
+  attendanceEntryNotRemovable,
   entryNotPending,
   hourEntryDateInFuture,
   hourEntryNotFound,
@@ -56,8 +57,8 @@ export function applyPeriod(
 
 /**
  * What a new hour entry is, already decided by the caller: whose hours, who logged them and how.
- * Internal to the module, like `createEntry`: the attendance (GUS-168) builds one from a listener
- * of this module.
+ * Internal to the module, like `createEntry`: the LessonHoursService builds one for the attendance
+ * (GUS-168).
  */
 export interface HourEntryDraft {
   personId: string;
@@ -73,12 +74,54 @@ export interface HourEntryDraft {
   classId?: string | null;
   /** Only the attendance fills it; omitted is null. */
   lessonId?: string | null;
+  /**
+   * Who approves the entry as it is born, with its declared minutes: the presence of a lesson
+   * (GUS-168), while LESSON_HOURS_INITIAL_STATUS is approved. Null in the routes, which leave it
+   * pending for the review (GUS-164).
+   */
+  approvedById: string | null;
 }
 
-/** The entry that was written, and the audit event the caller emits AFTER its commit. */
+/** The entry that was written, and the audit events the caller emits AFTER its commit. */
 export interface CreatedHourEntry {
   entry: HourEntry;
-  auditEvent: AuditableActionEvent;
+  /** HOUR_ENTRY_CREATED and, when the entry was born approved, HOUR_ENTRY_APPROVED, in this order. */
+  auditEvents: AuditableActionEvent[];
+}
+
+/** The review columns of a new entry: none while pending, the approval when it comes. */
+type BornReview =
+  | {
+      status: HourEntryStatus.PENDING;
+      validatedMinutes: null;
+      reviewedById: null;
+      reviewedAt: null;
+    }
+  | {
+      status: HourEntryStatus.APPROVED;
+      validatedMinutes: number;
+      reviewedById: string;
+      reviewedAt: Date;
+    };
+
+type BornApproval = Extract<BornReview, { status: HourEntryStatus.APPROVED }>;
+
+/** How a draft is born: pending, or approved by `approvedById` with the declared minutes, at `now`. */
+function bornReviewOf(draft: HourEntryDraft, now: Date): BornReview {
+  if (draft.approvedById === null) {
+    return {
+      status: HourEntryStatus.PENDING,
+      validatedMinutes: null,
+      reviewedById: null,
+      reviewedAt: null,
+    };
+  }
+  return {
+    status: HourEntryStatus.APPROVED,
+    validatedMinutes: draft.declaredMinutes,
+    reviewedById: draft.approvedById,
+    reviewedAt: now,
+  };
 }
 
 /** Who an entry logged on behalf of someone is for, with the facts the policy needs. */
@@ -129,19 +172,31 @@ export class HoursService {
 
   /**
    * The one place that writes a new hour entry, with its `created` event in the history. It is
-   * born `pending`, with no validated minutes and no review. The point of reuse of the attendance
-   * (GUS-168), which passes `origin: attendance` with the class and the lesson.
+   * born `pending`, with no validated minutes and no review, or `approved` by `approvedById` with
+   * its declared minutes. The point of reuse of the attendance (GUS-168), which passes
+   * `origin: attendance` with the class and the lesson, and the approval while lesson hours are
+   * born approved.
    *
-   * It does not open a transaction and it emits nothing: the caller passes the `manager` of its
-   * transaction and emits `auditEvent` after the commit. 400 HOUR_ENTRY_DATE_IN_FUTURE for a day
+   * An approved entry gets two rows of history at the same instant, saved in this order (the ids
+   * are UUID v7, so `created_at, id` reads them in it): `created` (to pending, by the author) and
+   * `approved` (from pending, same minutes, by `approvedById`). Every reader of the history keeps
+   * its rules: `created` leads to pending, and a reviewed status is reached by a row of review.
+   *
+   * It does not open a transaction, it emits nothing and it reads no clock: the caller passes the
+   * `manager` of its transaction and `now`, one instant per operation (a batch of the attendance
+   * has one), and emits `auditEvents` after the commit. 400 HOUR_ENTRY_DATE_IN_FUTURE for a day
    * after today in APP_TIME_ZONE, before anything is written: the rule lives here so every way in
    * (the two routes and the attendance) gets it.
    *
-   * The audit event carries no free text (`activity`, `notes`): RNF-13.
+   * The audit events carry no free text (`activity`, `notes`): RNF-13.
    */
-  async createEntry(manager: EntityManager, draft: HourEntryDraft): Promise<CreatedHourEntry> {
-    const now = this.clock.now();
+  async createEntry(
+    manager: EntityManager,
+    draft: HourEntryDraft,
+    now: Date,
+  ): Promise<CreatedHourEntry> {
     if (draft.date > todayInAppTimeZone(now)) throw hourEntryDateInFuture();
+    const review = bornReviewOf(draft, now);
 
     const entry = await manager.save(
       manager.create(HourEntry, {
@@ -155,11 +210,11 @@ export class HoursService {
         notes: draft.notes,
         classId: draft.classId ?? null,
         lessonId: draft.lessonId ?? null,
-        status: HourEntryStatus.PENDING,
-        validatedMinutes: null,
+        status: review.status,
+        validatedMinutes: review.validatedMinutes,
         reviewNote: null,
-        reviewedById: null,
-        reviewedAt: null,
+        reviewedById: review.reviewedById,
+        reviewedAt: review.reviewedAt,
         createdAt: now,
         updatedAt: now,
       }),
@@ -180,25 +235,75 @@ export class HoursService {
       }),
     );
 
-    const auditEvent = this.buildAuditEvent({
-      action: AuditableAction.HOUR_ENTRY_CREATED,
-      actorId: draft.createdById,
+    const auditEvents = [
+      this.buildAuditEvent({
+        action: AuditableAction.HOUR_ENTRY_CREATED,
+        actorId: draft.createdById,
+        hourEntryId: entry.id,
+        before: null,
+        after: {
+          personId: entry.personId,
+          category: entry.category,
+          date: entry.date,
+          declaredMinutes: entry.declaredMinutes,
+          // The step of the creation, as the history records it: the approval has its own event.
+          status: HourEntryStatus.PENDING,
+          origin: entry.origin,
+          classId: entry.classId,
+          lessonId: entry.lessonId,
+        },
+        occurredAt: now,
+      }),
+    ];
+
+    if (review.status === HourEntryStatus.APPROVED) {
+      const approval = await this.recordBornApproval(manager, entry, review, now);
+      auditEvents.push(approval);
+    }
+
+    return { entry, auditEvents };
+  }
+
+  /**
+   * The approval of an entry born approved: the `approved` row of its history (from pending, the
+   * same minutes, by who approved), saved after the `created` one at the same instant, and the
+   * HOUR_ENTRY_APPROVED it returns, with the same shape as the approval of the review (GUS-164).
+   */
+  private async recordBornApproval(
+    manager: EntityManager,
+    entry: HourEntry,
+    review: BornApproval,
+    now: Date,
+  ): Promise<AuditableActionEvent> {
+    await manager.save(
+      manager.create(HourEntryEvent, {
+        hourEntryId: entry.id,
+        type: HourEntryEventType.APPROVED,
+        actorId: review.reviewedById,
+        fromStatus: HourEntryStatus.PENDING,
+        toStatus: HourEntryStatus.APPROVED,
+        fromMinutes: entry.declaredMinutes,
+        toMinutes: review.validatedMinutes,
+        note: null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    return this.buildAuditEvent({
+      action: AuditableAction.HOUR_ENTRY_APPROVED,
+      actorId: review.reviewedById,
       hourEntryId: entry.id,
-      before: null,
+      before: { status: HourEntryStatus.PENDING, validatedMinutes: null },
       after: {
         personId: entry.personId,
-        category: entry.category,
-        date: entry.date,
+        status: HourEntryStatus.APPROVED,
         declaredMinutes: entry.declaredMinutes,
-        status: entry.status,
-        origin: entry.origin,
-        classId: entry.classId,
-        lessonId: entry.lessonId,
+        validatedMinutes: review.validatedMinutes,
+        reviewedById: review.reviewedById,
       },
       occurredAt: now,
     });
-
-    return { entry, auditEvent };
   }
 
   /**
@@ -212,11 +317,14 @@ export class HoursService {
       createdById: actor.id,
       origin: HourEntryOrigin.MANUAL,
     });
-    const { entry, auditEvent } = await this.dataSource.transaction((manager) =>
-      this.createEntry(manager, draft),
+    const now = this.clock.now();
+    const { entry, auditEvents } = await this.dataSource.transaction((manager) =>
+      this.createEntry(manager, draft, now),
     );
 
-    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
+    for (const auditEvent of auditEvents) {
+      this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
+    }
     return toHourEntryResponse(entry);
   }
 
@@ -251,11 +359,14 @@ export class HoursService {
       createdById: actor.id,
       origin: HourEntryOrigin.ON_BEHALF,
     });
-    const { entry, auditEvent } = await this.dataSource.transaction((manager) =>
-      this.createEntry(manager, draft),
+    const now = this.clock.now();
+    const { entry, auditEvents } = await this.dataSource.transaction((manager) =>
+      this.createEntry(manager, draft, now),
     );
 
-    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
+    for (const auditEvent of auditEvents) {
+      this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
+    }
     return toHourEntryResponse(entry);
   }
 
@@ -335,7 +446,10 @@ export class HoursService {
    * The owner is checked by the query (`id` and `person_id` of the session), never by the policy:
    * the superadmin has `all` on account.manageOwn and would remove anyone's entry. So an entry of
    * another person answers 404 HOUR_ENTRY_NOT_FOUND, like an unknown one and one already removed;
-   * a reviewed entry answers 409 ENTRY_NOT_PENDING.
+   * lesson hours of an attendance answer 409 ATTENDANCE_ENTRY_NOT_REMOVABLE, whatever their status
+   * (GUS-168: they change only with the attendance, by a correction or the cancellation of the
+   * lesson, and removing them would leave a presence pointing to an entry that is gone); a reviewed
+   * entry answers 409 ENTRY_NOT_PENDING.
    *
    * The entry is read FOR UPDATE: two removals of it, or a removal and the review of GUS-164, run
    * one after the other. The one that waits reads the row again after the other commits, and
@@ -355,6 +469,7 @@ export class HoursService {
         lock: { mode: "pessimistic_write" },
       });
       if (entry === null) throw hourEntryNotFound();
+      if (entry.origin === HourEntryOrigin.ATTENDANCE) throw attendanceEntryNotRemovable();
       if (entry.status !== HourEntryStatus.PENDING) throw entryNotPending();
 
       await manager.update(HourEntry, { id: entry.id }, { deletedAt: now, updatedAt: now });
@@ -410,7 +525,8 @@ export class HoursService {
 
   /**
    * The draft of an entry logged through one of the two routes: the fields of the body, with whose
-   * hours they are, who logged them and how. Notes omitted in the body are null.
+   * hours they are, who logged them and how. Notes omitted in the body are null. It is born pending:
+   * a route never approves (the review is GUS-164).
    */
   private draftFrom(dto: CreateHourEntryDto, authorship: DraftAuthorship): HourEntryDraft {
     return {
@@ -422,6 +538,7 @@ export class HoursService {
       date: dto.date,
       declaredMinutes: dto.declaredMinutes,
       notes: dto.notes ?? null,
+      approvedById: null,
     };
   }
 

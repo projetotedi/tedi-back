@@ -132,7 +132,7 @@ interface LessonSchedule extends Record<string, unknown> {
 }
 
 type CancelOutcome =
-  | { changed: false; response: LessonResponseDto }
+  | { changed: false; response: LessonResponseDto; lesson: Lesson }
   | { changed: true; response: LessonResponseDto; lesson: Lesson; previousStatus: LessonStatus };
 
 type RescheduleOutcome =
@@ -388,13 +388,15 @@ export class LessonsService {
    * the hours already recorded for it (RN-07), and that is the `hours` module's work: this one only
    * announces it, with the `lesson.cancelled` event.
    *
-   * Cancelling a lesson that is already cancelled is a no-op that answers 200 and keeps the first
-   * reason: no write and no event, and not even the class is looked at. Otherwise, errors: 404
+   * Cancelling a lesson that is already cancelled answers 200 and keeps the first reason: no write
+   * and no audit event, and not even the class is looked at. It only emits `lesson.cancelled` again,
+   * with whoever asked and the instant of the request: the listeners are idempotent, and that is how
+   * a reversal of the hours that failed is repaired (GUS-168). Otherwise, errors: 404
    * LESSON_NOT_FOUND and 409 CLASS_ARCHIVED (archived classes are read-only, RN-27).
    *
    * `cancelledAt` and `updatedAt` are the same instant, read once from the clock. After the commit,
-   * and only when the lesson was cancelled now, it emits LESSON_CANCELLED on the audit channel
-   * (without the reason: free text, RNF-13) and `lesson.cancelled`, the hook of the hours.
+   * when the lesson was cancelled now, it emits LESSON_CANCELLED on the audit channel (without the
+   * reason: free text, RNF-13), then `lesson.cancelled`, the hook of the hours.
    */
   async cancel(
     requestedId: string,
@@ -407,7 +409,7 @@ export class LessonsService {
       const lesson = await this.loadLesson(manager, requestedId);
 
       if (lesson.status === LessonStatus.CANCELLED) {
-        return { changed: false, response: await this.buildResponse(manager, lesson) };
+        return { changed: false, lesson, response: await this.buildResponse(manager, lesson) };
       }
 
       const schoolClass = await this.loadWritableClass(manager, lesson.classId);
@@ -430,8 +432,8 @@ export class LessonsService {
       };
     });
 
+    const { lesson } = outcome;
     if (outcome.changed) {
-      const { lesson } = outcome;
       this.emit(
         AuditableAction.LESSON_CANCELLED,
         actorId,
@@ -439,17 +441,19 @@ export class LessonsService {
         { status: outcome.previousStatus },
         { status: LessonStatus.CANCELLED, cancelledAt: now },
       );
-      this.eventEmitter.emit(
-        LESSON_CANCELLED_EVENT,
-        new LessonCancelledEvent({
-          lessonId: lesson.id,
-          classId: lesson.classId,
-          date: lesson.date,
-          cancelledById: actorId,
-          cancelledAt: now,
-        }),
-      );
     }
+    // Also for a lesson that was already cancelled (GUS-168): the hours reverse what is still active
+    // and do nothing otherwise, so a reversal that failed is repaired by cancelling again.
+    this.eventEmitter.emit(
+      LESSON_CANCELLED_EVENT,
+      new LessonCancelledEvent({
+        lessonId: lesson.id,
+        classId: lesson.classId,
+        date: lesson.date,
+        cancelledById: actorId,
+        cancelledAt: now,
+      }),
+    );
 
     return outcome.response;
   }

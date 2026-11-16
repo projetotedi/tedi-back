@@ -1,0 +1,28 @@
+meta {
+  name: get-member-attendance-history
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/members/:id/attendance
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000005
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Histórico de presença de um membro, para a ficha dele (F6.4, GUS-168). O :id é o id da pessoa do membro.
+  Requer cookie tedi_session e a permissão members.view (@RequirePermission), a mesma da ficha do membro: coordenação e superadmin leem qualquer membro; diretor só membro do próprio departamento (403 FORBIDDEN_SCOPE fora dele, e para diretor sem departamento); membro recebe 403 FORBIDDEN.
+  Retorna 200 MemberAttendanceHistoryResponseDto: totals { present, absent } e items, as presenças e as faltas com a aula (id, título, dia, início e fim), o status e quando foi assinada, da aula mais recente para a mais antiga. Aula cancelada fica fora dos itens e dos totais (aula cancelada não aconteceu, RN-07). Sem paginação; o front filtra as faltas.
+  O 404 vem antes do 403 de escopo, como na ficha do membro.
+  Leitura simples: sem transação, sem trava e sem evento.
+  Erros possíveis: 401, 403 FORBIDDEN, 403 FORBIDDEN_SCOPE, 404 MEMBER_NOT_FOUND (id mal formado, desconhecido, aluno ou pessoa removida).
+}

@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import {
   adjustedMinutesUnchanged,
+  attendanceEntryNotRemovable,
   duplicateHourEntry,
   entryNotPending,
   entryNotPendingForReview,
@@ -27,6 +28,16 @@ describe("hour entry errors", () => {
       build: entryNotPending,
       status: 409,
       body: { error: "ENTRY_NOT_PENDING", message: "Only pending hour entries can be removed." },
+    },
+    {
+      name: "attendanceEntryNotRemovable",
+      build: attendanceEntryNotRemovable,
+      status: 409,
+      body: {
+        error: "ATTENDANCE_ENTRY_NOT_REMOVABLE",
+        message:
+          "Lesson hours of an attendance cannot be removed; the attendance is corrected instead.",
+      },
     },
     {
       name: "hourEntryDateInFuture",
