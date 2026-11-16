@@ -1196,6 +1196,16 @@ describe("ApplicationsService", () => {
       expect((await service.listPending(query, COORDINATOR)).total).toBe(3);
     });
 
+    it("throws, as a broken invariant, when the agenda answers a lesson that was not asked for", async () => {
+      seedQueue();
+      state.agenda = [
+        ...state.agenda,
+        buildAgendaRef({ id: "01999a3e-7c1b-7000-8000-0000000000f9" }),
+      ];
+
+      await expect(service.listPending(query, COORDINATOR)).rejects.toThrow("was not asked for");
+    });
+
     it("answers person null for a person that is gone", async () => {
       seedQueue();
       state.people = [{ id: PERSON_ID, name: "Ana Torres" }];

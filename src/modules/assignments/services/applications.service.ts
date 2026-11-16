@@ -240,23 +240,25 @@ export class ApplicationsService {
     ]);
     const peopleById = new Map(people.map((person) => [person.id, person]));
 
-    const lessons = agenda.flatMap((ref): PendingApplicationGroupResponseDto[] => {
+    const lessons = agenda.map((ref): PendingApplicationGroupResponseDto => {
+      // The agenda only answers the ids it was asked for: another one is a broken contract, not a
+      // lesson to skip quietly.
       const ofLesson = byLesson.get(ref.id);
-      if (ofLesson === undefined) return [];
+      if (ofLesson === undefined) {
+        throw new Error(`The agenda answered the lesson ${ref.id}, which was not asked for.`);
+      }
 
-      return [
-        {
-          lesson: toAssignmentLesson(ref),
-          coverage: toLessonCoverage(ref, staff.get(ref.id) ?? NO_CONFIRMED_STAFF).coverage,
-          applications: ofLesson.map((application) =>
-            toLessonAssignmentResponse(
-              application,
-              peopleById.get(application.personId) ?? null,
-              visibility,
-            ),
+      return {
+        lesson: toAssignmentLesson(ref),
+        coverage: toLessonCoverage(ref, staff.get(ref.id) ?? NO_CONFIRMED_STAFF).coverage,
+        applications: ofLesson.map((application) =>
+          toLessonAssignmentResponse(
+            application,
+            peopleById.get(application.personId) ?? null,
+            visibility,
           ),
-        },
-      ];
+        ),
+      };
     });
 
     return {
