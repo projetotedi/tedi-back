@@ -51,7 +51,7 @@ export interface LessonAgendaRef {
 }
 
 /** The lesson with its class, as `LessonAgendaRef`. Missing optional columns are read as null. */
-export function toLessonAgendaRef(lesson: Lesson, schoolClass: ClassRef): LessonAgendaRef {
+function toLessonAgendaRef(lesson: Lesson, schoolClass: ClassRef): LessonAgendaRef {
   return {
     id: lesson.id,
     title: lesson.title,
