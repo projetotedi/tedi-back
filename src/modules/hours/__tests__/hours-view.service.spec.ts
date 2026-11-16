@@ -14,7 +14,7 @@ import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
-import { EVERYONE, populationOf } from "../services/hour-entry-queries";
+import { EVERYONE, peoplePopulation } from "../services/hour-entry-queries";
 import { HoursScopeService } from "../services/hours-scope.service";
 import { HoursViewService } from "../services/hours-view.service";
 
@@ -258,7 +258,7 @@ describe("HoursViewService", () => {
     });
 
     it("restricts the totals and the members to the population of the scope service, with the same period", async () => {
-      scope.populationOf.mockResolvedValue(populationOf([ANA, BRUNO]));
+      scope.populationOf.mockResolvedValue(peoplePopulation([ANA, BRUNO]));
 
       await service.getOverview(DIRECTOR, { from: "2026-03-01", to: "2026-03-31", search: "a" });
 
@@ -272,7 +272,7 @@ describe("HoursViewService", () => {
     });
 
     it("answers zero totals and an empty page, without querying the entries, when the population is nobody", async () => {
-      scope.populationOf.mockResolvedValue(populationOf([]));
+      scope.populationOf.mockResolvedValue(peoplePopulation([]));
 
       const overview = await service.getOverview(DIRECTOR, { from: "2026-03-01", page: 3 });
 
@@ -518,7 +518,7 @@ describe("HoursViewService", () => {
     });
 
     it("filters by status, person and period, inside the population of the actor", async () => {
-      scope.populationOf.mockResolvedValue(populationOf([ANA, BRUNO]));
+      scope.populationOf.mockResolvedValue(peoplePopulation([ANA, BRUNO]));
 
       await service.listEntries(DIRECTOR, {
         status: HourEntryStatus.APPROVED,
@@ -543,7 +543,7 @@ describe("HoursViewService", () => {
     });
 
     it("answers an empty page without querying when the population is nobody", async () => {
-      scope.populationOf.mockResolvedValue(populationOf([]));
+      scope.populationOf.mockResolvedValue(peoplePopulation([]));
 
       await expect(service.listEntries(DIRECTOR, { page: 2 })).resolves.toEqual({
         data: [],

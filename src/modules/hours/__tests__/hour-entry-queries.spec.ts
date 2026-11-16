@@ -1,7 +1,12 @@
 import "reflect-metadata";
 import { SelectQueryBuilder } from "typeorm";
 import { HourEntry } from "../entities/hour-entry.entity";
-import { applyPopulation, EVERYONE, isNobody, populationOf } from "../services/hour-entry-queries";
+import {
+  applyPopulation,
+  EVERYONE,
+  isNobody,
+  peoplePopulation,
+} from "../services/hour-entry-queries";
 
 const ANA = "01999a3e-0000-7000-8000-0000000000a1";
 
@@ -14,8 +19,8 @@ describe("hour entry queries", () => {
   });
 
   it("tells nobody apart from everyone and from a list of people", () => {
-    expect(isNobody(populationOf([]))).toBe(true);
-    expect(isNobody(populationOf([ANA]))).toBe(false);
+    expect(isNobody(peoplePopulation([]))).toBe(true);
+    expect(isNobody(peoplePopulation([ANA]))).toBe(false);
     expect(isNobody(EVERYONE)).toBe(false);
   });
 
@@ -23,14 +28,14 @@ describe("hour entry queries", () => {
     applyPopulation(query, EVERYONE);
     expect(builder.andWhere).not.toHaveBeenCalled();
 
-    applyPopulation(query, populationOf([ANA]));
+    applyPopulation(query, peoplePopulation([ANA]));
     expect(builder.andWhere).toHaveBeenCalledWith("entry.person_id IN (:...personIds)", {
       personIds: [ANA],
     });
   });
 
   it("throws for nobody instead of writing IN (), which is not SQL", () => {
-    expect(() => applyPopulation(query, populationOf([]))).toThrow(
+    expect(() => applyPopulation(query, peoplePopulation([]))).toThrow(
       "An hours query cannot be restricted to nobody: answer empty before querying.",
     );
     expect(builder.andWhere).not.toHaveBeenCalled();

@@ -11,7 +11,7 @@ import { HourEntry } from "../entities/hour-entry.entity";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
-import { EVERYONE, populationOf } from "../services/hour-entry-queries";
+import { EVERYONE, peoplePopulation } from "../services/hour-entry-queries";
 import { CSV_BOM, csvLine, HOURS_CSV_HEADER, HOURS_EXPORT_BATCH_SIZE } from "../services/hours-csv";
 import { HoursExportService } from "../services/hours-export.service";
 import { HoursScopeService } from "../services/hours-scope.service";
@@ -197,7 +197,7 @@ describe("HoursExportService", () => {
   });
 
   it("writes only the header for a population of nobody, without querying", async () => {
-    scope.populationOf.mockResolvedValue(populationOf([]));
+    scope.populationOf.mockResolvedValue(peoplePopulation([]));
 
     const text = await textOf((await service.exportCsv(COORDINATOR, {})).stream);
 
@@ -207,7 +207,7 @@ describe("HoursExportService", () => {
   });
 
   it("restricts the entries to the population and the period", async () => {
-    scope.populationOf.mockResolvedValue(populationOf([ANA, BRUNO]));
+    scope.populationOf.mockResolvedValue(peoplePopulation([ANA, BRUNO]));
 
     await textOf(
       (await service.exportCsv(COORDINATOR, { from: "2026-03-01", to: "2026-03-31" })).stream,

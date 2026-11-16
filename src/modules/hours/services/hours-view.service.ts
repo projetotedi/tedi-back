@@ -27,11 +27,11 @@ import {
   applyStatementOrder,
   HoursPopulation,
   isNobody,
-  populationOf,
+  peoplePopulation,
   selectSummaryRows,
 } from "./hour-entry-queries";
 import { HoursScopeService } from "./hours-scope.service";
-import { buildHoursSummary } from "./hours-summary";
+import { BANK_STATUSES, buildHoursSummary } from "./hours-summary";
 import {
   HoursMemberRow,
   toHourEntryEventResponse,
@@ -68,8 +68,9 @@ export class HoursViewService {
   /**
    * `GET /hours/overview` (F7.4): the totals of the period and a page of the members, for the
    * members the actor reads with hours.viewOthers (a director: her current department; coordination
-   * and the superadmin: everyone), narrowed by the search, which narrows the totals too, so the
-   * number on top always matches the table.
+   * and the superadmin: everyone), narrowed by the search, which narrows the totals too. The
+   * totals and the table match, unless a review commits between their reads: they are separate
+   * statements, with no transaction. The stored data stays right; only that answer can disagree.
    *
    * The lines are the members with entries in the period: the most pending minutes first, then the
    * most declared minutes, then the person id, paginated in the query. The name lives in people, so
@@ -139,7 +140,7 @@ export class HoursViewService {
       departmentIds: member.department === null ? [] : [member.department.id],
     });
 
-    const population = populationOf([member.id]);
+    const population = peoplePopulation([member.id]);
     const summary = await this.readSummary(query, population);
 
     const builder = this.entries();
@@ -268,7 +269,7 @@ export class HoursViewService {
       )
       .setParameters({
         pending: HourEntryStatus.PENDING,
-        bankStatuses: [HourEntryStatus.APPROVED, HourEntryStatus.ADJUSTED],
+        bankStatuses: [...BANK_STATUSES],
       });
     applyPeriod(builder, period);
     applyPopulation(builder, population);

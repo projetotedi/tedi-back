@@ -4,7 +4,7 @@ import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { normalizeSearchTerm } from "@shared/search/search.util";
-import { EVERYONE, HoursPopulation, populationOf } from "./hour-entry-queries";
+import { EVERYONE, HoursPopulation, peoplePopulation } from "./hour-entry-queries";
 
 /**
  * Whose hours an actor reads on the readings of the team (overview, queue, export), turned into the
@@ -50,7 +50,7 @@ export class HoursScopeService {
           search: searching ? search : undefined,
         });
       case "none":
-        return populationOf([]);
+        return peoplePopulation([]);
       case "own":
       case "allocated":
       case "lessonTeacher":
@@ -64,6 +64,6 @@ export class HoursScopeService {
 
   private async populationOfRefs(filter: MemberRefFilter): Promise<HoursPopulation> {
     const refs = await this.members.findMemberRefs(filter);
-    return populationOf(refs.map((ref) => ref.id));
+    return peoplePopulation(refs.map((ref) => ref.id));
   }
 }

@@ -12,7 +12,7 @@ export type HoursPopulation =
 
 export const EVERYONE: HoursPopulation = { kind: "everyone" };
 
-export function populationOf(personIds: readonly string[]): HoursPopulation {
+export function peoplePopulation(personIds: readonly string[]): HoursPopulation {
   return { kind: "people", personIds };
 }
 
