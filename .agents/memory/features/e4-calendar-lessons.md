@@ -2,7 +2,7 @@
 feature: E4 Calendário e planejamento de aulas
 epico: E4 Calendário e planejamento de aulas
 modulo: lessons (back; o front entra nas GUS-152 e GUS-156)
-status: GUS-151 implementada no back em 2026-11-11 (branch feature/GUS-151-lessons-crud, a abrir PR para develop); GUS-152, 153, 154, 156, 158 e 166 destravadas
+status: GUS-151 implementada no back em 2026-11-11 (branch feature/GUS-151-lessons-crud, a abrir PR para develop); GUS-152, 153, 154, 156, 158 e 166 destravadas; GUS-158 (alocação) implementada no back em 2026-11-16 (branch feature/GUS-158-assignments): o LessonsModule passa a exportar LessonsService e LessonCoverageRegistry e toda resposta de aula ganha coverage e belowExpectedMonitors (ver e5-assignments.md)
 cards: GUS-151 (back). Dependentes: GUS-152 (front do CRUD), GUS-153 (listagem e calendário), GUS-154 (gerar aulas da turma a partir do plano do curso), GUS-156 (detalhe, front), GUS-158 (alocação), GUS-166 (chamada), GUS-168 (horas pela presença de monitores)
 atualizado: 2026-11-11
 ---
