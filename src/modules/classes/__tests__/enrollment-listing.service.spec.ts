@@ -450,8 +450,8 @@ describe("EnrollmentListingService", () => {
     it("passes the active students as onlyIds for enrolled and as excludeIds for not_enrolled, with or without a class", async () => {
       state.activeStudents = [{ studentId: ANA }, { studentId: BRUNO }];
       students.listStudentRefs.mockResolvedValue({
-        data: [ref(ANA, "Ana")],
-        total: 1,
+        data: [ref(ANA, "Ana"), ref(BRUNO, "Bruno")],
+        total: 2,
         page: 1,
         limit: 20,
       });
@@ -480,6 +480,8 @@ describe("EnrollmentListingService", () => {
           ...ref(ANA, "Ana"),
           currentClasses: [expect.objectContaining({ id: CLASS_ID, code: "INFO-A" })],
         },
+        // A student of the page without an active class answers an empty list.
+        { ...ref(BRUNO, "Bruno"), currentClasses: [] },
       ]);
     });
 
