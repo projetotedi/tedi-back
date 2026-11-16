@@ -55,6 +55,23 @@ export function calendarDaysBetween(from: string, to: string): number {
 }
 
 /**
+ * The "YYYY-MM-DD" day that is `days` after `date` (before it, when negative). It crosses months,
+ * years and the 29th of February, and works on midnight UTC, so a day is always 24 hours long.
+ * `date` must exist in the calendar: it throws on anything else, as `calendarDaysBetween` does.
+ *
+ * The answer is built from the UTC parts, with the year in four digits, never with toISOString
+ * (which writes years before 1000 and after 9999 in another shape).
+ */
+export function addCalendarDays(date: string, days: number): string {
+  const result = new Date(utcMidnightOf(date) + days * MILLISECONDS_PER_DAY);
+  const year = String(result.getUTCFullYear()).padStart(4, "0");
+  const month = String(result.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(result.getUTCDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Today's date in APP_TIME_ZONE as "YYYY-MM-DD".
  * Uses Intl parts, never toISOString (which would give the UTC date).
  */

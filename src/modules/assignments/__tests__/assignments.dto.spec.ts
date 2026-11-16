@@ -2,8 +2,11 @@ import "reflect-metadata";
 import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { flattenValidationErrors } from "@shared/filters/http-exception.filter";
+import { ApplyToLessonDto } from "../dto/apply-to-lesson.dto";
 import { ASSIGNMENT_NOTE_MAX_LENGTH } from "../dto/assignment-limits";
 import { CreateAssignmentDto } from "../dto/create-assignment.dto";
+import { ListApplicationsQueryDto } from "../dto/list-applications-query.dto";
+import { MyLessonsPeriodQueryDto } from "../dto/my-lessons-period-query.dto";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 
@@ -182,5 +185,101 @@ describe("CreateAssignmentDto", () => {
     expect(dto).not.toHaveProperty("lessonId");
     expect(dto).not.toHaveProperty("reviewedById");
     expect(dto).not.toHaveProperty("createdById");
+  });
+});
+
+describe("ApplyToLessonDto (GUS-160)", () => {
+  async function checkApply(body: Record<string, unknown>) {
+    const dto = plainToInstance(ApplyToLessonDto, body);
+    const errors = await validate(dto, { whitelist: true });
+    return { dto, errors, fields: fieldsOf(errors) };
+  }
+
+  it("requires role, teacher or monitor", async () => {
+    for (const role of Object.values(AssignmentRole)) {
+      const { dto, errors } = await checkApply({ role });
+
+      expect(errors).toHaveLength(0);
+      expect(dto.role).toBe(role);
+    }
+    expect((await checkApply({})).fields).toEqual(["role"]);
+    for (const role of ["student", "Teacher", "", 1, null]) {
+      expect((await checkApply({ role })).fields).toEqual(["role"]);
+    }
+  });
+
+  it("trims the note, null for blank or missing, rejects over 500 and accepts exactly 500", async () => {
+    expect((await checkApply({ role: "monitor", note: "  Chego antes.  " })).dto.note).toBe(
+      "Chego antes.",
+    );
+    expect((await checkApply({ role: "monitor", note: "   " })).dto.note).toBeNull();
+    expect((await checkApply({ role: "monitor", note: null })).errors).toHaveLength(0);
+    expect((await checkApply({ role: "monitor" })).dto.note).toBeUndefined();
+    expect(
+      (await checkApply({ role: "monitor", note: "x".repeat(ASSIGNMENT_NOTE_MAX_LENGTH) })).errors,
+    ).toHaveLength(0);
+    expect(
+      (await checkApply({ role: "monitor", note: "x".repeat(ASSIGNMENT_NOTE_MAX_LENGTH + 1) }))
+        .fields,
+    ).toEqual(["note"]);
+    expect((await checkApply({ role: "monitor", note: 1 })).fields).toEqual(["note"]);
+  });
+
+  it("drops personId, status and source: the applicant is the one of the session", async () => {
+    const dto = plainToInstance(ApplyToLessonDto, {
+      role: "monitor",
+      personId: PERSON_ID,
+      status: "confirmed",
+      source: "direct",
+    });
+    const errors = await validate(dto, { whitelist: true });
+
+    expect(errors).toHaveLength(0);
+    expect(dto).not.toHaveProperty("personId");
+    expect(dto).not.toHaveProperty("status");
+    expect(dto).not.toHaveProperty("source");
+  });
+});
+
+describe("ListApplicationsQueryDto (GUS-160)", () => {
+  it("accepts no status and pending, rejects declined and anything else", async () => {
+    for (const query of [{}, { status: "pending" }]) {
+      const errors = await validate(plainToInstance(ListApplicationsQueryDto, query), {
+        whitelist: true,
+      });
+
+      expect(errors).toHaveLength(0);
+    }
+    for (const status of ["declined", "confirmed", "cancelled", "PENDING", "", "x"]) {
+      const errors = await validate(plainToInstance(ListApplicationsQueryDto, { status }), {
+        whitelist: true,
+      });
+
+      expect(fieldsOf(errors)).toEqual(["status"]);
+    }
+  });
+});
+
+describe("MyLessonsPeriodQueryDto (GUS-160)", () => {
+  it("takes both optional, rejects 2026-02-30 and 2026-3-3", async () => {
+    for (const query of [
+      {},
+      { from: "2026-03-09" },
+      { to: "2026-04-05" },
+      { from: "2026-03-09", to: "2026-04-05" },
+    ]) {
+      const dto = plainToInstance(MyLessonsPeriodQueryDto, query);
+
+      expect(await validate(dto, { whitelist: true })).toHaveLength(0);
+      expect(dto).toEqual(expect.objectContaining(query));
+    }
+    for (const value of ["2026-02-30", "2026-3-3", "09/03/2026", ""]) {
+      const errors = await validate(
+        plainToInstance(MyLessonsPeriodQueryDto, { from: value, to: value }),
+        { whitelist: true },
+      );
+
+      expect(fieldsOf(errors)).toEqual(["from", "to"]);
+    }
   });
 });

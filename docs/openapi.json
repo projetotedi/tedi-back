@@ -149,6 +149,31 @@
         ],
         "type": "object"
       },
+      "ApplyToLessonDto": {
+        "description": "The role the member of the session applies for in the lesson of the URL, and an optional note for whoever reviews it. The application is born pending, source application, and the applicant is always the person of the session: personId, status and source are ignored. The role needs an open place: only confirmed assignments take one, so a teacher place is open while the lesson has no confirmed teacher, and a monitor place while the confirmed monitors are below expectedMonitors (null or 0 expect nobody); otherwise 409 ROLE_FULL. A member who already holds a place in the lesson, pending or confirmed, as either role, gets 409 ALREADY_APPLIED.",
+        "properties": {
+          "note": {
+            "description": "Note for whoever reviews the application. Optional; null or blank means none. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Posso chegar 15 min antes para ligar os computadores.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "description": "What the member does in the lesson: the teacher gives it and a monitor helps.",
+            "example": "monitor"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "type": "object"
+      },
       "ApproveMemberRegistrationDto": {
         "properties": {
           "departmentId": {
@@ -205,6 +230,30 @@
         },
         "type": "object"
       },
+      "AssignmentClassRefDto": {
+        "properties": {
+          "code": {
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the class or, when it has none, its code: never null.",
+            "example": "Informática Básica, turma A",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ],
+        "type": "object"
+      },
       "AssignmentLessonRefDto": {
         "properties": {
           "date": {
@@ -248,6 +297,69 @@
           "startTime",
           "endTime",
           "status"
+        ],
+        "type": "object"
+      },
+      "AssignmentLessonResponseDto": {
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/AssignmentClassRefDto"
+          },
+          "date": {
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "location": {
+            "example": "Laboratório 2",
+            "nullable": true,
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "The position of the plan of the lesson in the sequence of the course (the 3 of \"Aula 3\"). Null for a lesson on its own.",
+            "example": 3,
+            "nullable": true,
+            "type": "integer"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5): the same type as the lesson itself.",
+            "example": "planned"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "startTime",
+          "endTime",
+          "status",
+          "sequenceOrder",
+          "location",
+          "class"
         ],
         "type": "object"
       },
@@ -4706,6 +4818,116 @@
         ],
         "type": "string"
       },
+      "MyAssignmentResponseDto": {
+        "properties": {
+          "id": {
+            "description": "Id of the assignment (or application) of the member.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000a1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonResponseDto"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentSource"
+              }
+            ],
+            "example": "application"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "The latest status of the member in the lesson: the active one (pending or confirmed) when there is one, else the latest declined or cancelled.",
+            "example": "pending"
+          }
+        },
+        "required": [
+          "id",
+          "lesson",
+          "role",
+          "status",
+          "source"
+        ],
+        "type": "object"
+      },
+      "MyAssignmentsResponseDto": {
+        "properties": {
+          "from": {
+            "description": "First day of the period, as resolved (today when it was not asked).",
+            "example": "2026-03-09",
+            "format": "date",
+            "type": "string"
+          },
+          "items": {
+            "description": "One item per lesson of the period where the member has an assignment, soonest first (by date, start time and id). Not paginated: the period holds at most 42 days.",
+            "items": {
+              "$ref": "#/components/schemas/MyAssignmentResponseDto"
+            },
+            "type": "array"
+          },
+          "to": {
+            "description": "Last day of the period, as resolved (27 days after from when it was not asked).",
+            "example": "2026-04-05",
+            "format": "date",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/MyAssignmentsTotalsDto"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "totals",
+          "items"
+        ],
+        "type": "object"
+      },
+      "MyAssignmentsTotalsDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Items with status confirmed.",
+            "example": 2,
+            "type": "integer"
+          },
+          "openLessons": {
+            "description": "How many lessons of the period have an open place for the member (Aulas com vaga para você): the number of items GET /me/open-lessons answers for the same period.",
+            "example": 3,
+            "type": "integer"
+          },
+          "pending": {
+            "description": "Items with status pending (Aguardando confirmação): an application or a direct assignment still waiting.",
+            "example": 1,
+            "type": "integer"
+          },
+          "upcoming": {
+            "description": "Lessons of the period where the member is pending or confirmed (Próximas aulas): always confirmed plus pending. It counts the whole period, including days before today when `from` is in the past; without `from` the period starts today.",
+            "example": 3,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "upcoming",
+          "confirmed",
+          "pending",
+          "openLessons"
+        ],
+        "type": "object"
+      },
       "MyProfileResponseDto": {
         "properties": {
           "accessEnabled": {
@@ -4863,6 +5085,38 @@
         ],
         "type": "object"
       },
+      "OpenLessonResponseDto": {
+        "properties": {
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "The coverage of the lesson, the same as in the lesson itself (only confirmed assignments count): what draws Professor(a) 0 de 1 · Monitores 2 de 3."
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonResponseDto"
+          },
+          "openRoles": {
+            "description": "The roles with an open place, teacher before monitor; never empty. Applying for one of them is not refused with ROLE_FULL at that moment.",
+            "example": [
+              "teacher",
+              "monitor"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AssignmentRole"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "lesson",
+          "coverage",
+          "openRoles"
+        ],
+        "type": "object"
+      },
       "PasswordResetResponseDto": {
         "properties": {
           "expiresAt": {
@@ -4879,6 +5133,55 @@
         "required": [
           "url",
           "expiresAt"
+        ],
+        "type": "object"
+      },
+      "PendingApplicationGroupResponseDto": {
+        "properties": {
+          "applications": {
+            "description": "The pending applications of the lesson, the oldest first: each with the member, the role, the note and createdAt (when it was sent).",
+            "items": {
+              "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+            },
+            "type": "array"
+          },
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "The coverage of the lesson, the same as in the lesson itself: only confirmed assignments count, so the pending applications do not raise it."
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonResponseDto"
+          }
+        },
+        "required": [
+          "lesson",
+          "coverage",
+          "applications"
+        ],
+        "type": "object"
+      },
+      "PendingApplicationsResponseDto": {
+        "properties": {
+          "lessons": {
+            "description": "One group per lesson with a pending application, the soonest lesson first (by date, start time and id); a past or cancelled lesson is listed too, so its applications can be declined.",
+            "items": {
+              "$ref": "#/components/schemas/PendingApplicationGroupResponseDto"
+            },
+            "type": "array"
+          },
+          "total": {
+            "description": "How many applications are listed, whatever the lessons they are in: the N of the button Candidaturas pendentes (N).",
+            "example": 3,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "lessons"
         ],
         "type": "object"
       },
@@ -6515,6 +6818,275 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/applications": {
+      "get": {
+        "operationId": "listPendingApplications",
+        "parameters": [
+          {
+            "description": "Which applications are listed. Only pending, the default; any other value is 400 VALIDATION_FAILED.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "enum": [
+                "pending"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingApplicationsResponseDto"
+                }
+              }
+            },
+            "description": "The pending applications grouped by lesson, the soonest lesson first, with the coverage of each lesson and the note of each application; total is how many applications are listed (the N of the button). Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/applications/{id}/approve": {
+      "patch": {
+        "operationId": "approveApplication",
+        "parameters": [
+          {
+            "description": "Id of the application (an assignment with source application).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The application, now a confirmed assignment, with reviewedById and reviewedAt. Approving one that is already confirmed changes nothing and answers the same."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_PENDING | LESSON_CANCELLED | MEMBER_INACTIVE | ROLE_FULL"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/applications/{id}/reject": {
+      "patch": {
+        "operationId": "rejectApplication",
+        "parameters": [
+          {
+            "description": "Id of the application (an assignment with source application).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The application, now declined, with reviewedById and reviewedAt. The place of the member in the lesson is free again. Declining one that is already declined changes nothing and answers the same."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "APPLICATION_NOT_PENDING"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },
@@ -11073,6 +11645,108 @@
         ]
       }
     },
+    "/lessons/{id}/applications": {
+      "post": {
+        "operationId": "applyToLesson",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyToLessonDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The application: pending, source application, with the member of the session as person and as createdById, and the note she wrote."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | LESSON_IN_PAST | MEMBER_INACTIVE | ALREADY_APPLIED | ROLE_FULL"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
     "/lessons/{id}/assignments": {
       "get": {
         "operationId": "listLessonAssignments",
@@ -11459,6 +12133,100 @@
         },
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/me/assignments": {
+      "get": {
+        "operationId": "listMyAssignments",
+        "parameters": [
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. Without it, today in America/Sao_Paulo.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-09",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. Without it, 27 days after from (four weeks, both ends counted). It cannot be before from (else 400 INVALID_DATE_RANGE), and the period holds at most 42 days counting both ends (else 400 DATE_RANGE_TOO_LONG).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-04-05",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAssignmentsResponseDto"
+                }
+              }
+            },
+            "description": "The lessons of the period (four weeks from today by default) where the member is assigned or applied, with the role and the latest status of each, and the totals of the top of the screen. No note."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE | DATE_RANGE_TOO_LONG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },
@@ -11876,6 +12644,103 @@
         },
         "tags": [
           "hours"
+        ]
+      }
+    },
+    "/me/open-lessons": {
+      "get": {
+        "operationId": "listOpenLessons",
+        "parameters": [
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. Without it, today in America/Sao_Paulo.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-09",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. Without it, 27 days after from (four weeks, both ends counted). It cannot be before from (else 400 INVALID_DATE_RANGE), and the period holds at most 42 days counting both ends (else 400 DATE_RANGE_TOO_LONG).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-04-05",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OpenLessonResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The lessons of the period, from today on and not done, that have an open place for some role and where the member holds no place, with the coverage and the open roles of each, soonest first. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE | DATE_RANGE_TOO_LONG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },

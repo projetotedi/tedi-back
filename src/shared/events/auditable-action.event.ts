@@ -80,6 +80,12 @@ export enum AuditableAction {
   LESSON_ASSIGNMENT_CONFIRMED = "LESSON_ASSIGNMENT_CONFIRMED",
   /** A pending or confirmed assignment was cancelled; the row stays. The note is never in the payload (RNF-13, GUS-158). */
   LESSON_ASSIGNMENT_CANCELLED = "LESSON_ASSIGNMENT_CANCELLED",
+  /** A member applied to a lesson, as teacher or monitor: the application is pending, source application, and the member is the actor. The note is never in the payload (RNF-13, GUS-160). */
+  LESSON_ASSIGNMENT_APPLIED = "LESSON_ASSIGNMENT_APPLIED",
+  /** A pending application was approved by whoever reviews them: it is now a confirmed assignment, counted in the coverage. The note is never in the payload (RNF-13, GUS-160). */
+  LESSON_ASSIGNMENT_APPROVED = "LESSON_ASSIGNMENT_APPROVED",
+  /** A pending application was declined by whoever reviews them; the row stays and the place of the member in the lesson is free again. The note is never in the payload (RNF-13, GUS-160). */
+  LESSON_ASSIGNMENT_DECLINED = "LESSON_ASSIGNMENT_DECLINED",
   /** An hour entry was logged: by the person, on her behalf or by the attendance (GUS-162). No free text in the payload (RNF-13). */
   HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
   /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */

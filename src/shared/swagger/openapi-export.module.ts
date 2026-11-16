@@ -17,9 +17,12 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { ApplicationsController } from "@modules/assignments/controllers/applications.controller";
 import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
+import { LessonApplicationsController } from "@modules/assignments/controllers/lesson-applications.controller";
 import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
 import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
+import { MyAssignmentsController } from "@modules/assignments/controllers/my-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
@@ -41,7 +44,9 @@ import { MembersController } from "@modules/people/controllers/members.controlle
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
+import { ApplicationsService } from "@modules/assignments/services/applications.service";
 import { AssignmentsService } from "@modules/assignments/services/assignments.service";
+import { MyAssignmentsService } from "@modules/assignments/services/my-assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
@@ -89,8 +94,11 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     LessonsController,
     ClassLessonsController,
     LessonAssignmentsController,
+    LessonApplicationsController,
     AssignmentsController,
+    ApplicationsController,
     MemberAssignmentsController,
+    MyAssignmentsController,
     MyHoursController,
     MemberHoursController,
     MemberHoursViewController,
@@ -153,6 +161,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         approve: async () => ({}),
         reject: async () => ({}),
       },
+    },
+    {
+      provide: MyAssignmentsService,
+      useValue: { listMine: async () => ({}), listOpen: async () => [] },
     },
     {
       provide: MyProfileService,
@@ -255,6 +267,15 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         confirm: async () => ({}),
         cancel: async () => ({}),
         listByMember: async () => [],
+      },
+    },
+    {
+      provide: ApplicationsService,
+      useValue: {
+        apply: async () => ({}),
+        listPending: async () => ({ total: 0, lessons: [] }),
+        approve: async () => ({}),
+        reject: async () => ({}),
       },
     },
     {

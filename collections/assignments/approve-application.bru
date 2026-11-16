@@ -1,0 +1,31 @@
+meta {
+  name: approve-application
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/applications/:id/approve
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000007
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Aprova uma candidatura pendente (botão Confirmar do modal Candidaturas pendentes): ela vira alocação confirmed e a cobertura da aula (get-lesson, coverage) passa a contar o membro. O :id é o id da candidatura.
+  Requer cookie tedi_session e a permissão assignments.review (@RequirePermission; diretoria de qualquer departamento, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Sem corpo. Grava status confirmed, reviewedById (quem aprovou) e reviewedAt (o instante, o mesmo de updatedAt). A aula pode já ter passado: aprovar depois é o registro de quem foi.
+  Aprovar uma candidatura que já está confirmada responde 200 sem alterar nada e sem evento, e a aula e o membro nem são olhados.
+  Erros, na ordem: 404 APPLICATION_NOT_FOUND (id inexistente, mal formado ou de uma alocação direta, que não é candidatura), 409 APPLICATION_NOT_PENDING (recusada ou cancelada), 409 LESSON_CANCELLED (a aula foi cancelada enquanto a candidatura esperava), 409 MEMBER_INACTIVE (o membro perdeu o acesso ou foi inativado) e 409 ROLE_FULL (o papel lotou enquanto a candidatura esperava: já há professor confirmado, ou os monitores confirmados chegaram ao esperado, ou a aula não espera monitores).
+  Concorrência: a candidatura fica travada (FOR UPDATE), depois a aula e o membro (FOR SHARE), depois um advisory lock por aula (pg_advisory_xact_lock(hashtext('assignments.lesson-staff:<id da aula>'))), e a contagem dos confirmados é refeita depois dele. Duas aprovações da mesma aula ao mesmo tempo esperam uma pela outra ali, e a segunda vê a primeira: a aprovação nunca passa do limite de vagas. Aprovar e recusar a mesma candidatura ao mesmo tempo decide uma vez só.
+  A confirmação direta (confirm-assignment, GUS-158) continua como era, sem ROLE_FULL e sem limite de monitores: para candidaturas, use esta rota e reject-application.
+  Retorna 200 LessonAssignmentResponseDto, com a nota (quem aprova a lê). Depois do commit, e só quando foi aprovada agora, registra o evento LESSON_ASSIGNMENT_APPROVED, sem a nota.
+  Erros possíveis: 401, 403 FORBIDDEN, 404 APPLICATION_NOT_FOUND, 409 (os códigos acima).
+}

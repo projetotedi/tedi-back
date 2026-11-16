@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { DataSource } from "typeorm";
+import { DataSource, In } from "typeorm";
 import { ClassRef, ClassesService } from "@modules/classes/services/classes.service";
 import { LessonsCalendarQueryDto } from "../dto/calendar-query.dto";
 import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
@@ -117,7 +117,7 @@ describe("LessonListingService", () => {
   let service: LessonListingService;
   let base: FakeBuilder;
 
-  const repository = { createQueryBuilder: jest.fn() };
+  const repository = { createQueryBuilder: jest.fn(), find: jest.fn() };
   const dataSource = { getRepository: jest.fn() };
   const classes = { listClassRefs: jest.fn() };
   const coverage = { findConfirmedStaff: jest.fn() };
@@ -835,6 +835,154 @@ describe("LessonListingService", () => {
 
         await expect(service.listCalendar(calendarQuery())).rejects.toThrow("boom");
       });
+    });
+  });
+
+  describe("findAgendaBetween() (GUS-160)", () => {
+    it("asks the classes that are not archived and answers [] without querying lessons when there is none", async () => {
+      classes.listClassRefs.mockResolvedValue([]);
+
+      await expect(service.findAgendaBetween("2026-03-09", "2026-04-05")).resolves.toEqual([]);
+
+      expect(classes.listClassRefs).toHaveBeenCalledTimes(1);
+      expect(classes.listClassRefs).toHaveBeenCalledWith({ includeArchived: false });
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+      expect(base.getMany).not.toHaveBeenCalled();
+    });
+
+    it("filters the period with both ends, leaves out cancelled lessons and orders by date, start time and id", async () => {
+      classes.listClassRefs.mockResolvedValue([
+        buildClassRef(),
+        buildClassRef({ id: CLASS_B_ID, code: "INFO-B", creationRank: 2 }),
+      ]);
+
+      await service.findAgendaBetween("2026-03-09", "2026-04-05");
+
+      expect(dataSource.getRepository).toHaveBeenCalledWith(Lesson);
+      expect(conditionsOf(base)).toEqual([
+        ["lesson.classId IN (:...classIds)", { classIds: [CLASS_A_ID, CLASS_B_ID] }],
+        ["lesson.date >= :from", { from: "2026-03-09" }],
+        ["lesson.date <= :to", { to: "2026-04-05" }],
+        ["lesson.status <> :cancelled", { cancelled: LessonStatus.CANCELLED }],
+      ]);
+      expect(base.orderBy).toHaveBeenCalledWith("lesson.date", "ASC");
+      expect(base.addOrderBy.mock.calls).toEqual([
+        ["lesson.startTime", "ASC"],
+        ["lesson.id", "ASC"],
+      ]);
+      expect(base.getMany).toHaveBeenCalledTimes(1);
+      // The agenda counts no staff: the caller does, through its own counter.
+      expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+    });
+
+    it("maps each lesson with its class, the name or the code as the label, the position and the place", async () => {
+      classes.listClassRefs.mockResolvedValue([
+        buildClassRef(),
+        buildClassRef({ id: CLASS_B_ID, code: "INFO-B", name: null, creationRank: 2 }),
+      ]);
+      state.lessons = [
+        buildLesson({
+          id: lessonId(1),
+          title: "Arquivos e pastas",
+          sequenceOrder: 3,
+          location: "Laboratório 2",
+          expectedMonitors: 3,
+          status: LessonStatus.CONFIRMED,
+        }),
+        buildLesson({ id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-17" }),
+      ];
+
+      await expect(service.findAgendaBetween("2026-03-09", "2026-04-05")).resolves.toEqual([
+        {
+          id: lessonId(1),
+          title: "Arquivos e pastas",
+          sequenceOrder: 3,
+          date: "2026-03-10",
+          startTime: "14:00",
+          endTime: "15:30",
+          location: "Laboratório 2",
+          status: LessonStatus.CONFIRMED,
+          expectedMonitors: 3,
+          class: { id: CLASS_A_ID, code: "INFO-A", name: "Informática Básica, turma A" },
+        },
+        {
+          id: lessonId(2),
+          title: "Senhas e privacidade",
+          sequenceOrder: null,
+          date: "2026-03-17",
+          startTime: "14:00",
+          endTime: "15:30",
+          location: null,
+          status: LessonStatus.PLANNED,
+          expectedMonitors: null,
+          class: { id: CLASS_B_ID, code: "INFO-B", name: "INFO-B" },
+        },
+      ]);
+    });
+  });
+
+  describe("findAgendaByIds() (GUS-160)", () => {
+    beforeEach(() => {
+      repository.find.mockImplementation(async () => state.lessons);
+    });
+
+    it("answers [] without querying for no id, repeated or malformed ids only", async () => {
+      await expect(service.findAgendaByIds([])).resolves.toEqual([]);
+      await expect(service.findAgendaByIds(["not-a-uuid", "not-a-uuid", "42"])).resolves.toEqual(
+        [],
+      );
+
+      expect(repository.find).not.toHaveBeenCalled();
+      expect(classes.listClassRefs).not.toHaveBeenCalled();
+
+      await service.findAgendaByIds([lessonId(1), lessonId(1), "not-a-uuid", lessonId(2)]);
+
+      expect(repository.find).toHaveBeenCalledTimes(1);
+      expect(repository.find).toHaveBeenCalledWith({
+        where: { id: In([lessonId(1), lessonId(2)]) },
+        order: { date: "ASC", startTime: "ASC", id: "ASC" },
+      });
+    });
+
+    it("reads the lessons by id, any status, and the classes with the archived ones", async () => {
+      const archivedClass = buildClassRef({
+        id: CLASS_B_ID,
+        code: "INFO-B",
+        archivedAt: new Date("2026-03-01T12:00:00.000Z"),
+        creationRank: 2,
+      });
+      classes.listClassRefs.mockResolvedValue([buildClassRef(), archivedClass]);
+      state.lessons = [
+        buildLesson({ id: lessonId(1), status: LessonStatus.CANCELLED }),
+        buildLesson({ id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-17" }),
+      ];
+
+      const agenda = await service.findAgendaByIds([lessonId(1), lessonId(2)]);
+
+      expect(classes.listClassRefs).toHaveBeenCalledTimes(1);
+      expect(classes.listClassRefs).toHaveBeenCalledWith({ includeArchived: true });
+      // No filter by status: the cancelled lesson comes too, and the order is the one of the read.
+      expect(repository.find.mock.calls[0][0]).not.toHaveProperty("where.status");
+      expect(agenda.map((ref) => [ref.id, ref.status, ref.class.id])).toEqual([
+        [lessonId(1), LessonStatus.CANCELLED, CLASS_A_ID],
+        [lessonId(2), LessonStatus.PLANNED, CLASS_B_ID],
+      ]);
+      expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
+    });
+
+    it("does not read classes when no lesson comes back", async () => {
+      state.lessons = [];
+
+      await expect(service.findAgendaByIds([lessonId(1)])).resolves.toEqual([]);
+
+      expect(repository.find).toHaveBeenCalledTimes(1);
+      expect(classes.listClassRefs).not.toHaveBeenCalled();
+    });
+
+    it("throws when the class of a lesson is missing", async () => {
+      state.lessons = [buildLesson({ id: lessonId(1), classId: CLASS_B_ID })];
+
+      await expect(service.findAgendaByIds([lessonId(1)])).rejects.toThrow("was not resolved");
     });
   });
 });
