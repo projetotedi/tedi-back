@@ -25,7 +25,13 @@ import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { ClassesModule } from "../classes.module";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
-import { archiveCourse, insertClass, insertEnrollments } from "./fixtures/classes.fixture";
+import {
+  archiveCourse,
+  insertClass,
+  insertEnrollment,
+  insertEnrollments,
+  insertStudent,
+} from "./fixtures/classes.fixture";
 
 const dbUrl = process.env.DATABASE_URL;
 const dbConnection = dbUrl
@@ -161,10 +167,14 @@ describe("ClassesController (e2e)", () => {
     return insertEnrollments(dataSource, { classId, createdById: director.id, count });
   }
 
-  /** Every active enrollment of the class becomes dropped, by SQL: the class counts 0 again. */
+  /**
+   * Every live active enrollment of the class becomes dropped, by SQL: the class counts 0 again. A
+   * removed enrollment is left as it is.
+   */
   async function dropAll(classId: string): Promise<void> {
     await dataSource.query(
-      `UPDATE enrollments SET status = 'dropped' WHERE class_id = $1 AND status = 'active'`,
+      `UPDATE enrollments SET status = 'dropped'
+        WHERE class_id = $1 AND status = 'active' AND deleted_at IS NULL`,
       [classId],
     );
   }
@@ -1725,6 +1735,12 @@ describe("ClassesController (e2e)", () => {
         count: 1,
         status: EnrollmentStatus.DROPPED,
         namePrefix: "Dropped",
+      });
+      await insertEnrollment(dataSource, {
+        classId: created.id,
+        studentId: await insertStudent(dataSource, { name: "Removed", createdById: director.id }),
+        createdById: director.id,
+        deletedAt: new Date("2026-03-10T12:00:00.000Z"),
       });
 
       const refused = await archiveClass(created.id, director).expect(409);

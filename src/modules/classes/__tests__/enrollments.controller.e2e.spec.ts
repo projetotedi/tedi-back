@@ -919,6 +919,67 @@ describe("Enrollments (e2e)", () => {
       expect(serialized).not.toContain("Ana Souza");
     });
 
+    it("race: a reactivation and a lot fighting for the last seat end with one success and one 409 CLASS_FULL", async () => {
+      const lastSeat = await addClass("LAST-A", { capacity: 2 });
+      await enrollMany(lastSeat, 1);
+      const dropped = await enrollOne(lastSeat, await student("Ana"), EnrollmentStatus.DROPPED);
+      const carla = await student("Carla Dias");
+
+      // Another write of the class holds it FOR UPDATE: the reactivation and the lot both wait.
+      const holder = await holdRow("classes", "id", lastSeat);
+      let writes: Array<Promise<request.Response>> = [];
+      try {
+        writes = [
+          patchEnrollment(dropped, director, { status: "active", effectiveDate: TODAY }).then(
+            (res) => res,
+          ),
+          postEnrollments(lastSeat, coordinator, { studentIds: [carla] }).then((res) => res),
+        ];
+        const waiting = await blockedStatements(2);
+        expect(waiting).toHaveLength(2);
+        for (const statement of waiting) expect(statement).toMatch(/"SchoolClass"/);
+      } finally {
+        await holder.release();
+      }
+
+      const answers = await Promise.all(writes);
+      const statuses = answers.map((res) => res.status);
+      expect(statuses.filter((status) => status === 409)).toHaveLength(1);
+      expect(statuses.filter((status) => status === 200 || status === 201)).toHaveLength(1);
+      const refused = answers.find((res) => res.status === 409);
+      expect(refused?.body.error).toBe("CLASS_FULL");
+      expect(refused?.body.details?.[0]?.message).toBe("0");
+      expect(await countActive(lastSeat)).toBe(2);
+    });
+
+    it("race: a reactivation that waits for the archive of the student answers 409 STUDENT_ARCHIVED", async () => {
+      const ana = await student("Ana Souza");
+      const enrollmentId = await enrollOne(classId, ana, EnrollmentStatus.DROPPED);
+
+      // The archive of the student in flight: the profile FOR UPDATE, archived, not committed yet.
+      const archive = await holdRow("student_profiles", "person_id", ana);
+      let pending: Promise<request.Response> | undefined;
+      try {
+        await archive.run(
+          `UPDATE student_profiles SET archived_at = now(), archived_by_id = $2 WHERE person_id = $1`,
+          [ana, coordinator.id],
+        );
+        pending = patchEnrollment(enrollmentId, director, {
+          status: "active",
+          effectiveDate: TODAY,
+        }).then((res) => res);
+        // The reactivation holds the class and waits on the profile (FOR SHARE).
+        expect(await blockedStatements(1)).toEqual([expect.stringMatching(/"StudentProfile"/)]);
+      } finally {
+        await archive.release();
+      }
+
+      const res = await pending;
+      expect(res?.status).toBe(409);
+      expect(res?.body.error).toBe("STUDENT_ARCHIVED");
+      expect(await storedEnrollment(enrollmentId)).toMatchObject({ status: "dropped" });
+    });
+
     it("lets a director change it; a member gets 403 FORBIDDEN", async () => {
       const enrollmentId = await enrollOne(classId, await student("Ana"));
 
