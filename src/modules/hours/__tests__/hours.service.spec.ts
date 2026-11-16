@@ -87,6 +87,22 @@ describe("HoursService", () => {
   const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
   const clock = { now: jest.fn() };
+  /** A chainable query builder: every method returns it, and the two terminals resolve. */
+  const builder = {
+    where: jest.fn(),
+    andWhere: jest.fn(),
+    select: jest.fn(),
+    addSelect: jest.fn(),
+    orderBy: jest.fn(),
+    addOrderBy: jest.fn(),
+    offset: jest.fn(),
+    limit: jest.fn(),
+    groupBy: jest.fn(),
+    addGroupBy: jest.fn(),
+    getManyAndCount: jest.fn(),
+    getRawMany: jest.fn(),
+  };
+  const entryRepository = { createQueryBuilder: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -133,6 +149,26 @@ describe("HoursService", () => {
       return true;
     });
     clock.now.mockReturnValue(NOW);
+    for (const method of [
+      builder.where,
+      builder.andWhere,
+      builder.select,
+      builder.addSelect,
+      builder.orderBy,
+      builder.addOrderBy,
+      builder.offset,
+      builder.limit,
+      builder.groupBy,
+      builder.addGroupBy,
+    ]) {
+      method.mockReturnValue(builder);
+    }
+    builder.getManyAndCount.mockResolvedValue([[], 0]);
+    builder.getRawMany.mockResolvedValue([]);
+    entryRepository.createQueryBuilder.mockReturnValue(builder);
+    dataSource.getRepository.mockImplementation((target: unknown) =>
+      target === HourEntry ? entryRepository : undefined,
+    );
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -377,6 +413,143 @@ describe("HoursService", () => {
         updatedAt: NOW,
       });
       expect(response).not.toHaveProperty("deletedAt");
+    });
+  });
+
+  describe("listMyEntries / getMySummary", () => {
+    it("throws INVALID_PERIOD when from is after to, before querying", async () => {
+      const period = { from: "2026-03-31", to: "2026-03-01" };
+
+      for (const promise of [
+        service.listMyEntries(MEMBER, period),
+        service.getMySummary(MEMBER, period),
+      ]) {
+        const failure = await httpFailure(promise);
+        expect(failure.getStatus()).toBe(400);
+        expect(codeOf(failure)).toBe("INVALID_PERIOD");
+      }
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+
+    it("accepts a one-day period (from equal to to)", async () => {
+      const period = { from: "2026-03-10", to: "2026-03-10" };
+
+      await expect(service.listMyEntries(MEMBER, period)).resolves.toEqual({
+        data: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+      });
+      await expect(service.getMySummary(MEMBER, period)).resolves.toMatchObject(period);
+    });
+
+    it("lists only the entries of the actor, newest day first, then newest entry, paginated by offset and limit", async () => {
+      const entry = Object.assign(new HourEntry(), {
+        id: ENTRY_ID,
+        personId: MEMBER.id,
+        createdById: MEMBER.id,
+        origin: HourEntryOrigin.MANUAL,
+        activity: CARD_DTO.activity,
+        category: HourEntryCategory.PLANNING,
+        date: "2026-03-10",
+        declaredMinutes: 150,
+        validatedMinutes: null,
+        notes: null,
+        status: HourEntryStatus.PENDING,
+        classId: null,
+        lessonId: null,
+        reviewNote: null,
+        reviewedById: null,
+        reviewedAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+        deletedAt: null,
+      });
+      builder.getManyAndCount.mockResolvedValue([[entry], 41]);
+
+      const page = await service.listMyEntries(MEMBER, { page: 3, limit: 20 });
+
+      expect(builder.where).toHaveBeenCalledWith("entry.person_id = :personId", {
+        personId: MEMBER.id,
+      });
+      expect(builder.andWhere).not.toHaveBeenCalled();
+      expect(builder.orderBy).toHaveBeenCalledWith("entry.date", "DESC");
+      expect(builder.addOrderBy.mock.calls).toEqual([
+        ["entry.created_at", "DESC"],
+        ["entry.id", "DESC"],
+      ]);
+      expect(builder.offset).toHaveBeenCalledWith(40);
+      expect(builder.limit).toHaveBeenCalledWith(20);
+      expect(page.total).toBe(41);
+      expect(page.page).toBe(3);
+      expect(page.limit).toBe(20);
+      expect(page.data).toHaveLength(1);
+      expect(page.data[0]).toMatchObject({ id: ENTRY_ID, status: HourEntryStatus.PENDING });
+      expect(page.data[0]).not.toHaveProperty("deletedAt");
+    });
+
+    it("adds the status, the category and each end of the period only when they come", async () => {
+      await service.listMyEntries(MEMBER, {
+        status: HourEntryStatus.REJECTED,
+        category: HourEntryCategory.LESSON,
+        from: "2026-03-01",
+        to: "2026-03-31",
+      });
+      expect(builder.andWhere.mock.calls).toEqual([
+        ["entry.status = :status", { status: HourEntryStatus.REJECTED }],
+        ["entry.category = :category", { category: HourEntryCategory.LESSON }],
+        ["entry.date >= :from", { from: "2026-03-01" }],
+        ["entry.date <= :to", { to: "2026-03-31" }],
+      ]);
+
+      builder.andWhere.mockClear();
+      await service.listMyEntries(MEMBER, { to: "2026-03-31" });
+      expect(builder.andWhere.mock.calls).toEqual([["entry.date <= :to", { to: "2026-03-31" }]]);
+
+      builder.andWhere.mockClear();
+      await service.getMySummary(MEMBER, { from: "2026-03-01" });
+      expect(builder.andWhere.mock.calls).toEqual([
+        ["entry.date >= :from", { from: "2026-03-01" }],
+      ]);
+    });
+
+    it("sums the entries of the actor grouped by status and category, cast to int, and folds the rows into the summary", async () => {
+      builder.getRawMany.mockResolvedValue([
+        {
+          status: HourEntryStatus.ADJUSTED,
+          category: HourEntryCategory.PLANNING,
+          entries: 1,
+          declaredMinutes: 150,
+          validatedMinutes: 120,
+        },
+        {
+          status: HourEntryStatus.PENDING,
+          category: HourEntryCategory.MEETING,
+          entries: 2,
+          declaredMinutes: 90,
+          validatedMinutes: 0,
+        },
+      ]);
+
+      const summary = await service.getMySummary(MEMBER, {});
+
+      expect(builder.select).toHaveBeenCalledWith("entry.status", "status");
+      expect(builder.addSelect.mock.calls).toEqual([
+        ["entry.category", "category"],
+        ["COUNT(*)::int", "entries"],
+        ["COALESCE(SUM(entry.declared_minutes), 0)::int", "declaredMinutes"],
+        ["COALESCE(SUM(entry.validated_minutes), 0)::int", "validatedMinutes"],
+      ]);
+      expect(builder.where).toHaveBeenCalledWith("entry.person_id = :personId", {
+        personId: MEMBER.id,
+      });
+      expect(builder.andWhere).not.toHaveBeenCalled();
+      expect(builder.groupBy).toHaveBeenCalledWith("entry.status");
+      expect(builder.addGroupBy).toHaveBeenCalledWith("entry.category");
+      expect(summary).toMatchObject({ from: null, to: null, bankMinutes: 120 });
+      expect(
+        summary.byCategory.find((total) => total.category === HourEntryCategory.MEETING),
+      ).toMatchObject({ entries: 2, pendingMinutes: 90 });
     });
   });
 });

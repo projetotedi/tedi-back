@@ -31,6 +31,7 @@ import {
   entryRow,
   eventsOf,
   hourEntryBody,
+  reviewEntry,
   tomorrowInAppTimeZone,
 } from "./fixtures/hour-entries.fixture";
 
@@ -56,6 +57,39 @@ interface Actor {
   id: string;
   cookie: string;
 }
+
+interface StatusTotal {
+  status: string;
+  entries: number;
+  declaredMinutes: number;
+  validatedMinutes: number;
+}
+
+interface CategoryTotal {
+  category: string;
+  entries: number;
+  declaredMinutes: number;
+  bankMinutes: number;
+  pendingMinutes: number;
+}
+
+interface SummaryBody {
+  from: string | null;
+  to: string | null;
+  bankMinutes: number;
+  byStatus: StatusTotal[];
+  byCategory: CategoryTotal[];
+}
+
+interface PageBody {
+  data: HourEntryBody[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+const STATUSES = ["pending", "approved", "adjusted", "rejected"];
+const CATEGORIES = ["lesson", "planning", "event", "management", "meeting", "support", "other"];
 
 interface FieldError {
   field: string;
@@ -187,6 +221,41 @@ describe("MyHoursController (e2e)", () => {
     return res.body as HourEntryBody;
   }
 
+  function listEntries(actor: Actor, query: Record<string, string | number> = {}) {
+    return request(app.getHttpServer())
+      .get("/me/hour-entries")
+      .query(query)
+      .set("Cookie", actor.cookie);
+  }
+
+  async function statement(
+    actor: Actor,
+    query: Record<string, string | number> = {},
+  ): Promise<PageBody> {
+    const res = await listEntries(actor, query).expect(200);
+    return res.body as PageBody;
+  }
+
+  function getSummary(actor: Actor, query: Record<string, string> = {}) {
+    return request(app.getHttpServer())
+      .get("/me/hours/summary")
+      .query(query)
+      .set("Cookie", actor.cookie);
+  }
+
+  async function summaryOf(actor: Actor, query: Record<string, string> = {}): Promise<SummaryBody> {
+    const res = await getSummary(actor, query).expect(200);
+    return res.body as SummaryBody;
+  }
+
+  function categoryTotal(summary: SummaryBody, category: string): CategoryTotal | undefined {
+    return summary.byCategory.find((total) => total.category === category);
+  }
+
+  function statusTotal(summary: SummaryBody, status: string): StatusTotal | undefined {
+    return summary.byStatus.find((total) => total.status === status);
+  }
+
   function collectEvents(): AuditableActionEvent[] {
     const events: AuditableActionEvent[] = [];
     eventEmitter.on(AUDITABLE_ACTION_EVENT, (event: AuditableActionEvent) => events.push(event));
@@ -194,6 +263,27 @@ describe("MyHoursController (e2e)", () => {
   }
 
   describe("POST /me/hour-entries", () => {
+    it("logs 2h30 of planning and shows it in the statement as pending (CA1)", async () => {
+      const entry = await logEntry(member);
+
+      expect(entry).toMatchObject({
+        declaredMinutes: 150,
+        validatedMinutes: null,
+        status: "pending",
+      });
+      const page = await statement(member);
+      expect(page.total).toBe(1);
+      expect(page.data).toEqual([entry]);
+      expect(page.data[0]).toMatchObject({
+        category: "planning",
+        declaredMinutes: 150,
+        validatedMinutes: null,
+        status: "pending",
+        origin: "manual",
+        createdById: member.id,
+      });
+    });
+
     it("logs 2h30 of planning, pending and manual, authored by the member", async () => {
       const res = await postEntry(member).expect(201);
 
@@ -345,6 +435,274 @@ describe("MyHoursController (e2e)", () => {
       await request(app.getHttpServer()).post("/me/hour-entries").send(hourEntryBody()).expect(401);
 
       expect(await countEntries(dataSource)).toBe(0);
+    });
+  });
+
+  describe("GET /me/hour-entries", () => {
+    it("lists only the logged-in person's entries, newest day first, with declared, validated, status and the review note (CA1)", async () => {
+      const planning = await logEntry(member, { date: "2026-03-10" });
+      const meeting = await logEntry(member, {
+        category: "meeting",
+        date: "2026-03-12",
+        declaredMinutes: 60,
+      });
+      const event = await logEntry(member, {
+        category: "event",
+        date: "2026-03-11",
+        declaredMinutes: 90,
+      });
+      await logEntry(otherMember, { date: "2026-03-13" });
+      await reviewEntry(dataSource, meeting.id, {
+        status: "rejected",
+        validatedMinutes: null,
+        reviewNote: "Reunião fora do projeto.",
+        reviewedById: coordinator.id,
+      });
+      await reviewEntry(dataSource, event.id, {
+        status: "adjusted",
+        validatedMinutes: 60,
+        reviewNote: "O evento durou uma hora.",
+        reviewedById: coordinator.id,
+      });
+
+      const page = await statement(member);
+
+      expect(page).toMatchObject({ total: 3, page: 1, limit: 20 });
+      expect(page.data.map((entry) => entry.id)).toEqual([meeting.id, event.id, planning.id]);
+      expect(page.data.every((entry) => entry.personId === member.id)).toBe(true);
+      expect(page.data[0]).toMatchObject({
+        declaredMinutes: 60,
+        validatedMinutes: null,
+        status: "rejected",
+        reviewNote: "Reunião fora do projeto.",
+        reviewedById: coordinator.id,
+      });
+      expect(page.data[1]).toMatchObject({
+        declaredMinutes: 90,
+        validatedMinutes: 60,
+        status: "adjusted",
+        reviewNote: "O evento durou uma hora.",
+      });
+      expect(page.data[1].reviewedAt).not.toBeNull();
+      expect(page.data[2]).toMatchObject({
+        declaredMinutes: 150,
+        validatedMinutes: null,
+        status: "pending",
+        reviewNote: null,
+        reviewedAt: null,
+      });
+    });
+
+    it("puts the newest entry first among the entries of the same day", async () => {
+      const first = await logEntry(member, { activity: "Primeira" });
+      const second = await logEntry(member, { activity: "Segunda" });
+
+      const page = await statement(member);
+
+      expect(page.data.map((entry) => entry.id)).toEqual([second.id, first.id]);
+    });
+
+    it("filters by status, by category and by period, both ends included", async () => {
+      const march1 = await logEntry(member, { date: "2026-03-01" });
+      const march15 = await logEntry(member, { category: "meeting", date: "2026-03-15" });
+      const march31 = await logEntry(member, { date: "2026-03-31" });
+      const april1 = await logEntry(member, { date: "2026-04-01" });
+      await reviewEntry(dataSource, march15.id, {
+        status: "approved",
+        validatedMinutes: 150,
+        reviewNote: null,
+        reviewedById: coordinator.id,
+      });
+      const ids = (page: PageBody) => page.data.map((entry) => entry.id);
+
+      expect(ids(await statement(member, { status: "approved" }))).toEqual([march15.id]);
+      expect(ids(await statement(member, { status: "pending" }))).toEqual([
+        april1.id,
+        march31.id,
+        march1.id,
+      ]);
+      expect(ids(await statement(member, { category: "meeting" }))).toEqual([march15.id]);
+      expect(ids(await statement(member, { category: "lesson" }))).toEqual([]);
+      expect(ids(await statement(member, { from: "2026-03-01", to: "2026-03-31" }))).toEqual([
+        march31.id,
+        march15.id,
+        march1.id,
+      ]);
+      expect(ids(await statement(member, { from: "2026-03-31" }))).toEqual([april1.id, march31.id]);
+      expect(ids(await statement(member, { to: "2026-03-01" }))).toEqual([march1.id]);
+      expect(
+        ids(await statement(member, { status: "pending", category: "planning", to: "2026-03-31" })),
+      ).toEqual([march31.id, march1.id]);
+    });
+
+    it("paginates with page and limit and reports the total", async () => {
+      for (const day of ["2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"]) {
+        await logEntry(member, { date: day });
+      }
+
+      const second = await statement(member, { page: 2, limit: 2 });
+      expect(second).toMatchObject({ total: 5, page: 2, limit: 2 });
+      expect(second.data.map((entry) => entry.date)).toEqual(["2026-03-03", "2026-03-02"]);
+
+      const last = await statement(member, { page: 3, limit: 2 });
+      expect(last.data.map((entry) => entry.date)).toEqual(["2026-03-01"]);
+
+      const beyond = await statement(member, { page: 4, limit: 2 });
+      expect(beyond).toMatchObject({ data: [], total: 5 });
+    });
+
+    it("answers 400 INVALID_PERIOD when from is after to", async () => {
+      const res = await listEntries(member, { from: "2026-03-31", to: "2026-03-01" }).expect(400);
+
+      expect(res.body).toMatchObject({
+        error: "INVALID_PERIOD",
+        details: [{ field: "to", message: "to must be on or after from" }],
+      });
+    });
+
+    it("answers 400 VALIDATION_FAILED for a status, a category, a date or a limit it does not take", async () => {
+      const queries: Array<Record<string, string | number>> = [
+        { status: "open" },
+        { category: "class" },
+        { from: "2026-02-30" },
+        { limit: 101 },
+      ];
+      for (const query of queries) {
+        const res = await listEntries(member, query).expect(400);
+        expect(res.body.error).toBe("VALIDATION_FAILED");
+      }
+    });
+
+    it("answers 401 without a session cookie", async () => {
+      await request(app.getHttpServer()).get("/me/hour-entries").expect(401);
+    });
+  });
+
+  describe("GET /me/hours/summary", () => {
+    it("totals the logged-in person's entries by status and by category, with every status and category present even at zero", async () => {
+      await logEntry(member, { declaredMinutes: 150 });
+      await logEntry(member, { declaredMinutes: 30 });
+      await logEntry(member, { category: "support", declaredMinutes: 45 });
+
+      const summary = await summaryOf(member);
+
+      expect(summary.byStatus.map((total) => total.status)).toEqual(STATUSES);
+      expect(summary.byCategory.map((total) => total.category)).toEqual(CATEGORIES);
+      expect(statusTotal(summary, "pending")).toEqual({
+        status: "pending",
+        entries: 3,
+        declaredMinutes: 225,
+        validatedMinutes: 0,
+      });
+      expect(statusTotal(summary, "approved")).toEqual({
+        status: "approved",
+        entries: 0,
+        declaredMinutes: 0,
+        validatedMinutes: 0,
+      });
+      expect(categoryTotal(summary, "planning")).toEqual({
+        category: "planning",
+        entries: 2,
+        declaredMinutes: 180,
+        bankMinutes: 0,
+        pendingMinutes: 180,
+      });
+      expect(categoryTotal(summary, "lesson")).toEqual({
+        category: "lesson",
+        entries: 0,
+        declaredMinutes: 0,
+        bankMinutes: 0,
+        pendingMinutes: 0,
+      });
+      expect(summary).toMatchObject({ from: null, to: null, bankMinutes: 0 });
+    });
+
+    it("counts in the bank only the validated minutes of approved and adjusted entries, and the declared minutes of pending ones as pending", async () => {
+      const approved = await logEntry(member, { declaredMinutes: 60 });
+      const adjusted = await logEntry(member, { declaredMinutes: 150 });
+      const rejected = await logEntry(member, { declaredMinutes: 300 });
+      await logEntry(member, { declaredMinutes: 90 });
+      await reviewEntry(dataSource, approved.id, {
+        status: "approved",
+        validatedMinutes: 60,
+        reviewNote: null,
+        reviewedById: coordinator.id,
+      });
+      await reviewEntry(dataSource, adjusted.id, {
+        status: "adjusted",
+        validatedMinutes: 120,
+        reviewNote: "Duas horas.",
+        reviewedById: coordinator.id,
+      });
+      await reviewEntry(dataSource, rejected.id, {
+        status: "rejected",
+        validatedMinutes: 0,
+        reviewNote: "Fora do projeto.",
+        reviewedById: coordinator.id,
+      });
+
+      const summary = await summaryOf(member);
+
+      expect(summary.bankMinutes).toBe(180);
+      expect(categoryTotal(summary, "planning")).toEqual({
+        category: "planning",
+        entries: 4,
+        declaredMinutes: 600,
+        bankMinutes: 180,
+        pendingMinutes: 90,
+      });
+      expect(statusTotal(summary, "adjusted")).toMatchObject({ entries: 1, validatedMinutes: 120 });
+      expect(statusTotal(summary, "rejected")).toMatchObject({ entries: 1, declaredMinutes: 300 });
+    });
+
+    it("returns numbers, not strings, for every total", async () => {
+      const approved = await logEntry(member);
+      await reviewEntry(dataSource, approved.id, {
+        status: "approved",
+        validatedMinutes: 150,
+        reviewNote: null,
+        reviewedById: coordinator.id,
+      });
+
+      const summary = await summaryOf(member);
+
+      expect(typeof summary.bankMinutes).toBe("number");
+      for (const total of summary.byStatus) {
+        expect(typeof total.entries).toBe("number");
+        expect(typeof total.declaredMinutes).toBe("number");
+        expect(typeof total.validatedMinutes).toBe("number");
+      }
+      for (const total of summary.byCategory) {
+        expect(typeof total.entries).toBe("number");
+        expect(typeof total.declaredMinutes).toBe("number");
+        expect(typeof total.bankMinutes).toBe("number");
+        expect(typeof total.pendingMinutes).toBe("number");
+      }
+      expect(summary.bankMinutes).toBe(150);
+    });
+
+    it("answers zeros for a person with no entries", async () => {
+      await logEntry(otherMember);
+
+      const summary = await summaryOf(member);
+
+      expect(summary.bankMinutes).toBe(0);
+      expect(summary.byStatus.every((total) => total.entries === 0)).toBe(true);
+      expect(summary.byCategory.every((total) => total.declaredMinutes === 0)).toBe(true);
+    });
+
+    it("answers 400 INVALID_PERIOD when from is after to, and 400 VALIDATION_FAILED for a date that does not exist", async () => {
+      const invalid = await getSummary(member, { from: "2026-03-31", to: "2026-03-01" }).expect(
+        400,
+      );
+      expect(invalid.body.error).toBe("INVALID_PERIOD");
+
+      const malformed = await getSummary(member, { to: "2026-02-30" }).expect(400);
+      expect(malformed.body.error).toBe("VALIDATION_FAILED");
+    });
+
+    it("answers 401 without a session cookie", async () => {
+      await request(app.getHttpServer()).get("/me/hours/summary").expect(401);
     });
   });
 });

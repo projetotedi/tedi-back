@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { DataSource, EntityManager } from "typeorm";
+import { DataSource, EntityManager, SelectQueryBuilder } from "typeorm";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
@@ -9,18 +9,36 @@ import {
   AuditableAction,
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
+import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
 import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
+import { HoursPeriodQueryDto } from "../dto/hours-period-query.dto";
+import { HoursSummaryResponseDto } from "../dto/hours-summary.response.dto";
+import { ListMyHourEntriesQueryDto } from "../dto/list-my-hour-entries-query.dto";
 import { HourEntryEvent } from "../entities/hour-entry-event.entity";
 import { HourEntry } from "../entities/hour-entry.entity";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
-import { hourEntryDateInFuture } from "./hour-entry-errors";
+import { hourEntryDateInFuture, invalidPeriod } from "./hour-entry-errors";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
+import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
 
 const HOUR_ENTRY_TARGET_TYPE = "hour_entry";
+
+/** 400 INVALID_PERIOD when both ends come and the start is after the end. YYYY-MM-DD compares as text. */
+function assertValidPeriod(period: HoursPeriodQueryDto): void {
+  if (period.from !== undefined && period.to !== undefined && period.from > period.to) {
+    throw invalidPeriod();
+  }
+}
+
+/** Restricts the query to the days of the period, both ends included, for the ends that come. */
+function applyPeriod(builder: SelectQueryBuilder<HourEntry>, period: HoursPeriodQueryDto): void {
+  if (period.from !== undefined) builder.andWhere("entry.date >= :from", { from: period.from });
+  if (period.to !== undefined) builder.andWhere("entry.date <= :to", { to: period.to });
+}
 
 /**
  * What a new hour entry is, already decided by the caller: whose hours, who logged them and how.
@@ -50,7 +68,7 @@ export interface CreatedHourEntry {
 }
 
 /**
- * Hour entries of the people (E7, GUS-162): log for oneself and read one's own statement.
+ * Hour entries of the people (E7, GUS-162): log for oneself, read one's own statement and summary.
  *
  * Every write runs in a transaction and the audit event goes out after the commit. Every instant
  * of a write (the columns of the entry, the row of its history and the audit event) is the same
@@ -160,6 +178,74 @@ export class HoursService {
 
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
     return toHourEntryResponse(entry);
+  }
+
+  /**
+   * `GET /me/hour-entries`: the statement of the logged-in person, the most recent day first (then
+   * the most recent entry of the day), paginated. Filters by status, category and period, both ends
+   * included. Removed entries are left out. 400 INVALID_PERIOD before querying.
+   *
+   * The person is filtered in the query, by the id of the session: never through the policy.
+   */
+  async listMyEntries(
+    actor: AuthUser,
+    query: ListMyHourEntriesQueryDto,
+  ): Promise<PaginatedResult<HourEntryResponseDto>> {
+    assertValidPeriod(query);
+    const { page, limit } = normalizePagination(query);
+
+    const builder = this.dataSource
+      .getRepository(HourEntry)
+      .createQueryBuilder("entry")
+      .where("entry.person_id = :personId", { personId: actor.id });
+    if (query.status !== undefined) {
+      builder.andWhere("entry.status = :status", { status: query.status });
+    }
+    if (query.category !== undefined) {
+      builder.andWhere("entry.category = :category", { category: query.category });
+    }
+    applyPeriod(builder, query);
+
+    const [entries, total] = await builder
+      .orderBy("entry.date", "DESC")
+      .addOrderBy("entry.created_at", "DESC")
+      .addOrderBy("entry.id", "DESC")
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getManyAndCount();
+
+    return { data: entries.map(toHourEntryResponse), total, page, limit };
+  }
+
+  /**
+   * `GET /me/hours/summary`: the totals of the logged-in person in the period, by status and by
+   * category, and the bank of hours. One query, grouped by status and category (at most 28 rows);
+   * the counts are cast to `int` because Postgres sums into `bigint`, which `pg` hands over as a
+   * string. Removed entries are left out. 400 INVALID_PERIOD before querying.
+   */
+  async getMySummary(
+    actor: AuthUser,
+    query: HoursPeriodQueryDto,
+  ): Promise<HoursSummaryResponseDto> {
+    assertValidPeriod(query);
+
+    const builder = this.dataSource
+      .getRepository(HourEntry)
+      .createQueryBuilder("entry")
+      .select("entry.status", "status")
+      .addSelect("entry.category", "category")
+      .addSelect("COUNT(*)::int", "entries")
+      .addSelect("COALESCE(SUM(entry.declared_minutes), 0)::int", "declaredMinutes")
+      .addSelect("COALESCE(SUM(entry.validated_minutes), 0)::int", "validatedMinutes")
+      .where("entry.person_id = :personId", { personId: actor.id });
+    applyPeriod(builder, query);
+
+    const rows = await builder
+      .groupBy("entry.status")
+      .addGroupBy("entry.category")
+      .getRawMany<HoursSummaryRow>();
+
+    return buildHoursSummary(rows, { from: query.from ?? null, to: query.to ?? null });
   }
 
   private buildAuditEvent(

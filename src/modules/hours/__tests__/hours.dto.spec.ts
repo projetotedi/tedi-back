@@ -3,7 +3,13 @@ import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
-import { LOGGABLE_HOUR_ENTRY_CATEGORIES } from "../enums/hour-entry-category.enum";
+import { HoursPeriodQueryDto } from "../dto/hours-period-query.dto";
+import { ListMyHourEntriesQueryDto } from "../dto/list-my-hour-entries-query.dto";
+import {
+  HourEntryCategory,
+  LOGGABLE_HOUR_ENTRY_CATEGORIES,
+} from "../enums/hour-entry-category.enum";
+import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 
 const MEMBER_ID = "01999a3e-0000-7000-8000-0000000000aa";
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
@@ -22,6 +28,18 @@ function fieldsOf(errors: ValidationError[]): string[] {
 
 async function checkCreate(body: Record<string, unknown>) {
   const dto = plainToInstance(CreateHourEntryDto, body);
+  const errors = await validate(dto, { whitelist: true });
+  return { dto, errors, fields: fieldsOf(errors) };
+}
+
+async function checkList(query: Record<string, unknown>) {
+  const dto = plainToInstance(ListMyHourEntriesQueryDto, query);
+  const errors = await validate(dto, { whitelist: true });
+  return { dto, errors, fields: fieldsOf(errors) };
+}
+
+async function checkPeriod(query: Record<string, unknown>) {
+  const dto = plainToInstance(HoursPeriodQueryDto, query);
   const errors = await validate(dto, { whitelist: true });
   return { dto, errors, fields: fieldsOf(errors) };
 }
@@ -157,5 +175,77 @@ describe("CreateHourEntryDto", () => {
       date: "2026-03-10",
       declaredMinutes: 150,
     });
+  });
+});
+
+describe("ListMyHourEntriesQueryDto", () => {
+  it("accepts an empty query: every filter is optional", async () => {
+    const { dto, errors } = await checkList({});
+
+    expect(errors).toHaveLength(0);
+    expect(dto).toEqual({});
+  });
+
+  it("converts page and limit from the query string and rejects limit above 100", async () => {
+    const { dto, errors } = await checkList({ page: "2", limit: "100" });
+    expect(errors).toHaveLength(0);
+    expect(dto.page).toBe(2);
+    expect(dto.limit).toBe(100);
+
+    expect((await checkList({ limit: "101" })).fields).toEqual(["limit"]);
+    expect((await checkList({ limit: "0" })).fields).toEqual(["limit"]);
+    expect((await checkList({ page: "0" })).fields).toEqual(["page"]);
+    expect((await checkList({ page: "abc" })).fields).toEqual(["page"]);
+    expect((await checkList({ page: "1.5" })).fields).toEqual(["page"]);
+  });
+
+  it("accepts status, category (lesson included) and the period, and rejects values outside the enums", async () => {
+    const { dto, errors } = await checkList({
+      status: "adjusted",
+      category: "lesson",
+      from: "2026-03-01",
+      to: "2026-03-31",
+    });
+    expect(errors).toHaveLength(0);
+    expect(dto).toEqual({
+      status: HourEntryStatus.ADJUSTED,
+      category: HourEntryCategory.LESSON,
+      from: "2026-03-01",
+      to: "2026-03-31",
+    });
+
+    for (const status of Object.values(HourEntryStatus)) {
+      expect((await checkList({ status })).errors).toHaveLength(0);
+    }
+    for (const category of Object.values(HourEntryCategory)) {
+      expect((await checkList({ category })).errors).toHaveLength(0);
+    }
+    expect((await checkList({ status: "open" })).fields).toEqual(["status"]);
+    expect((await checkList({ category: "class" })).fields).toEqual(["category"]);
+    expect((await checkList({ status: ["pending", "approved"] })).fields).toEqual(["status"]);
+  });
+
+  it("rejects from and to that are not calendar dates", async () => {
+    expect((await checkList({ from: "2026-02-30", to: "31/03/2026" })).fields).toEqual([
+      "from",
+      "to",
+    ]);
+  });
+});
+
+describe("HoursPeriodQueryDto", () => {
+  it("accepts an open period, a half-open one and a closed one", async () => {
+    expect((await checkPeriod({})).errors).toHaveLength(0);
+    expect((await checkPeriod({ from: "2026-03-01" })).errors).toHaveLength(0);
+    expect((await checkPeriod({ to: "2026-03-31" })).errors).toHaveLength(0);
+    expect((await checkPeriod({ from: "2026-03-01", to: "2026-03-31" })).errors).toHaveLength(0);
+  });
+
+  it("rejects from and to that are not calendar dates", async () => {
+    expect((await checkPeriod({ from: "2026-3-1", to: "2026-13-01" })).fields).toEqual([
+      "from",
+      "to",
+    ]);
+    expect((await checkPeriod({ from: "" })).fields).toEqual(["from"]);
   });
 });

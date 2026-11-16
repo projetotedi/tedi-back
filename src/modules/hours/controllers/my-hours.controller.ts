@@ -1,13 +1,18 @@
-import { Body, Controller, Post } from "@nestjs/common";
-import { ApiBadRequestResponse, ApiCreatedResponse, ApiTags } from "@nestjs/swagger";
+import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { ApiBadRequestResponse, ApiCreatedResponse, ApiOkResponse, ApiTags } from "@nestjs/swagger";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { ApiErrorDto } from "@shared/dto/api-error.dto";
+import { ApiOkResponsePaginated } from "@shared/pagination/api-paginated-response.decorator";
+import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
 import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
+import { HoursPeriodQueryDto } from "../dto/hours-period-query.dto";
+import { HoursSummaryResponseDto } from "../dto/hours-summary.response.dto";
+import { ListMyHourEntriesQueryDto } from "../dto/list-my-hour-entries-query.dto";
 import { HoursService } from "../services/hours.service";
 
 /**
@@ -38,5 +43,27 @@ export class MyHoursController {
     @CurrentUser() actor: AuthUser,
   ): Promise<HourEntryResponseDto> {
     return this.hoursService.logMyHours(dto, actor);
+  }
+
+  @Get("hour-entries")
+  @RequirePermission(Permission.ACCOUNT_MANAGE_OWN)
+  @ApiOkResponsePaginated(HourEntryResponseDto)
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED | INVALID_PERIOD" })
+  listMyHourEntries(
+    @Query() query: ListMyHourEntriesQueryDto,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<PaginatedResult<HourEntryResponseDto>> {
+    return this.hoursService.listMyEntries(actor, query);
+  }
+
+  @Get("hours/summary")
+  @RequirePermission(Permission.ACCOUNT_MANAGE_OWN)
+  @ApiOkResponse({ type: HoursSummaryResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED | INVALID_PERIOD" })
+  getMyHoursSummary(
+    @Query() query: HoursPeriodQueryDto,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<HoursSummaryResponseDto> {
+    return this.hoursService.getMySummary(actor, query);
   }
 }
