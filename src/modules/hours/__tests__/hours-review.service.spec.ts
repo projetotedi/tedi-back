@@ -514,7 +514,7 @@ describe("HoursReviewService", () => {
       expect(answer).toMatchObject({ declaredMinutes: 240, validatedMinutes: 300 });
     });
 
-    it("throws ADJUSTED_MINUTES_UNCHANGED when the minutes are the declared ones, after the other checks, and writes nothing", async () => {
+    it("throws ADJUSTED_MINUTES_UNCHANGED when the minutes are the declared ones, after HOUR_ENTRY_NOT_FOUND, SELF_REVIEW_NOT_ALLOWED and ENTRY_NOT_PENDING, and writes nothing", async () => {
       const unchanged = { validatedMinutes: 240, justification: JUSTIFICATION };
 
       const failure = await httpFailure(service.adjustEntry(ENTRY_A, unchanged, COORDINATOR));
@@ -534,6 +534,17 @@ describe("HoursReviewService", () => {
       manager.findOne.mockResolvedValue(entryOf(ENTRY_A, { status: HourEntryStatus.APPROVED }));
       const notPending = await httpFailure(service.adjustEntry(ENTRY_A, unchanged, COORDINATOR));
       expect(notPending.getResponse()).toMatchObject({ error: "ENTRY_NOT_PENDING" });
+
+      manager.findOne.mockResolvedValue(
+        entryOf(ENTRY_A, { personId: COORDINATOR.id, createdById: COORDINATOR.id }),
+      );
+      const self = await httpFailure(service.adjustEntry(ENTRY_A, unchanged, COORDINATOR));
+      expect(self.getResponse()).toMatchObject({ error: "SELF_REVIEW_NOT_ALLOWED" });
+
+      manager.findOne.mockResolvedValue(null);
+      const notFound = await httpFailure(service.adjustEntry(UNKNOWN, unchanged, COORDINATOR));
+      expect(notFound.getStatus()).toBe(404);
+      expect(notFound.getResponse()).toMatchObject({ error: "HOUR_ENTRY_NOT_FOUND" });
 
       expect(writes()).toBe(0);
       expect(eventEmitter.emit).not.toHaveBeenCalled();

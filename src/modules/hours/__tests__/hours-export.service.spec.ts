@@ -172,6 +172,29 @@ describe("HoursExportService", () => {
     expect(text.slice(CSV_BOM.length).split("\r\n")).toHaveLength(1 + 501 + 1);
   });
 
+  it("moves the cursor to the last row of every full batch", async () => {
+    const day10 = Array.from({ length: HOURS_EXPORT_BATCH_SIZE }, (_, index) =>
+      entryOf(index, ANA, "2026-03-10"),
+    );
+    const day11 = Array.from({ length: HOURS_EXPORT_BATCH_SIZE }, (_, index) =>
+      entryOf(HOURS_EXPORT_BATCH_SIZE + index, BRUNO, "2026-03-11"),
+    );
+    builder.getMany
+      .mockResolvedValueOnce(day10)
+      .mockResolvedValueOnce(day11)
+      .mockResolvedValueOnce([entryOf(5000, ANA, "2026-03-12")]);
+
+    const text = await textOf((await service.exportCsv(COORDINATOR, {})).stream);
+
+    expect(builder.getMany).toHaveBeenCalledTimes(3);
+    const keyset = "(entry.date > :afterDate OR (entry.date = :afterDate AND entry.id > :afterId))";
+    expect(builder.andWhere.mock.calls).toEqual([
+      [keyset, { afterDate: "2026-03-10", afterId: day10[day10.length - 1].id }],
+      [keyset, { afterDate: "2026-03-11", afterId: day11[day11.length - 1].id }],
+    ]);
+    expect(text.slice(CSV_BOM.length).split("\r\n")).toHaveLength(1 + 1001 + 1);
+  });
+
   it("stops after an empty batch when the last one was full", async () => {
     builder.getMany.mockResolvedValueOnce(batchOf(HOURS_EXPORT_BATCH_SIZE, () => ANA));
 

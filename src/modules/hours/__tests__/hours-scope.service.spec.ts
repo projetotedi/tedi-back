@@ -110,6 +110,18 @@ describe("HoursScopeService", () => {
     },
   );
 
+  it("throws for a scope kind it does not know, instead of answering nobody or everyone", async () => {
+    const policy = new PermissionPolicy();
+    const unknownFilter: unknown = { kind: "unknown" };
+    jest.spyOn(policy, "listFilter").mockReturnValue(unknownFilter as ListScopeFilter);
+    const withFakePolicy = new HoursScopeService(policy, members as unknown as MembersService);
+
+    await expect(
+      withFakePolicy.populationOf(COORDINATOR, Permission.HOURS_VIEW_OTHERS, "Ana"),
+    ).rejects.toThrow('Hours scope {"kind":"unknown"} is not supported.');
+    expect(members.findMemberRefs).not.toHaveBeenCalled();
+  });
+
   it.each([Permission.HOURS_VIEW_OTHERS, Permission.HOURS_EXPORT])(
     "matrix: %s is none, department or all for every role, the only scopes this service supports",
     (permission) => {

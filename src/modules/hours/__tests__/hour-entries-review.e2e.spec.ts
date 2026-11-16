@@ -853,6 +853,24 @@ describe("HourEntriesController (e2e)", () => {
       expect(JSON.stringify(events[0])).not.toContain(REASON);
     });
 
+    it("answers 404 HOUR_ENTRY_NOT_FOUND for an unknown, malformed or removed id", async () => {
+      const removed = await logOwn(memberTech);
+      await removeOwn(memberTech, removed.id).expect(204);
+
+      for (const id of [UNKNOWN_ID, "not-a-uuid", removed.id]) {
+        const res = await reject(coordinator, id, { reason: REASON }).expect(404);
+        expect(res.body).toMatchObject({
+          statusCode: 404,
+          error: "HOUR_ENTRY_NOT_FOUND",
+          message: "Hour entry not found.",
+        });
+      }
+      expect((await eventsOf(dataSource, removed.id)).map((event) => event.type)).toEqual([
+        "created",
+        "removed",
+      ]);
+    });
+
     it("requires the reason: 400 VALIDATION_FAILED without it or blank", async () => {
       const entry = await logOwn(memberTech);
 

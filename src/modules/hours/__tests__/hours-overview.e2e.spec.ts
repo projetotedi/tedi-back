@@ -57,6 +57,16 @@ interface HourEntryBody {
   reviewNote: string | null;
 }
 
+interface FieldError {
+  field: string;
+  message: string;
+}
+
+/** The fields of the details of an error, sorted: the order of the validators is not a contract. */
+function fieldsOf(body: { details?: FieldError[] }): string[] {
+  return (body.details ?? []).map((detail) => detail.field).sort();
+}
+
 interface StatusTotal {
   status: string;
   entries: number;
@@ -501,6 +511,13 @@ describe("hours views (e2e)", () => {
       expect(typeof overview.members.total).toBe("number");
     });
 
+    it("answers 400 VALIDATION_FAILED for a search over 100 characters and a limit of 0, with the fields", async () => {
+      const res = await overviewOf(coordinator, { search: "a".repeat(101), limit: 0 }).expect(400);
+
+      expect(res.body.error).toBe("VALIDATION_FAILED");
+      expect(fieldsOf(res.body as { details?: FieldError[] })).toEqual(["limit", "search"]);
+    });
+
     it("answers 403 FORBIDDEN to a member, an empty overview to a director without department, and 400 INVALID_PERIOD", async () => {
       await logTheMonth();
 
@@ -649,6 +666,23 @@ describe("hours views (e2e)", () => {
       expect(invalid.body.error).toBe("INVALID_PERIOD");
     });
 
+    it("leaves removed entries out of the file", async () => {
+      const kept = await logOwn(memberTech);
+      const removed = await logOwn(memberTech);
+      await request(app.getHttpServer())
+        .delete(`/me/hour-entries/${removed.id}`)
+        .set("Cookie", memberTech.cookie)
+        .expect(204);
+
+      const res = await exportOf(coordinator).expect(200);
+
+      expect(
+        csvRows(res.text)
+          .slice(1)
+          .map((row) => row[0]),
+      ).toEqual([kept.id]);
+    });
+
     it("answers 403 FORBIDDEN to a member", async () => {
       const res = await exportOf(memberTech).expect(403);
 
@@ -721,6 +755,24 @@ describe("hours views (e2e)", () => {
         department: null,
       });
       expect((res.body as MemberHours).entries.total).toBe(1);
+    });
+
+    it("answers 400 INVALID_PERIOD and 400 VALIDATION_FAILED for a bad period or page", async () => {
+      const invalid = await memberHoursOf(coordinator, memberTech.id, {
+        from: "2026-03-31",
+        to: "2026-03-01",
+      }).expect(400);
+      expect(invalid.body).toMatchObject({
+        error: "INVALID_PERIOD",
+        details: [{ field: "to", message: "to must be on or after from" }],
+      });
+
+      const malformed = await memberHoursOf(coordinator, memberTech.id, {
+        limit: 101,
+        to: "2026-02-30",
+      }).expect(400);
+      expect(malformed.body.error).toBe("VALIDATION_FAILED");
+      expect(fieldsOf(malformed.body as { details?: FieldError[] })).toEqual(["limit", "to"]);
     });
 
     it("answers 404 MEMBER_NOT_FOUND for a student, an unknown id and a malformed id, and 403 FORBIDDEN to a member", async () => {

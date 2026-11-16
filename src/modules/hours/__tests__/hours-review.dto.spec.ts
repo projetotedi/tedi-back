@@ -4,6 +4,7 @@ import { validate } from "class-validator";
 import { AdjustHourEntryDto } from "../dto/adjust-hour-entry.dto";
 import { HoursExportQueryDto } from "../dto/hours-export-query.dto";
 import { HoursOverviewQueryDto } from "../dto/hours-overview-query.dto";
+import { HoursPageQueryDto } from "../dto/hours-page-query.dto";
 import { ListHourEntriesQueryDto } from "../dto/list-hour-entries-query.dto";
 import { RejectHourEntryDto } from "../dto/reject-hour-entry.dto";
 import { ValidateHourEntriesDto } from "../dto/validate-hour-entries.dto";
@@ -97,6 +98,16 @@ describe("RejectHourEntryDto", () => {
 });
 
 describe("query DTOs", () => {
+  it("keeps page and limit undefined when they come undefined, without errors (HoursPageQueryDto)", async () => {
+    for (const dto of [HoursPageQueryDto, HoursOverviewQueryDto, ListHourEntriesQueryDto]) {
+      const { instance, fields } = await check(dto, { page: undefined, limit: undefined });
+
+      expect(fields).toEqual([]);
+      expect(instance.page).toBeUndefined();
+      expect(instance.limit).toBeUndefined();
+    }
+  });
+
   it("accepts format csv, rejects xlsx, and keeps the period floor of 2000-01-01 (HoursExportQueryDto)", async () => {
     expect((await check(HoursExportQueryDto, {})).fields).toEqual([]);
     expect(
