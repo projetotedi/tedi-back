@@ -33,7 +33,7 @@ import {
   studentNotFoundInBody,
 } from "./enrollment-errors";
 import {
-  CompletedCourse,
+  StudentCourseCompletion,
   EnrollmentWarning,
   missingPrerequisites,
 } from "./enrollment-prerequisites";
@@ -54,6 +54,37 @@ interface LiveEnrollmentRow {
   id: string;
   studentId: string;
   status: EnrollmentStatus;
+}
+
+/** The SQLSTATE and the constraint of a violation that the database reported. */
+interface ConstraintViolation {
+  code: string;
+  constraint: string;
+}
+
+/**
+ * The code and the constraint of a violation, when the error is a `QueryFailedError` whose driver
+ * error names both (as `pg` does for 23505 and 23514); null for anything else. Narrowed by checks,
+ * not by a cast: the driver error is `any` in TypeORM. The same guard as `violatedConstraint` of
+ * `assignments`, which this module cannot import.
+ */
+function violatedConstraint(error: unknown): ConstraintViolation | null {
+  if (!(error instanceof QueryFailedError)) return null;
+
+  const driverError: unknown = error.driverError;
+  if (
+    typeof driverError !== "object" ||
+    driverError === null ||
+    !("code" in driverError) ||
+    !("constraint" in driverError)
+  ) {
+    return null;
+  }
+
+  const { code, constraint } = driverError;
+  if (typeof code !== "string" || typeof constraint !== "string") return null;
+
+  return { code, constraint };
 }
 
 /** The status of an enrollment before a change: what the event and `changedFields` compare. */
@@ -463,15 +494,13 @@ export class EnrollmentsService {
   }
 
   private mapConstraintError(error: unknown): unknown {
-    if (error instanceof QueryFailedError) {
-      const driverError = error.driverError as { code?: string; constraint?: string } | undefined;
+    const violation = violatedConstraint(error);
 
-      if (driverError?.code === "23505" && driverError.constraint === ENROLLMENT_PAIR_INDEX) {
-        return alreadyEnrolled();
-      }
-      if (driverError?.code === "23514" && driverError.constraint === STATUS_CHANGED_AT_CHECK) {
-        return effectiveDateBeforeEnrollment();
-      }
+    if (violation?.code === "23505" && violation.constraint === ENROLLMENT_PAIR_INDEX) {
+      return alreadyEnrolled();
+    }
+    if (violation?.code === "23514" && violation.constraint === STATUS_CHANGED_AT_CHECK) {
+      return effectiveDateBeforeEnrollment();
     }
     return error;
   }
@@ -516,23 +545,23 @@ export class EnrollmentsService {
     const prerequisites = await this.courses.findPrerequisiteRefs(courseId, manager);
     if (prerequisites.length === 0) return [];
 
-    const completed = await this.findCompletedCourses(
+    const completions = await this.findCompletions(
       manager,
       studentIds,
       prerequisites.map((course) => course.id),
     );
-    return missingPrerequisites(studentIds, prerequisites, completed);
+    return missingPrerequisites(studentIds, prerequisites, completions);
   }
 
   /**
    * Which of the students completed which of the courses: a completed enrollment, not removed, in a
    * class of the course (an archived class included).
    */
-  private findCompletedCourses(
+  private findCompletions(
     manager: EntityManager,
     studentIds: readonly string[],
     courseIds: readonly string[],
-  ): Promise<CompletedCourse[]> {
+  ): Promise<StudentCourseCompletion[]> {
     return manager.query(
       `SELECT DISTINCT e.student_id AS "studentId", c.course_id AS "courseId"
          FROM enrollments e

@@ -662,6 +662,27 @@ describe("EnrollmentsService", () => {
     });
   });
 
+  it("rethrows a database error whose driver error does not name a code and a constraint as text", async () => {
+    const withoutConstraint = new QueryFailedError(
+      "INSERT INTO enrollments",
+      [],
+      Object.assign(new Error("violation"), { code: "23505" }),
+    );
+    const numericCode = new QueryFailedError(
+      "INSERT INTO enrollments",
+      [],
+      Object.assign(new Error("violation"), {
+        code: 23505,
+        constraint: "uq_enrollments_class_id_student_id",
+      }),
+    );
+
+    for (const failure of [withoutConstraint, numericCode]) {
+      dataSource.transaction.mockRejectedValueOnce(failure);
+      await expect(service.enroll(CLASS_ID, { studentIds: [ANA] }, ACTOR_ID)).rejects.toBe(failure);
+    }
+  });
+
   describe("updateStatus()", () => {
     const dropped = {
       status: EnrollmentStatus.DROPPED,

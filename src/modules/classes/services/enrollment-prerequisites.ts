@@ -1,8 +1,11 @@
 import { CourseRef } from "@modules/catalog/services/courses.service";
 import { EnrollmentWarningCode } from "../enums/enrollment-warning-code.enum";
 
-/** A student who has a completed enrollment in a course (in any class of it, archived included). */
-export interface CompletedCourse {
+/**
+ * Who completed what: a student with a completed enrollment in a course (in any class of it,
+ * archived included). A pair of ids, not the `CompletedCourseResponseDto` of the history.
+ */
+export interface StudentCourseCompletion {
   studentId: string;
   courseId: string;
 }
@@ -24,9 +27,9 @@ export interface EnrollmentWarning {
 export function missingPrerequisites(
   studentIds: readonly string[],
   prerequisites: readonly CourseRef[],
-  completed: readonly CompletedCourse[],
+  completions: readonly StudentCourseCompletion[],
 ): EnrollmentWarning[] {
-  const done = new Set(completed.map((pair) => `${pair.studentId}:${pair.courseId}`));
+  const done = new Set(completions.map((pair) => `${pair.studentId}:${pair.courseId}`));
 
   return studentIds.flatMap((studentId) =>
     prerequisites
