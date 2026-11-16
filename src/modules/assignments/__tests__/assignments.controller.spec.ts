@@ -175,12 +175,13 @@ describe("the controllers of the assignments", () => {
       expect(service.create).toHaveBeenCalledWith(LESSON_ID, dto, ACTOR.id);
     });
 
-    it("delegates listLessonAssignments to AssignmentsService.listByLesson with the lesson only", async () => {
-      await expect(lessonAssignments.listLessonAssignments(LESSON_ID)).resolves.toEqual([
+    it("delegates listLessonAssignments to AssignmentsService.listByLesson with the lesson and the whole actor, for the note", async () => {
+      await expect(lessonAssignments.listLessonAssignments(LESSON_ID, ACTOR)).resolves.toEqual([
         assignment,
       ]);
 
-      expect(service.listByLesson).toHaveBeenCalledWith(LESSON_ID);
+      // The whole AuthUser, not only the id: the service asks the policy whether she reads the note.
+      expect(service.listByLesson).toHaveBeenCalledWith(LESSON_ID, ACTOR);
     });
 
     it("delegates confirmAssignment to AssignmentsService.confirm with the id and the actor id", async () => {

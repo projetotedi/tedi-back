@@ -30,7 +30,9 @@ const LESSON_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "LESSON_NOT_
  * The assignments of a lesson: assign a member to it and list who is assigned. Assigning needs
  * assignments.create (director, coordinator and superadmin), and a member answers 403 on it;
  * listing needs lessons.view (every profile), the same permission as reading the lesson. The scope
- * is only all or none, so the guard decides and the service needs no policy.
+ * of both is only all or none, so the guard decides who gets in. The list is the exception that
+ * still asks the policy: the note of an assignment is free text that can hold personal data
+ * (RNF-13), and only who has assignments.create reads it; the other profiles get `note: null`.
  *
  * Confirming and cancelling an assignment are `PATCH /assignments/:id/...`, and the assignments of
  * a member are `GET /members/:id/assignments`: other controllers of this module, because the
@@ -75,12 +77,13 @@ export class LessonAssignmentsController {
     type: LessonAssignmentResponseDto,
     isArray: true,
     description:
-      "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated.",
+      "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated. The note of each one is null for profiles without assignments.create (RNF-13).",
   })
   @ApiNotFoundResponse(LESSON_NOT_FOUND_RESPONSE)
   listLessonAssignments(
     @Param("id", LESSON_ID) lessonId: string,
+    @CurrentUser() actor: AuthUser,
   ): Promise<LessonAssignmentResponseDto[]> {
-    return this.assignmentsService.listByLesson(lessonId);
+    return this.assignmentsService.listByLesson(lessonId, actor);
   }
 }

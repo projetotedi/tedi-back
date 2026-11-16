@@ -22,7 +22,8 @@ docs {
   Lista quem está alocado numa aula (F5.2). O :id é o id da aula.
   Requer cookie tedi_session e a permissão lessons.view (@RequirePermission; membro, diretoria, coordenação e superadmin): a mesma de get-lesson, então todo perfil vê quem dá e quem ajuda a aula.
   Traz toda alocação da aula, de qualquer status (a cancelada e a recusada são histórico, e o front as distingue por status), cada uma com person { id, name } (null se a pessoa foi removida), role, status, source, note, createdById, reviewedById e reviewedAt, cancelledById e cancelledAt, createdAt e updatedAt. Ordem: o papel primeiro (o professor antes dos monitores), depois o status na ordem pending, confirmed, declined, cancelled, depois quem foi alocado primeiro. Sem paginação: uma aula tem poucas pessoas.
-  Os nomes vêm de uma consulta só a PeopleService.findRefsByIds. A nota é texto livre e aparece para quem pode ler a lista.
+  Os nomes vêm de uma consulta só a PeopleService.findRefsByIds.
+  A nota (note) é texto livre e pode ter dado pessoal (RNF-13): só quem tem assignments.create (diretoria, coordenação e superadmin, a mesma permissão de create-assignment) a lê. Para os outros perfis, o membro inclusive, todo item vem com note null, tenha a alocação nota ou não; o resto do item é igual. A decisão sai da matriz de permissões (PermissionPolicy), não do perfil escrito no código, e a nota continua gravada: o que muda é a resposta.
   Retorna 200 LessonAssignmentResponseDto[], vazio para aula sem ninguém alocado. A cobertura (quantos confirmados contra quantos esperados) está em get-lesson, em coverage.
   Erros possíveis: 401, 403 FORBIDDEN, 404 LESSON_NOT_FOUND (id inexistente ou mal formado).
 }

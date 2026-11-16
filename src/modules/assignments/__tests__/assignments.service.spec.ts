@@ -52,6 +52,12 @@ const COORDINATOR: AuthUser = {
   accessEnabled: true,
   departmentIds: [],
 };
+const SUPERADMIN: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000c1",
+  role: Role.SUPERADMIN,
+  accessEnabled: true,
+  departmentIds: [],
+};
 const DIRECTOR: AuthUser = {
   id: "01999a3e-0000-7000-8000-0000000000d0",
   role: Role.DIRECTOR,
@@ -718,7 +724,7 @@ describe("AssignmentsService", () => {
     it("throws 404 LESSON_NOT_FOUND when the lesson does not exist, and reads no assignment", async () => {
       state.lesson = null;
 
-      const failure = await httpFailure(service.listByLesson(LESSON_ID));
+      const failure = await httpFailure(service.listByLesson(LESSON_ID, DIRECTOR));
 
       expect(failure.getStatus()).toBe(404);
       expect(codeOf(failure)).toBe("LESSON_NOT_FOUND");
@@ -726,7 +732,7 @@ describe("AssignmentsService", () => {
     });
 
     it("lists every status, ordered by role, status, when it was made and id", async () => {
-      await service.listByLesson(LESSON_ID);
+      await service.listByLesson(LESSON_ID, DIRECTOR);
 
       expect(assignmentRepository.find).toHaveBeenCalledWith({
         where: { lessonId: LESSON_ID },
@@ -748,7 +754,7 @@ describe("AssignmentsService", () => {
         { id: OTHER_PERSON_ID, name: "Monitor Dois" },
       ];
 
-      const result = await service.listByLesson(LESSON_ID);
+      const result = await service.listByLesson(LESSON_ID, COORDINATOR);
 
       expect(people.findRefsByIds).toHaveBeenCalledTimes(1);
       expect(people.findRefsByIds).toHaveBeenCalledWith([PERSON_ID, OTHER_PERSON_ID]);
@@ -771,7 +777,7 @@ describe("AssignmentsService", () => {
       state.assignmentsFound = [buildAssignment()];
       state.people = [];
 
-      const result = await service.listByLesson(LESSON_ID);
+      const result = await service.listByLesson(LESSON_ID, DIRECTOR);
 
       expect(result).toHaveLength(1);
       expect(result[0].person).toBeNull();
@@ -780,7 +786,7 @@ describe("AssignmentsService", () => {
     it("answers an empty list for a lesson with nobody assigned, without asking for names", async () => {
       state.assignmentsFound = [];
 
-      await expect(service.listByLesson(LESSON_ID)).resolves.toEqual([]);
+      await expect(service.listByLesson(LESSON_ID, DIRECTOR)).resolves.toEqual([]);
 
       expect(people.findRefsByIds).not.toHaveBeenCalled();
     });
@@ -796,7 +802,7 @@ describe("AssignmentsService", () => {
         }),
       ];
 
-      const result = await service.listByLesson(LESSON_ID);
+      const result = await service.listByLesson(LESSON_ID, DIRECTOR);
 
       expect(result.map((item) => item.status)).toEqual([
         AssignmentStatus.DECLINED,
@@ -807,7 +813,7 @@ describe("AssignmentsService", () => {
     it("takes no transaction, no lock and emits no event", async () => {
       state.assignmentsFound = [buildAssignment()];
 
-      await service.listByLesson(LESSON_ID);
+      await service.listByLesson(LESSON_ID, DIRECTOR);
 
       expect(dataSource.transaction).not.toHaveBeenCalled();
       expect(manager.findOne).not.toHaveBeenCalled();
@@ -815,6 +821,128 @@ describe("AssignmentsService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
       // The lesson is read plainly: no manager and no lock.
       expect(lessons.getLessonSummary).toHaveBeenCalledWith(LESSON_ID);
+    });
+
+    describe("the note (RNF-13)", () => {
+      beforeEach(() => {
+        // One assignment of every kind of status carries a note: whoever may not read it must not
+        // see it in any of them.
+        state.assignmentsFound = [
+          confirmed({
+            id: "01999a3e-7c1b-7000-8000-0000000000a1",
+            role: AssignmentRole.TEACHER,
+            note: NOTE,
+          }),
+          buildAssignment({
+            id: "01999a3e-7c1b-7000-8000-0000000000a2",
+            personId: OTHER_PERSON_ID,
+            note: "Prefere a segunda hora.",
+          }),
+          buildAssignment({
+            id: "01999a3e-7c1b-7000-8000-0000000000a3",
+            status: AssignmentStatus.CANCELLED,
+            cancelledAt: NOW,
+            cancelledById: ACTOR_ID,
+            note: "Cancelou por motivo de saúde.",
+          }),
+          buildAssignment({
+            id: "01999a3e-7c1b-7000-8000-0000000000a4",
+            status: AssignmentStatus.DECLINED,
+            note: "Não pode nesse dia.",
+          }),
+          buildAssignment({ id: "01999a3e-7c1b-7000-8000-0000000000a5", note: null }),
+        ];
+        state.people = [
+          { id: PERSON_ID, name: "Monitor Um" },
+          { id: OTHER_PERSON_ID, name: "Monitor Dois" },
+        ];
+      });
+
+      it.each([
+        ["a director", DIRECTOR],
+        ["a coordinator", COORDINATOR],
+        ["a superadmin", SUPERADMIN],
+      ])(
+        "shows the note of every item to %s: assignments.create is hers",
+        async (_label, actor) => {
+          const result = await service.listByLesson(LESSON_ID, actor);
+
+          expect(result.map((item) => item.note)).toEqual([
+            NOTE,
+            "Prefere a segunda hora.",
+            "Cancelou por motivo de saúde.",
+            "Não pode nesse dia.",
+            null,
+          ]);
+        },
+      );
+
+      it("answers note null in every item to a profile without assignments.create, whatever the status", async () => {
+        const result = await service.listByLesson(LESSON_ID, MEMBER);
+
+        expect(result).toHaveLength(5);
+        expect(result.map((item) => item.note)).toEqual([null, null, null, null, null]);
+        // Not even as text somewhere else in the answer.
+        const text = JSON.stringify(result);
+        for (const note of [NOTE, "Prefere a segunda hora.", "Cancelou por motivo de saúde."]) {
+          expect(text).not.toContain(note);
+        }
+      });
+
+      it("keeps everything else of the item for a profile without the permission: only the note changes", async () => {
+        const forManager = await service.listByLesson(LESSON_ID, DIRECTOR);
+        const forMember = await service.listByLesson(LESSON_ID, MEMBER);
+
+        expect(forMember).toEqual(forManager.map((item) => ({ ...item, note: null })));
+        expect(forMember.map((item) => item.person)).toEqual(forManager.map((item) => item.person));
+      });
+
+      it("asks the policy for assignments.create, once for the whole list, and not the role", async () => {
+        const can = jest.spyOn(policy, "can");
+
+        await service.listByLesson(LESSON_ID, MEMBER);
+
+        expect(can).toHaveBeenCalledTimes(1);
+        expect(can).toHaveBeenCalledWith(MEMBER, Permission.ASSIGNMENTS_CREATE);
+      });
+
+      it("follows the answer of the policy, not the role: a director it denies does not read the note, a member it allows does", async () => {
+        const can = jest.spyOn(policy, "can").mockReturnValue(false);
+        const deniedDirector = await service.listByLesson(LESSON_ID, DIRECTOR);
+        expect(deniedDirector.map((item) => item.note)).toEqual([null, null, null, null, null]);
+
+        can.mockReturnValue(true);
+        const allowedMember = await service.listByLesson(LESSON_ID, MEMBER);
+        expect(allowedMember[0].note).toBe(NOTE);
+      });
+
+      it("does not ask the policy for a lesson that does not exist", async () => {
+        state.lesson = null;
+        const can = jest.spyOn(policy, "can");
+
+        await httpFailure(service.listByLesson(LESSON_ID, MEMBER));
+
+        expect(can).not.toHaveBeenCalled();
+      });
+
+      it("still reads the whole list for a member: the note is the only thing she is not given", async () => {
+        const result = await service.listByLesson(LESSON_ID, MEMBER);
+
+        expect(result.map((item) => item.person?.name)).toEqual([
+          "Monitor Um",
+          "Monitor Dois",
+          "Monitor Um",
+          "Monitor Um",
+          "Monitor Um",
+        ]);
+        expect(result.map((item) => item.status)).toEqual([
+          AssignmentStatus.CONFIRMED,
+          AssignmentStatus.PENDING,
+          AssignmentStatus.CANCELLED,
+          AssignmentStatus.DECLINED,
+          AssignmentStatus.PENDING,
+        ]);
+      });
     });
   });
 
@@ -1043,6 +1171,14 @@ describe("AssignmentsService", () => {
       expect(JSON.stringify(event)).not.toContain(NOTE);
     });
 
+    it("answers the note to the one who confirms: the route needs assignments.create, which reads it", async () => {
+      state.assignment = buildAssignment({ note: NOTE });
+
+      const result = await service.confirm(ASSIGNMENT_ID, ACTOR_ID);
+
+      expect(result.note).toBe(NOTE);
+    });
+
     it("reads the name of the member after the commit, and answers person null when she is gone", async () => {
       state.people = [];
 
@@ -1174,6 +1310,14 @@ describe("AssignmentsService", () => {
       await service.cancel(ASSIGNMENT_ID, ACTOR_ID);
 
       expect(auditEvents()[0].before).toEqual({ status: AssignmentStatus.PENDING });
+    });
+
+    it("answers the note to the one who cancels: the route needs assignments.create, which reads it", async () => {
+      state.assignment = confirmed({ note: NOTE });
+
+      const result = await service.cancel(ASSIGNMENT_ID, ACTOR_ID);
+
+      expect(result.note).toBe(NOTE);
     });
 
     it("emits nothing when the transaction fails", async () => {

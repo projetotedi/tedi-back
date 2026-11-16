@@ -1643,7 +1643,7 @@
             "type": "string"
           },
           "note": {
-            "description": "Free text. Null when there is none.",
+            "description": "Free text (RNF-13). Null when there is none, and null for profiles without assignments.create: only who can manage assignments reads the note.",
             "example": "Cobre a segunda hora da aula.",
             "nullable": true,
             "type": "string"
@@ -8045,7 +8045,7 @@
                 }
               }
             },
-            "description": "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated."
+            "description": "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated. The note of each one is null for profiles without assignments.create (RNF-13)."
           },
           "400": {
             "content": {

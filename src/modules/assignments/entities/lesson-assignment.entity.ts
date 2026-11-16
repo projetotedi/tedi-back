@@ -35,8 +35,9 @@ import { AssignmentStatus } from "../enums/assignment-status.enum";
  * - `ck_lesson_assignments_confirmed_reviewed`: a confirmed assignment always says who confirmed
  *   it and when. Cancelling a confirmed one keeps its `reviewed_*` and adds `cancelled_*`.
  *
- * `note` is free text and can hold personal data (RNF-13): it is shown to whoever reads the
- * assignment and it is never in an audit event.
+ * `note` is free text and can hold personal data (RNF-13): only who can manage assignments
+ * (`assignments.create`) reads it, the other profiles get null in the list of a lesson, and it is
+ * never in an audit event.
  *
  * The foreign keys are declared on the class, by table name and without relations: this keeps
  * every constraint name under our control (the SQL of the migration is written by hand), the same

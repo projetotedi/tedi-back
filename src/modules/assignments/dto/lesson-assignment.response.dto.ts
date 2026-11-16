@@ -56,7 +56,8 @@ export class LessonAssignmentResponseDto {
     type: String,
     nullable: true,
     example: "Cobre a segunda hora da aula.",
-    description: "Free text. Null when there is none.",
+    description:
+      "Free text (RNF-13). Null when there is none, and null for profiles without assignments.create: only who can manage assignments reads the note.",
   })
   note!: string | null;
 

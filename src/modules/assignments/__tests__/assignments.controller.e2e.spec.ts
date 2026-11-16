@@ -1166,11 +1166,11 @@ describe("Assignments (e2e)", () => {
       ]);
     });
 
-    it("shows the note of each assignment, and null for the ones without", async () => {
+    it("shows the note of each assignment to a director, and null for the ones without", async () => {
       await assign(ana, { note: NOTE });
       await assign(bruno);
 
-      const res = await getLessonAssignments(lessonId, member).expect(200);
+      const res = await getLessonAssignments(lessonId, director).expect(200);
 
       expect(
         (res.body as AssignmentBody[]).map((item) => [item.person?.name, item.note]).sort(),
@@ -1178,6 +1178,115 @@ describe("Assignments (e2e)", () => {
         ["Ana Torres", NOTE],
         ["Bruno Lima", null],
       ]);
+    });
+
+    it("shows the note to a coordinator, a superadmin and a director of any department: assignments.create is theirs", async () => {
+      await assign(ana, { note: NOTE });
+
+      for (const actor of [coordinator, superadmin, director, directorTech, directorComms]) {
+        const res = await getLessonAssignments(lessonId, actor).expect(200);
+
+        expect((res.body as AssignmentBody[]).map((item) => item.note)).toEqual([NOTE]);
+      }
+    });
+
+    describe("the note of an assignment is for who manages assignments (RNF-13)", () => {
+      const NOTES = [
+        NOTE,
+        "Prefere a segunda hora.",
+        "Cancelou por motivo de saúde.",
+        "Não pode nesse dia.",
+      ];
+
+      /** One assignment of each status, every one with a note. */
+      async function assignWithNotes(): Promise<{ confirmedId: string }> {
+        const confirmedAssignment = await assign(ana, {
+          role: "teacher",
+          status: "confirmed",
+          note: NOTES[0],
+        });
+        await assign(bruno, { note: NOTES[1] });
+        const toCancel = await assign(carla, { status: "confirmed", note: NOTES[2] });
+        await cancelAssignment(toCancel.id, director).expect(200);
+        await insertAssignment(dataSource, {
+          lessonId,
+          personId: diego.id,
+          createdById: diego.id,
+          status: "declined",
+          source: "application",
+          note: NOTES[3],
+          reviewedById: coordinator.id,
+          reviewedAt: new Date(),
+        });
+        return { confirmedId: confirmedAssignment.id };
+      }
+
+      it("answers note null in every item to a member, whatever the status, and not even as text in the body", async () => {
+        await assignWithNotes();
+
+        const res = await getLessonAssignments(lessonId, member).expect(200);
+
+        const items = res.body as AssignmentBody[];
+        expect(items).toHaveLength(4);
+        for (const item of items) expect(item.note).toBeNull();
+        for (const note of NOTES) expect(JSON.stringify(res.body)).not.toContain(note);
+      });
+
+      it("answers the note of every item to a director", async () => {
+        await assignWithNotes();
+
+        const res = await getLessonAssignments(lessonId, director).expect(200);
+
+        expect((res.body as AssignmentBody[]).map((item) => item.note).sort()).toEqual(
+          [...NOTES].sort(),
+        );
+      });
+
+      it("gives a member the same list as a director, with the note as the only difference", async () => {
+        await assignWithNotes();
+
+        const forMember = await getLessonAssignments(lessonId, member).expect(200);
+        const forDirector = await getLessonAssignments(lessonId, director).expect(200);
+
+        expect(forMember.body).toEqual(
+          (forDirector.body as AssignmentBody[]).map((item) => ({ ...item, note: null })),
+        );
+      });
+
+      it("keeps the note in the table: hiding it is a matter of the answer, not of the data", async () => {
+        const { confirmedId } = await assignWithNotes();
+
+        await getLessonAssignments(lessonId, member).expect(200);
+
+        expect(await storedAssignment(confirmedId)).toMatchObject({ note: NOTES[0] });
+        const rows: Array<{ note: string }> = await dataSource.query(
+          `SELECT note FROM lesson_assignments WHERE lesson_id = $1 AND note IS NOT NULL`,
+          [lessonId],
+        );
+        expect(rows.map((row) => row.note).sort()).toEqual([...NOTES].sort());
+      });
+
+      it("answers the note to the one who writes: make, confirm and cancel are assignments.create", async () => {
+        const created = await assign(ana, { note: NOTE });
+        expect(created.note).toBe(NOTE);
+
+        const confirmed = await confirmAssignment(created.id, coordinator).expect(200);
+        expect(confirmed.body.note).toBe(NOTE);
+
+        const cancelled = await cancelAssignment(created.id, coordinator).expect(200);
+        expect(cancelled.body.note).toBe(NOTE);
+      });
+
+      it("does not show a note in the list of a member's assignments, to anybody: that item has none", async () => {
+        await assignWithNotes();
+
+        const res = await getMemberAssignments(ana.id, coordinator).expect(200);
+
+        expect(JSON.stringify(res.body)).not.toContain(NOTES[0]);
+        for (const item of res.body as MemberAssignmentBody[]) {
+          expect(item).not.toHaveProperty("note");
+        }
+      });
     });
   });
 

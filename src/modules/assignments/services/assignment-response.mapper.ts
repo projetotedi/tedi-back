@@ -5,14 +5,29 @@ import { MemberAssignmentResponseDto } from "../dto/member-assignment.response.d
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
 
 /**
+ * What the one who asks may read of an assignment. It is a parameter with no default, so every
+ * caller of the mapper has to decide it: the one that forgets does not compile, and a default that
+ * showed everything would leak the note the day a route is opened to another profile.
+ */
+export interface AssignmentVisibility {
+  /**
+   * Whether the `note` is shown. The note is free text and can hold personal data (RNF-13), so only
+   * who can manage assignments (`assignments.create`) reads it; everybody else gets `note: null`,
+   * whether the assignment has a note or not.
+   */
+  canSeeNote: boolean;
+}
+
+/**
  * The answer of the routes that create, confirm and cancel an assignment, and the item of the list
- * of a lesson: the assignment with the member it is for. `person` is null when the person is gone.
- * The optional columns are missing (undefined) on an entity that was just inserted, not loaded, so
- * they are read as null.
+ * of a lesson: the assignment with the member it is for. `person` is null when the person is gone,
+ * and `note` is null for whoever `visibility` keeps it from. The optional columns are missing
+ * (undefined) on an entity that was just inserted, not loaded, so they are read as null.
  */
 export function toLessonAssignmentResponse(
   assignment: LessonAssignment,
   person: PersonRefDto | null,
+  visibility: AssignmentVisibility,
 ): LessonAssignmentResponseDto {
   return {
     id: assignment.id,
@@ -21,7 +36,7 @@ export function toLessonAssignmentResponse(
     role: assignment.role,
     status: assignment.status,
     source: assignment.source,
-    note: assignment.note ?? null,
+    note: visibility.canSeeNote ? (assignment.note ?? null) : null,
     createdById: assignment.createdById,
     reviewedById: assignment.reviewedById ?? null,
     reviewedAt: assignment.reviewedAt ?? null,

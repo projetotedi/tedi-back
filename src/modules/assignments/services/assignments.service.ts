@@ -62,7 +62,9 @@ type CancelOutcome =
  * Every write runs in a transaction and the audit event goes out after the commit, only when
  * something changed. The lesson is read through `LessonsService` and the member through
  * `MembersService`: this module touches no table of another one. The note of an assignment is free
- * text and is never in an event (RNF-13).
+ * text (RNF-13): it is never in an event, and only who can manage assignments (`assignments.create`)
+ * reads it. The writes need that permission already; the list of a lesson, which every profile
+ * reads, asks the `PermissionPolicy` and answers `note: null` to the others.
  *
  * The two rules that two requests at the same time could break are held by partial unique indexes
  * (docs/ARCHITECTURE.md section 15): one active assignment per member in a lesson, and one
@@ -170,7 +172,7 @@ export class AssignmentsService {
       source: assignment.source,
     });
 
-    return toLessonAssignmentResponse(assignment, created.person);
+    return this.toWriteResponse(assignment, created.person);
   }
 
   /**
@@ -180,12 +182,19 @@ export class AssignmentsService {
    * declined, cancelled), then by when it was made, then by id. Not paginated: a lesson has a few
    * people. 404 LESSON_NOT_FOUND for an id that is not a lesson.
    *
+   * Every profile reads the list (`lessons.view`), but the note of an assignment is free text that
+   * can hold personal data (RNF-13): the items come with `note: null` unless the actor can manage
+   * assignments. That is asked of the `PermissionPolicy` (`assignments.create`), not read from the
+   * role, so a change of the matrix changes who reads the note.
+   *
    * A plain read: no transaction, no lock and no event. The names come from ONE call to
    * `PeopleService.findRefsByIds`; a person that was removed is `person: null`.
    */
-  async listByLesson(lessonId: string): Promise<LessonAssignmentResponseDto[]> {
+  async listByLesson(lessonId: string, actor: AuthUser): Promise<LessonAssignmentResponseDto[]> {
     const lesson = await this.lessons.getLessonSummary(lessonId);
     if (lesson === null) throw lessonNotFound();
+
+    const visibility = { canSeeNote: this.policy.can(actor, Permission.ASSIGNMENTS_CREATE) };
 
     const assignments = await this.dataSource.getRepository(LessonAssignment).find({
       where: { lessonId: lesson.id },
@@ -199,7 +208,11 @@ export class AssignmentsService {
     const peopleById = new Map(people.map((person) => [person.id, person]));
 
     return assignments.map((assignment) =>
-      toLessonAssignmentResponse(assignment, peopleById.get(assignment.personId) ?? null),
+      toLessonAssignmentResponse(
+        assignment,
+        peopleById.get(assignment.personId) ?? null,
+        visibility,
+      ),
     );
   }
 
@@ -281,7 +294,7 @@ export class AssignmentsService {
       );
     }
 
-    return toLessonAssignmentResponse(assignment, await this.personRefOf(assignment.personId));
+    return this.toWriteResponse(assignment, await this.personRefOf(assignment.personId));
   }
 
   /**
@@ -337,7 +350,7 @@ export class AssignmentsService {
       );
     }
 
-    return toLessonAssignmentResponse(assignment, await this.personRefOf(assignment.personId));
+    return this.toWriteResponse(assignment, await this.personRefOf(assignment.personId));
   }
 
   /**
@@ -433,6 +446,18 @@ export class AssignmentsService {
     return manager.exists(LessonAssignment, {
       where: { lessonId, role: AssignmentRole.TEACHER, status: AssignmentStatus.CONFIRMED },
     });
+  }
+
+  /**
+   * The answer of a write (make, confirm, cancel). The three routes need `assignments.create`, which
+   * is exactly what lets the actor read the note, so it is shown: it is the note she wrote, or the one
+   * of the assignment she is deciding about. The reads do not go through here: they ask the policy.
+   */
+  private toWriteResponse(
+    assignment: LessonAssignment,
+    person: PersonRefDto | null,
+  ): LessonAssignmentResponseDto {
+    return toLessonAssignmentResponse(assignment, person, { canSeeNote: true });
   }
 
   /**
