@@ -26,6 +26,7 @@ import { HourEntry } from "../entities/hour-entry.entity";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HoursModule } from "../hours.module";
+import { LessonCancelledListener } from "../listeners/lesson-cancelled.listener";
 import { LessonHoursService } from "../services/lesson-hours.service";
 import { entryRow, eventsOf, reviewEntry } from "./fixtures/hour-entries.fixture";
 
@@ -303,5 +304,44 @@ describe("lesson.cancelled reverses the attendance hours (e2e)", () => {
     expect(correctedHistory.filter((event) => event.type === "reversed")).toHaveLength(1);
     expect((await eventsOf(dataSource, active)).at(-1)?.type).toBe("reversed");
     expect(reversals().map((event) => event.targetId)).toEqual([active]);
+  });
+
+  it("cancelling the lesson again repairs a reversal that never happened, and cancelling it once more changes nothing", async () => {
+    const scenery = await setUp();
+    const entry = await recordPresence(scenery.monitorId, scenery.teacherId, scenery.lesson);
+    // The lesson was cancelled, but its listener never ran (the process fell after the commit).
+    const cancelledAt = new Date("2026-03-11T12:00:00.000Z");
+    await dataSource.query(
+      `UPDATE lessons
+          SET status = 'cancelled', cancel_reason = 'Feriado municipal.', cancelled_at = $2,
+              cancelled_by_id = $3, updated_at = $2
+        WHERE id = $1`,
+      [scenery.lesson.id, cancelledAt, scenery.coordinatorId],
+    );
+    expect((await entryRow(dataSource, entry))?.deleted_at).toBeNull();
+    // `LessonsService.cancel` emits without waiting: the spy hands over the promise of the listener.
+    const listener = jest.spyOn(module.get(LessonCancelledListener), "reverseLessonHours");
+    audits = [];
+
+    try {
+      await lessonsService.cancel(scenery.lesson.id, { reason: "De novo." }, scenery.coordinatorId);
+      expect(listener).toHaveBeenCalledTimes(1);
+      await listener.mock.results[0].value;
+
+      expect((await entryRow(dataSource, entry))?.deleted_at).toBeInstanceOf(Date);
+      const repaired = await eventsOf(dataSource, entry);
+      expect(repaired.map((event) => event.type)).toEqual(["created", "approved", "reversed"]);
+      expect(repaired.at(-1)?.actor_id).toBe(scenery.coordinatorId);
+      expect(reversals().map((event) => event.targetId)).toEqual([entry]);
+
+      await lessonsService.cancel(scenery.lesson.id, { reason: "Outra vez." }, scenery.teacherId);
+      expect(listener).toHaveBeenCalledTimes(2);
+      await listener.mock.results[1].value;
+
+      expect(await eventsOf(dataSource, entry)).toEqual(repaired);
+      expect(reversals()).toHaveLength(1);
+    } finally {
+      listener.mockRestore();
+    }
   });
 });
