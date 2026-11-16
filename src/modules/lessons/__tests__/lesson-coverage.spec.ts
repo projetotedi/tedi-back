@@ -2,8 +2,10 @@ import "reflect-metadata";
 import { EntityManager } from "typeorm";
 import { LessonStatus } from "../enums/lesson-status.enum";
 import {
+  ConfirmedStaff,
   ConfirmedStaffCount,
   EXPECTED_TEACHERS,
+  isBelowExpectedMonitors,
   LessonStaffCounter,
   NO_CONFIRMED_STAFF,
   toLessonCoverage,
@@ -143,16 +145,107 @@ describe("toLessonCoverage", () => {
   });
 });
 
+describe("isBelowExpectedMonitors", () => {
+  it("is true when fewer monitors are confirmed than the lesson expects", () => {
+    for (const [monitors, expectedMonitors] of [
+      [0, 1],
+      [1, 2],
+      [2, 5],
+    ]) {
+      expect(
+        isBelowExpectedMonitors({ status: LessonStatus.PLANNED, expectedMonitors }, { monitors }),
+      ).toBe(true);
+    }
+  });
+
+  it("is false when as many monitors are confirmed as expected, or more", () => {
+    for (const [monitors, expectedMonitors] of [
+      [2, 2],
+      [3, 2],
+      [1, 1],
+    ]) {
+      expect(
+        isBelowExpectedMonitors({ status: LessonStatus.PLANNED, expectedMonitors }, { monitors }),
+      ).toBe(false);
+    }
+  });
+
+  it("is false when the lesson expects zero monitors, or does not say how many it expects", () => {
+    for (const expectedMonitors of [0, null]) {
+      expect(
+        isBelowExpectedMonitors(
+          { status: LessonStatus.PLANNED, expectedMonitors },
+          { monitors: 0 },
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("is false for a cancelled lesson, whoever is confirmed in it", () => {
+    for (const monitors of [0, 1, 5]) {
+      expect(
+        isBelowExpectedMonitors(
+          { status: LessonStatus.CANCELLED, expectedMonitors: 3 },
+          { monitors },
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("is true for every status of a lesson that still happens", () => {
+    for (const status of [LessonStatus.PLANNED, LessonStatus.CONFIRMED, LessonStatus.DONE]) {
+      expect(isBelowExpectedMonitors({ status, expectedMonitors: 2 }, { monitors: 1 })).toBe(true);
+    }
+  });
+
+  it("reads the expectation of an entity that was just inserted, with no expectedMonitors, as null", () => {
+    expect(
+      isBelowExpectedMonitors(
+        { status: LessonStatus.PLANNED, expectedMonitors: undefined as unknown as null },
+        { monitors: 0 },
+      ),
+    ).toBe(false);
+  });
+
+  it("is the rule that toLessonCoverage answers, so the detail, the list and the calendar agree", () => {
+    for (const status of Object.values(LessonStatus)) {
+      for (const expectedMonitors of [null, 0, 2]) {
+        for (const monitors of [0, 1, 2, 3]) {
+          const lesson = { status, expectedMonitors };
+
+          expect(toLessonCoverage(lesson, staff(1, monitors)).belowExpectedMonitors).toBe(
+            isBelowExpectedMonitors(lesson, { monitors }),
+          );
+        }
+      }
+    }
+  });
+});
+
 describe("NO_CONFIRMED_STAFF", () => {
-  it("is zero teachers and zero monitors, and cannot be changed by whoever reads it", () => {
-    expect(NO_CONFIRMED_STAFF).toEqual({ teachers: 0, monitors: 0 });
+  it("is zero teachers, zero monitors and no teacher, and cannot be changed by whoever reads it", () => {
+    expect(NO_CONFIRMED_STAFF).toEqual({ teachers: 0, monitors: 0, teacher: null });
     expect(Object.isFrozen(NO_CONFIRMED_STAFF)).toBe(true);
+  });
+
+  it("serves the reads that only count as well as the ones that name the teacher", () => {
+    const counts: ConfirmedStaffCount = NO_CONFIRMED_STAFF;
+    const named: ConfirmedStaff = NO_CONFIRMED_STAFF;
+
+    expect(counts.teachers + counts.monitors).toBe(0);
+    expect(named.teacher).toBeNull();
   });
 });
 
 describe("LessonCoverageRegistry", () => {
-  function counterAnswering(answer: Map<string, ConfirmedStaffCount>) {
-    return { countConfirmedStaff: jest.fn().mockResolvedValue(answer) };
+  function counterAnswering(
+    answer: Map<string, ConfirmedStaffCount>,
+    found: Map<string, ConfirmedStaff> = new Map(),
+  ) {
+    return {
+      countConfirmedStaff: jest.fn().mockResolvedValue(answer),
+      findConfirmedStaff: jest.fn().mockResolvedValue(found),
+    };
   }
 
   it("answers an empty map when no counter is registered: nobody is assigned as far as lessons know", async () => {
@@ -208,5 +301,60 @@ describe("LessonCoverageRegistry", () => {
     const registry: LessonStaffCounter = new LessonCoverageRegistry();
 
     expect(typeof registry.countConfirmedStaff).toBe("function");
+    expect(typeof registry.findConfirmedStaff).toBe("function");
+  });
+
+  describe("findConfirmedStaff", () => {
+    const TEACHER = { id: "01999a3e-0000-7000-8000-0000000000b1", name: "Ana Torres" };
+
+    it("answers an empty map when no counter is registered: no teacher is known as far as lessons know", async () => {
+      const registry = new LessonCoverageRegistry();
+
+      const result = await registry.findConfirmedStaff([LESSON_ID, OTHER_LESSON_ID]);
+
+      expect(result).toBeInstanceOf(Map);
+      expect(result.size).toBe(0);
+      expect(result.get(LESSON_ID) ?? NO_CONFIRMED_STAFF).toBe(NO_CONFIRMED_STAFF);
+    });
+
+    it("delegates to the counter once it is registered, with the ids and with no manager: a plain read", async () => {
+      const registry = new LessonCoverageRegistry();
+      const found = new Map<string, ConfirmedStaff>([
+        [LESSON_ID, { teachers: 1, monitors: 2, teacher: TEACHER }],
+      ]);
+      const counter = counterAnswering(new Map(), found);
+      registry.register(counter);
+
+      const result = await registry.findConfirmedStaff([LESSON_ID, OTHER_LESSON_ID]);
+
+      expect(result).toBe(found);
+      expect(counter.findConfirmedStaff).toHaveBeenCalledTimes(1);
+      expect(counter.findConfirmedStaff).toHaveBeenCalledWith([LESSON_ID, OTHER_LESSON_ID]);
+    });
+
+    it("asks the counter only for what was asked: the other read is not called", async () => {
+      const registry = new LessonCoverageRegistry();
+      const counter = counterAnswering(new Map());
+      registry.register(counter);
+
+      await registry.findConfirmedStaff([LESSON_ID]);
+      expect(counter.countConfirmedStaff).not.toHaveBeenCalled();
+
+      await registry.countConfirmedStaff([LESSON_ID]);
+      expect(counter.findConfirmedStaff).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the first counter when a second one is registered: both reads go to it", async () => {
+      const registry = new LessonCoverageRegistry();
+      const first = counterAnswering(new Map());
+      const second = counterAnswering(new Map());
+      registry.register(first);
+      expect(() => registry.register(second)).toThrow();
+
+      await registry.findConfirmedStaff([LESSON_ID]);
+
+      expect(first.findConfirmedStaff).toHaveBeenCalledTimes(1);
+      expect(second.findConfirmedStaff).not.toHaveBeenCalled();
+    });
   });
 });
