@@ -35,7 +35,9 @@ import { EnrollmentCountsService } from "./services/enrollment-counts.service";
     EnrollmentCountsService,
     Clock,
   ],
-  // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151).
+  // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151) and
+  // the classes of its list and calendar (code, course, color slot) through
+  // ClassesService.listClassRefs (GUS-153).
   // The enrollments (GUS-108) live in this module, so they need no export.
   exports: [ClassesService],
 })

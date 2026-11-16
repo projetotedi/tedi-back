@@ -45,7 +45,7 @@ export const PERMISSION_CATALOG: Readonly<
   [Permission.MEMBERS_DEACTIVATE]: { section: "Membros e acessos", action: "Inativar membro" },
   [Permission.ASSIGNMENTS_CREATE]: {
     section: "Membros e acessos",
-    action: "Nova alocação (membro numa aula)",
+    action: "Nova alocação (membro numa aula), confirmar e cancelar alocação",
   },
   [Permission.INVITES_MANAGE]: {
     section: "Membros e acessos",

@@ -3,6 +3,7 @@ import { TIME_OF_DAY_PATTERN } from "@shared/dates/time-of-day";
 import { LessonStatus } from "../enums/lesson-status.enum";
 import { LessonClassRefDto } from "./lesson-class-ref.response.dto";
 import { LessonCourseRefDto } from "./lesson-course-ref.response.dto";
+import { LessonCoverageDto } from "./lesson-coverage.response.dto";
 import { LessonEditionRefDto } from "./lesson-edition-ref.response.dto";
 import { LessonPlanRefDto } from "./lesson-plan-ref.response.dto";
 
@@ -103,6 +104,21 @@ export class LessonResponseDto {
     description: "Monitors expected. Null when not informed.",
   })
   expectedMonitors!: number | null;
+
+  @ApiProperty({
+    type: () => LessonCoverageDto,
+    description:
+      "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet.",
+  })
+  coverage!: LessonCoverageDto;
+
+  @ApiProperty({
+    type: "boolean",
+    example: false,
+    description:
+      "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
+  })
+  belowExpectedMonitors!: boolean;
 
   @ApiProperty({
     type: String,

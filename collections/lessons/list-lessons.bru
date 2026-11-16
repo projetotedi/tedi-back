@@ -1,0 +1,39 @@
+meta {
+  name: list-lessons
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/lessons
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  page: 1
+  limit: 20
+  ~search: senhas privacidade
+  ~classId: 01952ef7-0000-7000-8000-000000000003
+  ~courseId: 01952ef7-0000-7000-8000-000000000001
+  ~lessonPlanId: 01952ef7-0000-7000-8000-000000000002
+  ~status: planned
+  ~from: 2026-03-01
+  ~to: 2026-04-11
+}
+
+docs {
+  Lista as aulas de todas as turmas, paginada, com busca e filtros (F4.4, RF-043). É a lista de linhas da tela de aulas; o calendário de um período é list-lessons-calendar.
+  Requer cookie tedi_session e a permissão lessons.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Todos os parâmetros são opcionais e se combinam com E: ?page (padrão 1), ?limit (padrão 20, de 1 a 100), ?search, ?classId, ?courseId e ?lessonPlanId (UUIDs), ?status (planned | confirmed | done | cancelled, um valor só) e ?from e ?to (AAAA-MM-DD; cada um pode vir sozinho e as duas pontas valem).
+  ?search exige que TODAS as palavras apareçam, cada uma no título OU no assunto da aula, em qualquer ordem e sem precisar estar coladas: "senhas privacidade" acha "Senhas e privacidade", e também uma aula de título "Segurança" com assunto "Privacidade e senhas". Ignora acentos e maiúsculas, trata % e _ como texto literal e aceita até 100 caracteres. Termo vazio ou só com espaços não filtra.
+  Sem ?status, as aulas canceladas aparecem (status cancelled). Aula de turma arquivada fica fora, também quando se filtra por ?courseId, e só aparece quando ?classId é a turma arquivada (RN-27). ?classId, ?courseId ou ?lessonPlanId que não existe responde 200 com a lista vazia, não 404.
+  Ordem: date, startTime e id, crescente, a mesma do calendário; a página nunca repete aula.
+  Cada item traz id, class { id, code, name, colorIndex }, date, startTime e endTime (HH:mm), title, status, teacher e belowExpectedMonitors. class.name é o nome da turma ou, quando ela não tem nome, o code: nunca é null. colorIndex (de 0 a 7) é a cor da turma no calendário: segue a ordem em que as turmas foram criadas e não muda com filtro, página ou período. teacher é o professor CONFIRMADO da aula, { id, name }, ou null quando ela não tem (o professor pendente é candidato e não aparece; a aula cancelada mantém o dele). belowExpectedMonitors é true quando a aula tem menos monitores CONFIRMADOS do que expectedMonitors, e false para aula cancelada e para expectedMonitors null: é a regra de coverage em get-lesson. Os dois vêm da alocação (E5, GUS-158), lida uma vez para a página inteira, e não uma vez por aula.
+  Retorna 200 { data: LessonListItemResponseDto[], total, page, limit }. A aula completa (objetivo, local, cancelamento, remarcação) vem de get-lesson.
+  Erros possíveis: 400 VALIDATION_FAILED (filtro inválido, data fora do formato AAAA-MM-DD, status que não existe ou repetido, limit acima de 100), 400 INVALID_DATE_RANGE (?from depois de ?to; details[].field = "to"), 401, 403 FORBIDDEN.
+}

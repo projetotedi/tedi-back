@@ -72,6 +72,12 @@ export enum AuditableAction {
   LESSON_CANCELLED = "LESSON_CANCELLED",
   /** A lesson moved to another date or time. It is the same lesson: before and after carry the schedule (GUS-151). */
   LESSON_RESCHEDULED = "LESSON_RESCHEDULED",
+  /** A member was assigned to a lesson, as teacher or monitor, pending or already confirmed. Target is the assignment; the note is never in the payload (RNF-13, GUS-158). */
+  LESSON_ASSIGNMENT_CREATED = "LESSON_ASSIGNMENT_CREATED",
+  /** A pending assignment was confirmed: the member is now staff of the lesson. The note is never in the payload (RNF-13, GUS-158). */
+  LESSON_ASSIGNMENT_CONFIRMED = "LESSON_ASSIGNMENT_CONFIRMED",
+  /** A pending or confirmed assignment was cancelled; the row stays. The note is never in the payload (RNF-13, GUS-158). */
+  LESSON_ASSIGNMENT_CANCELLED = "LESSON_ASSIGNMENT_CANCELLED",
 }
 
 /**
@@ -81,7 +87,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change
