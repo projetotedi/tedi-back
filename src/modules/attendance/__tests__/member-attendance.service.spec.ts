@@ -628,19 +628,21 @@ describe("MemberAttendanceService", () => {
         actorId: COORDINATOR.id,
         targetType: "member_attendance",
         targetId: signedRow(OTHER_MONITOR).id,
-        before: {
-          status: PRESENT,
-          confirmedById: TEACHER.id,
-          confirmedAt: EARLIER,
-          hourEntryId: OLD_ENTRY,
-        },
-        after: {
-          status: ABSENT,
-          confirmedById: COORDINATOR.id,
-          confirmedAt: NOW,
-          hourEntryId: null,
-          assignmentId: OTHER_MONITOR_ASSIGNMENT.id,
-        },
+      });
+      // Exact: the assignment through which it was signed before is part of the trail.
+      expect(emitted()[3].before).toEqual({
+        status: PRESENT,
+        confirmedById: TEACHER.id,
+        confirmedAt: EARLIER,
+        hourEntryId: OLD_ENTRY,
+        assignmentId: MONITOR_ASSIGNMENT.id,
+      });
+      expect(emitted()[3].after).toEqual({
+        status: ABSENT,
+        confirmedById: COORDINATOR.id,
+        confirmedAt: NOW,
+        hourEntryId: null,
+        assignmentId: OTHER_MONITOR_ASSIGNMENT.id,
       });
 
       eventEmitter.emit.mockClear();

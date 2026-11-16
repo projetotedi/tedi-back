@@ -197,7 +197,10 @@ function confirmedAuditOf(
   );
 }
 
-/** MEMBER_ATTENDANCE_CORRECTED of a correction: the signature as it was, and as it is now. */
+/**
+ * MEMBER_ATTENDANCE_CORRECTED of a correction: the signature as it was and as it is now, each with
+ * the assignment it was signed through (a member assigned again changes it).
+ */
 function correctedAuditOf(
   change: RecordedCorrection,
   actorId: string,
@@ -213,6 +216,7 @@ function correctedAuditOf(
       confirmedById: row.confirmedById,
       confirmedAt: row.confirmedAt,
       hourEntryId: row.hourEntryId,
+      assignmentId: row.assignmentId,
     },
     {
       status: entry.status,
