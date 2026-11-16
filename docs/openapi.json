@@ -2137,7 +2137,7 @@
                 "$ref": "#/components/schemas/HourEntryEventType"
               }
             ],
-            "description": "created, approved, adjusted, rejected or removed. The history cannot be edited or deleted.",
+            "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
             "example": "adjusted"
           }
         },
@@ -2156,13 +2156,14 @@
         "type": "object"
       },
       "HourEntryEventType": {
-        "description": "created, approved, adjusted, rejected or removed. The history cannot be edited or deleted.",
+        "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
         "enum": [
           "created",
           "approved",
           "adjusted",
           "rejected",
-          "removed"
+          "removed",
+          "reversed"
         ],
         "type": "string"
       },

@@ -124,3 +124,25 @@ export async function countEntries(dataSource: DataSource): Promise<number> {
   );
   return rows[0].count;
 }
+
+/**
+ * A pending attendance entry of lesson hours (90 minutes) of a person in a lesson, for the e2e of
+ * other modules that need a row of `hour_entries` to point to (the attendance, GUS-168). INSERT ...
+ * RETURNING id: the entry is what the attendance writes, `origin` attendance and category lesson,
+ * with its lesson and its class (`ck_hour_entries_attendance_lesson`).
+ */
+export async function insertAttendanceHourEntry(
+  dataSource: DataSource,
+  input: { personId: string; createdById: string; lessonId: string; classId: string },
+): Promise<string> {
+  const rows: Array<{ id: string }> = await dataSource.query(
+    `INSERT INTO hour_entries
+       (id, person_id, created_by_id, origin, activity, category, date, declared_minutes,
+        class_id, lesson_id)
+     VALUES (gen_random_uuid(), $1, $2, 'attendance', 'Teclado, mouse e janelas', 'lesson',
+             $3, 90, $4, $5)
+     RETURNING id`,
+    [input.personId, input.createdById, PAST_DAY, input.classId, input.lessonId],
+  );
+  return rows[0].id;
+}
