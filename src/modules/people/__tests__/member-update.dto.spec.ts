@@ -178,6 +178,19 @@ describe("UpdateMemberDto", () => {
     ).toEqual(["cpf", "joinedAt", "phone", "semester", "state", "volunteerTermUrl"]);
   });
 
+  it("reports a malformed personal e-mail and a malformed departmentId", async () => {
+    const { errors, fields } = await checkUpdate({ email: "ana", departmentId: "not-a-uuid" });
+
+    expect(fields).toEqual(["departmentId", "email"]);
+    const constraintsByField = Object.fromEntries(
+      errors.map((error) => [error.property, Object.keys(error.constraints ?? {})]),
+    );
+    expect(constraintsByField).toStrictEqual({
+      email: ["isEmail"],
+      departmentId: ["isUuid"],
+    });
+  });
+
   it("reports text fields longer than the column", async () => {
     const domain = `${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(60)}.${"e".repeat(10)}.com`;
     const longEmail = `ana@${domain}`;

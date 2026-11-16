@@ -517,6 +517,19 @@ describe("PATCH /members/:id (e2e)", () => {
     expect(await nameOf(personId)).toBe("Membro 1");
   });
 
+  it("requires authentication (401)", async () => {
+    const personId = await registerMember(applicant(1));
+
+    const res = await request(app.getHttpServer())
+      .patch(`/members/${personId}`)
+      .send({ name: "Outro Nome" })
+      .expect(401);
+
+    expect(res.body.statusCode).toBe(401);
+    expect(res.body.error).toBe("UNAUTHORIZED");
+    expect(await nameOf(personId)).toBe("Membro 1");
+  });
+
   it("never changes role, accessEnabled nor the participation: they are dropped from the body (200)", async () => {
     const personId = await registerMember(applicant(1));
 
