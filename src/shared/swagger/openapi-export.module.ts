@@ -33,6 +33,9 @@ import { ClassLessonsController } from "@modules/lessons/controllers/class-lesso
 import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
 import { MemberHoursController } from "@modules/hours/controllers/member-hours.controller";
 import { MyHoursController } from "@modules/hours/controllers/my-hours.controller";
+import { HourEntriesController } from "@modules/hours/controllers/hour-entries.controller";
+import { HoursController } from "@modules/hours/controllers/hours.controller";
+import { MemberHoursViewController } from "@modules/hours/controllers/member-hours-view.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -55,6 +58,9 @@ import { LessonGenerationService } from "@modules/lessons/services/lesson-genera
 import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { HoursService } from "@modules/hours/services/hours.service";
+import { HoursExportService } from "@modules/hours/services/hours-export.service";
+import { HoursReviewService } from "@modules/hours/services/hours-review.service";
+import { HoursViewService } from "@modules/hours/services/hours-view.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -87,6 +93,9 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MemberAssignmentsController,
     MyHoursController,
     MemberHoursController,
+    MemberHoursViewController,
+    HoursController,
+    HourEntriesController,
   ],
   providers: [
     {
@@ -258,6 +267,27 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         getMySummary: async () => ({}),
         removeMyEntry: async () => undefined,
       },
+    },
+    {
+      provide: HoursViewService,
+      useValue: {
+        getOverview: async () => ({}),
+        getMemberHours: async () => ({}),
+        listEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getHistory: async () => [],
+      },
+    },
+    {
+      provide: HoursReviewService,
+      useValue: {
+        validateEntries: async () => [],
+        adjustEntry: async () => ({}),
+        rejectEntry: async () => ({}),
+      },
+    },
+    {
+      provide: HoursExportService,
+      useValue: { exportCsv: async () => ({}) },
     },
     {
       provide: ConfigService,

@@ -14,7 +14,7 @@ import { normalizePagination, PaginatedResult } from "@shared/pagination/paginat
 import { Permission } from "@shared/permissions/permission.enum";
 import { OwnAccountException } from "@shared/permissions/permission.errors";
 import { PermissionPolicy } from "@shared/permissions/permission.policy";
-import { applyTextSearch } from "@shared/search/search.util";
+import { applyTextSearch, normalizeSearchTerm } from "@shared/search/search.util";
 import { ApproveMemberRegistrationDto } from "../dto/approve-member-registration.dto";
 import { DeactivateMemberDto } from "../dto/deactivate-member.dto";
 import { ListMemberRegistrationsQueryDto } from "../dto/list-member-registrations-query.dto";
@@ -24,6 +24,7 @@ import { MemberRegistrationListItemDto } from "../dto/member-registration-list-i
 import { MemberRegistrationResponseDto } from "../dto/member-registration.response.dto";
 import { ListMembersQueryDto } from "../dto/list-members-query.dto";
 import { MemberListItemResponseDto } from "../dto/member-list-item.response.dto";
+import { MemberRefDto } from "../dto/member-ref.response.dto";
 import { RejectMemberRegistrationDto } from "../dto/reject-member-registration.dto";
 import { UpdateMemberDto } from "../dto/update-member.dto";
 import { Department } from "../entities/department.entity";
@@ -68,6 +69,26 @@ export interface MemberSummary {
   name: string;
   active: boolean;
   departmentIds: string[];
+}
+
+/**
+ * Which members findMemberRefs answers. Every filter that comes narrows the answer; at least one
+ * of them is required.
+ *  - ids: these people (ids that are not uuids are left out: Postgres would answer 22P02);
+ *  - departmentIds: the members whose APPROVED registration is in one of these departments;
+ *  - search: name or RA, ignoring case and accents (section 12); blank is no filter.
+ */
+export interface MemberRefFilter {
+  ids?: readonly string[];
+  departmentIds?: readonly string[];
+  search?: string;
+}
+
+interface MemberRefRow {
+  id: string;
+  name: string;
+  departmentId: string | null;
+  departmentName: string | null;
 }
 
 /**
@@ -830,6 +851,73 @@ export class MembersService {
       registrationStatus: profile?.registrationStatus ?? null,
       departmentIds: departmentScopeOf(profile),
     };
+  }
+
+  /**
+   * Id, name and department of the members that match the filter, ordered by name and id. Part of
+   * the contract for other modules (hours, GUS-164), like PeopleService.findRefsByIds: ids come in,
+   * data comes out, and no entity leaves `people`.
+   *
+   * A member is a row of `GET /members`: a person (not deleted) with an access role or a member
+   * profile, so a student is never one. The department is the one of the APPROVED profile, the
+   * rule of departmentScopeOf written in SQL: whoever changes one changes the other.
+   *
+   * Throws when no filter is given, so the whole team is never read by accident. An empty `ids`
+   * or `departmentIds` answers [] without querying.
+   */
+  async findMemberRefs(filter: MemberRefFilter): Promise<MemberRefDto[]> {
+    if (
+      filter.ids === undefined &&
+      filter.departmentIds === undefined &&
+      normalizeSearchTerm(filter.search) === undefined
+    ) {
+      throw new Error("findMemberRefs needs ids, departmentIds or search.");
+    }
+
+    const ids = filter.ids?.filter((id) => isUUID(id));
+    if (ids?.length === 0 || filter.departmentIds?.length === 0) return [];
+
+    const approved = MemberRegistrationStatus.APPROVED;
+    const builder = this.dataSource
+      .getRepository(Person)
+      .createQueryBuilder("person")
+      .leftJoin(MemberProfile, "member_profile", "member_profile.person_id = person.id")
+      .leftJoin(
+        Department,
+        "department",
+        "department.id = member_profile.department_id AND member_profile.registration_status = :approved",
+        { approved },
+      )
+      .select("person.id", "id")
+      .addSelect("person.name", "name")
+      .addSelect("department.id", "departmentId")
+      .addSelect("department.name", "departmentName")
+      .where("(person.role IS NOT NULL OR member_profile.id IS NOT NULL)");
+
+    if (ids !== undefined) {
+      builder.andWhere("person.id IN (:...ids)", { ids });
+    }
+    if (filter.departmentIds !== undefined) {
+      builder.andWhere(
+        "member_profile.registration_status = :approved AND member_profile.department_id IN (:...departmentIds)",
+        { approved, departmentIds: [...filter.departmentIds] },
+      );
+    }
+    applyTextSearch(builder, ["person.name", "person.ra"], filter.search);
+
+    const rows = await builder
+      .orderBy("person.name", "ASC")
+      .addOrderBy("person.id", "ASC")
+      .getRawMany<MemberRefRow>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      department:
+        row.departmentId !== null && row.departmentName !== null
+          ? { id: row.departmentId, name: row.departmentName }
+          : null,
+    }));
   }
 
   /**

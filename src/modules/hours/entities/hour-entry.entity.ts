@@ -25,7 +25,12 @@ import { HourEntryStatus } from "../enums/hour-entry-status.enum";
  * - `ck_hour_entries_validated_minutes`: null, or from 0 to one day;
  * - `ck_hour_entries_pending_not_validated`: a pending entry has no validated minutes;
  * - `ck_hour_entries_origin_author`: a manual entry is logged by its person, an on_behalf one by
- *   someone else; the attendance takes either.
+ *   someone else; the attendance takes either;
+ * - `ck_hour_entries_review_columns`: pending if and only if there are no validated minutes, no
+ *   reviewer and no instant of review (GUS-164);
+ * - `ck_hour_entries_review_minutes`: approved keeps the declared minutes, adjusted changes them and
+ *   rejected is 0 (GUS-164);
+ * - `ck_hour_entries_review_note`: a review note if and only if adjusted or rejected (GUS-164).
  *
  * The foreign keys are declared on the class, by table name and without relations, the same
  * pattern as Lesson: `people`, `classes` and `lessons` belong to other modules, whose entities this
@@ -48,6 +53,18 @@ import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 @Check(
   "ck_hour_entries_origin_author",
   `"origin" = 'attendance' OR (("origin" = 'manual') = ("created_by_id" = "person_id"))`,
+)
+@Check(
+  "ck_hour_entries_review_columns",
+  `("status" = 'pending') = ("validated_minutes" IS NULL) AND ("status" = 'pending') = ("reviewed_by_id" IS NULL) AND ("status" = 'pending') = ("reviewed_at" IS NULL)`,
+)
+@Check(
+  "ck_hour_entries_review_minutes",
+  `("status" <> 'approved' OR "validated_minutes" = "declared_minutes") AND ("status" <> 'adjusted' OR "validated_minutes" <> "declared_minutes") AND ("status" <> 'rejected' OR "validated_minutes" = 0)`,
+)
+@Check(
+  "ck_hour_entries_review_note",
+  `("status" IN ('adjusted', 'rejected')) = ("review_note" IS NOT NULL)`,
 )
 @ForeignKey("people", ["person_id"], ["id"], { name: "fk_hour_entries_person_id" })
 @ForeignKey("people", ["created_by_id"], ["id"], { name: "fk_hour_entries_created_by_id" })

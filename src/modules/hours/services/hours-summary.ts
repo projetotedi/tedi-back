@@ -14,7 +14,7 @@ export interface HoursSummaryRow {
 }
 
 /** The statuses whose validated minutes are in the bank of hours. */
-const BANK_STATUSES: ReadonlySet<string> = new Set([
+export const BANK_STATUSES: ReadonlySet<string> = new Set([
   HourEntryStatus.APPROVED,
   HourEntryStatus.ADJUSTED,
 ]);

@@ -80,6 +80,29 @@
         ],
         "type": "string"
       },
+      "AdjustHourEntryDto": {
+        "properties": {
+          "justification": {
+            "description": "Why the minutes changed. Trimmed; blank is refused. The member sees it in her statement.",
+            "example": "A reunião durou duas horas, conforme a ata.",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "validatedMinutes": {
+            "description": "Minutes accepted, a whole number from 1 to 1440, different from the declared minutes (else 400 ADJUSTED_MINUTES_UNCHANGED). More than declared is allowed; 0 is a rejection.",
+            "example": 120,
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "validatedMinutes",
+          "justification"
+        ],
+        "type": "object"
+      },
       "ApiErrorDto": {
         "properties": {
           "details": {
@@ -2000,6 +2023,35 @@
         ],
         "type": "object"
       },
+      "HourEntriesPageDto": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/HourEntryResponseDto"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "example": 20,
+            "type": "integer"
+          },
+          "page": {
+            "example": 1,
+            "type": "integer"
+          },
+          "total": {
+            "example": 42,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit"
+        ],
+        "type": "object"
+      },
       "HourEntryCategory": {
         "description": "Kind of work (F7.7). lesson is refused here (400 VALIDATION_FAILED): lesson hours only come from the confirmed attendance (RN-03).",
         "enum": [
@@ -2010,6 +2062,107 @@
           "meeting",
           "support",
           "other"
+        ],
+        "type": "string"
+      },
+      "HourEntryEventResponseDto": {
+        "properties": {
+          "actor": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who did it. Null when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "createdAt": {
+            "description": "When it happened.",
+            "example": "2026-03-12T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "fromMinutes": {
+            "description": "The minutes before (declared, for a review or a removal); null for a creation.",
+            "example": 240,
+            "nullable": true,
+            "type": "integer"
+          },
+          "fromStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryStatus"
+              }
+            ],
+            "description": "The status before; null for a creation.",
+            "example": "pending",
+            "nullable": true
+          },
+          "hourEntryId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000a01",
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000e01",
+            "format": "uuid",
+            "type": "string"
+          },
+          "note": {
+            "description": "The justification of an adjustment or the reason of a rejection. Null otherwise.",
+            "example": "A reunião durou duas horas, conforme a ata.",
+            "nullable": true,
+            "type": "string"
+          },
+          "toMinutes": {
+            "description": "The minutes after (declared for a creation, validated for a review); null for a removal.",
+            "example": 120,
+            "nullable": true,
+            "type": "integer"
+          },
+          "toStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryStatus"
+              }
+            ],
+            "description": "The status after; null for a removal.",
+            "example": "adjusted",
+            "nullable": true
+          },
+          "type": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryEventType"
+              }
+            ],
+            "description": "created, approved, adjusted, rejected or removed. The history cannot be edited or deleted.",
+            "example": "adjusted"
+          }
+        },
+        "required": [
+          "id",
+          "hourEntryId",
+          "type",
+          "actor",
+          "fromStatus",
+          "toStatus",
+          "fromMinutes",
+          "toMinutes",
+          "note",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "HourEntryEventType": {
+        "description": "created, approved, adjusted, rejected or removed. The history cannot be edited or deleted.",
+        "enum": [
+          "created",
+          "approved",
+          "adjusted",
+          "rejected",
+          "removed"
         ],
         "type": "string"
       },
@@ -2208,6 +2361,121 @@
           "declaredMinutes",
           "bankMinutes",
           "pendingMinutes"
+        ],
+        "type": "object"
+      },
+      "HoursExportFormat": {
+        "enum": [
+          "csv"
+        ],
+        "type": "string"
+      },
+      "HoursMemberTotalDto": {
+        "properties": {
+          "bankMinutes": {
+            "description": "Validated minutes of the approved and adjusted entries: what is in the bank.",
+            "example": 180,
+            "type": "integer"
+          },
+          "declaredMinutes": {
+            "description": "Declared minutes of every entry: what was logged.",
+            "example": 600,
+            "type": "integer"
+          },
+          "entries": {
+            "description": "How many entries, of any status.",
+            "example": 4,
+            "type": "integer"
+          },
+          "member": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberRefDto"
+              }
+            ],
+            "description": "Name and department of the member (approved registration). Null when the person is no longer found.",
+            "nullable": true,
+            "type": "object"
+          },
+          "pendingEntries": {
+            "description": "How many entries are pending.",
+            "example": 1,
+            "type": "integer"
+          },
+          "pendingMinutes": {
+            "description": "Declared minutes of the pending entries: what waits for review.",
+            "example": 90,
+            "type": "integer"
+          },
+          "personId": {
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "personId",
+          "member",
+          "entries",
+          "declaredMinutes",
+          "bankMinutes",
+          "pendingEntries",
+          "pendingMinutes"
+        ],
+        "type": "object"
+      },
+      "HoursMembersPageDto": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/HoursMemberTotalDto"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "example": 20,
+            "type": "integer"
+          },
+          "page": {
+            "example": 1,
+            "type": "integer"
+          },
+          "total": {
+            "description": "How many members have entries in the period.",
+            "example": 42,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "HoursOverviewResponseDto": {
+        "properties": {
+          "members": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HoursMembersPageDto"
+              }
+            ],
+            "description": "The members with entries in the period: the most pending minutes first, then the most declared minutes, then the person id."
+          },
+          "summary": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HoursSummaryResponseDto"
+              }
+            ],
+            "description": "The totals of the period, by status and by category, and the bank of hours."
+          }
+        },
+        "required": [
+          "summary",
+          "members"
         ],
         "type": "object"
       },
@@ -3726,6 +3994,180 @@
         ],
         "type": "object"
       },
+      "MemberHourEntryResponseDto": {
+        "properties": {
+          "activity": {
+            "example": "Planejamento da aula de teclado e mouse",
+            "type": "string"
+          },
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryCategory"
+              }
+            ],
+            "example": "planning"
+          },
+          "classId": {
+            "description": "The class of the lesson, for an entry created by the attendance.",
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "example": "2026-03-10T21:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Who logged it: the person herself, or whoever logged it on her behalf.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "date": {
+            "description": "Day of the work, YYYY-MM-DD.",
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "declaredMinutes": {
+            "description": "Minutes the person declares (150 = 2h30).",
+            "example": 150,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000a01",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonId": {
+            "description": "The lesson, for an entry created by the attendance.",
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "member": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberRefDto"
+              }
+            ],
+            "description": "The person of the entry, with the department of her approved member registration. Null when she is no longer found.",
+            "nullable": true,
+            "type": "object"
+          },
+          "notes": {
+            "description": "Free notes of the person. Null when there are none.",
+            "example": "Revisei os exercícios do plano 3.",
+            "nullable": true,
+            "type": "string"
+          },
+          "origin": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryOrigin"
+              }
+            ],
+            "description": "manual: logged by the person; on_behalf: logged by someone else for her; attendance: created by the confirmed attendance of a lesson.",
+            "example": "manual"
+          },
+          "personId": {
+            "description": "Whose hours these are.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "reviewNote": {
+            "description": "Justification of an adjustment or reason of a rejection. Null otherwise.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedAt": {
+            "description": "When the entry was reviewed. Null while it is pending.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedById": {
+            "description": "Id of the person who reviewed the entry. Null while it is pending.",
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryStatus"
+              }
+            ],
+            "description": "pending until coordination reviews it; approved, adjusted (approved with other minutes) or rejected afterwards. Only a pending entry can be removed.",
+            "example": "pending"
+          },
+          "updatedAt": {
+            "example": "2026-03-10T21:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "validatedMinutes": {
+            "description": "Minutes accepted by coordination. Null until coordination reviews the entry.",
+            "example": null,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "activity",
+          "category",
+          "date",
+          "declaredMinutes",
+          "validatedMinutes",
+          "notes",
+          "status",
+          "origin",
+          "createdById",
+          "classId",
+          "lessonId",
+          "reviewNote",
+          "reviewedById",
+          "reviewedAt",
+          "createdAt",
+          "updatedAt",
+          "member"
+        ],
+        "type": "object"
+      },
+      "MemberHoursResponseDto": {
+        "properties": {
+          "entries": {
+            "$ref": "#/components/schemas/HourEntriesPageDto"
+          },
+          "member": {
+            "$ref": "#/components/schemas/MemberRefDto"
+          },
+          "summary": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HoursSummaryResponseDto"
+              }
+            ],
+            "description": "The totals of the member in the period, by status and by category."
+          }
+        },
+        "required": [
+          "member",
+          "summary",
+          "entries"
+        ],
+        "type": "object"
+      },
       "MemberListItemResponseDto": {
         "properties": {
           "accessEnabled": {
@@ -3816,6 +4258,35 @@
           "status",
           "exitDate",
           "exitReason"
+        ],
+        "type": "object"
+      },
+      "MemberRefDto": {
+        "properties": {
+          "department": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DepartmentResponseDto"
+              }
+            ],
+            "description": "The department of the approved member registration; null without one (coordination without a member profile, a registration that is not approved, or no department).",
+            "nullable": true,
+            "type": "object"
+          },
+          "id": {
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Souza",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "department"
         ],
         "type": "object"
       },
@@ -4665,6 +5136,21 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "RejectHourEntryDto": {
+        "properties": {
+          "reason": {
+            "description": "Why the entry was rejected. Trimmed; blank is refused. The member sees it in her statement.",
+            "example": "Atividade fora do projeto.",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       },
@@ -5570,6 +6056,29 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ValidateHourEntriesDto": {
+        "properties": {
+          "ids": {
+            "description": "Ids of pending hour entries, from 1 to 100. All of them are approved with their declared minutes, or none is. A repeated id answers 400 DUPLICATE_HOUR_ENTRY.",
+            "example": [
+              "01999a3e-7c1b-7000-8000-000000000a01",
+              "01999a3e-7c1b-7000-8000-000000000a02"
+            ],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "ids"
+        ],
         "type": "object"
       },
       "Weekday": {
@@ -8322,6 +8831,780 @@
         },
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/hour-entries": {
+      "get": {
+        "operationId": "listPendingHourEntries",
+        "parameters": [
+          {
+            "description": "First day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no lower bound.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no upper bound.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-03-31",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Only the entries with this status. One value; pending when omitted.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/HourEntryStatus"
+            }
+          },
+          {
+            "description": "Only the entries of this person. Omit for every member of the scope.",
+            "in": "query",
+            "name": "personId",
+            "required": false,
+            "schema": {
+              "example": "01999a3e-0000-7000-8000-0000000000aa",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/MemberHourEntryResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_PERIOD"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: a member (hours.viewOthers). A director without department gets an empty page."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/hour-entries/validate": {
+      "patch": {
+        "operationId": "validateHourEntries",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateHourEntriesDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HourEntryResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The entries, approved with their declared minutes, in the order of the body. All of them or none."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | DUPLICATE_HOUR_ENTRY | HOUR_ENTRY_NOT_FOUND (unknown or removed). The last two with details[].field = ids.<i>."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: a director or a member (hours.review is only for coordination and the superadmin)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "SELF_REVIEW_NOT_ALLOWED | ENTRY_NOT_PENDING, with details[].field = ids.<i>. Nothing is validated."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/hour-entries/{id}/adjust": {
+      "patch": {
+        "operationId": "adjustHourEntry",
+        "parameters": [
+          {
+            "description": "Id of a pending hour entry.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustHourEntryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HourEntryResponseDto"
+                }
+              }
+            },
+            "description": "The entry, adjusted: the new validated minutes, the declared ones kept and the justification as reviewNote."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | ADJUSTED_MINUTES_UNCHANGED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: a director or a member (hours.review is only for coordination and the superadmin)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "HOUR_ENTRY_NOT_FOUND: malformed, unknown or removed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "SELF_REVIEW_NOT_ALLOWED | ENTRY_NOT_PENDING"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/hour-entries/{id}/history": {
+      "get": {
+        "operationId": "getHourEntryHistory",
+        "parameters": [
+          {
+            "description": "Id of an hour entry, removed included.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HourEntryEventResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every row of the history, oldest first (created, approved, adjusted, rejected, removed), with who and when."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN_SCOPE: someone else's entry without hours.viewOthers, or outside its scope."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "HOUR_ENTRY_NOT_FOUND: malformed or unknown. A removed entry keeps its history."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/hour-entries/{id}/reject": {
+      "patch": {
+        "operationId": "rejectHourEntry",
+        "parameters": [
+          {
+            "description": "Id of a pending hour entry.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectHourEntryDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HourEntryResponseDto"
+                }
+              }
+            },
+            "description": "The entry, rejected: 0 validated minutes, out of the bank of hours, the reason as reviewNote."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: a director or a member (hours.review is only for coordination and the superadmin)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "HOUR_ENTRY_NOT_FOUND: malformed, unknown or removed."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "SELF_REVIEW_NOT_ALLOWED | ENTRY_NOT_PENDING"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/hours/export": {
+      "get": {
+        "operationId": "exportHours",
+        "parameters": [
+          {
+            "description": "First day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no lower bound.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no upper bound.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-03-31",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only csv for now; xlsx answers 400 VALIDATION_FAILED.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/HoursExportFormat"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "CSV in UTF-8 with BOM, separated by ; with CRLF: a header and one line per entry of the period, in the order date, id. The name of the file comes in Content-Disposition."
+          },
+          "400": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED (format=xlsx included) | INVALID_PERIOD, as JSON."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: a member (hours.export)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/hours/overview": {
+      "get": {
+        "operationId": "getHoursOverview",
+        "parameters": [
+          {
+            "description": "First day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no lower bound.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no upper bound.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-03-31",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Name or RA of the member, ignoring case and accents. It narrows the members and the totals alike.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "Ana",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HoursOverviewResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_PERIOD"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: a member (hours.viewOthers). A director without department gets an empty overview."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
         ]
       }
     },
@@ -11709,6 +12992,131 @@
               }
             },
             "description": "MEMBER_NOT_FOUND: malformed or unknown id, or a person without an approved member registration."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/members/{id}/hours": {
+      "get": {
+        "operationId": "getMemberHours",
+        "parameters": [
+          {
+            "description": "Id of the member (the person).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "First day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no lower bound.",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no upper bound.",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-03-31",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberHoursResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_PERIOD"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND: malformed or unknown id, a deleted person, or a person with neither an access role nor a member registration (a student)."
           },
           "500": {
             "content": {
