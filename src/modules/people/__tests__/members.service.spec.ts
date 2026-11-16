@@ -12,6 +12,7 @@ import {
 } from "@shared/events/auditable-action.event";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PermissionPolicy } from "@shared/permissions/permission.policy";
+import { UpdateMemberDto } from "../dto/update-member.dto";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
@@ -1431,6 +1432,597 @@ describe("MembersService", () => {
       );
 
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("updateMember()", () => {
+    const NOT_FOUND_BODY = { error: "MEMBER_NOT_FOUND", message: "Member not found." };
+    const FORBIDDEN_SCOPE_BODY = {
+      error: "FORBIDDEN_SCOPE",
+      message: "You do not have access to this resource.",
+    };
+    const DEPARTMENT_SCOPE_BODY = {
+      error: "DEPARTMENT_SCOPE",
+      message: "You cannot move a member to a department outside your scope.",
+      details: [
+        { field: "departmentId", message: "departmentId must be a department of your scope" },
+      ],
+    };
+    const NEW_CPF = "11144477735";
+    const PERSON_EDIT = {
+      name: "Ana T.",
+      ra: "a2219999",
+      email: "ana@example.org",
+      birthDate: "1998-01-15",
+      phone: "41999990000",
+    };
+    const PROFILE_EDIT = {
+      cpf: NEW_CPF,
+      address: "Rua das Araucárias, 10",
+      city: "Curitiba",
+      state: "PR",
+      institutionalEmail: "ana@utfpr.edu.br",
+      course: "Engenharia de Software",
+      semester: 8,
+      className: "ES-2025",
+      departmentId: OTHER_DEPARTMENT_ID,
+      mainFunction: "Professora",
+      joinedAt: "2026-02-01",
+      volunteerTermUrl: "https://drive.google.com/file/d/novo/view",
+    };
+
+    /** The body as the ValidationPipe hands it over: an instance, already validated. */
+    function body(values: Partial<UpdateMemberDto>): UpdateMemberDto {
+      return Object.assign(new UpdateMemberDto(), values);
+    }
+
+    function approvedProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
+      return buildProfile({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        mainFunction: "Monitora de informática",
+        joinedAt: "2026-03-01",
+        reviewedById: ACTOR_ID,
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+      state.profile = approvedProfile();
+      answerMemberRecordFromState();
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for a malformed id without opening a transaction", async () => {
+      for (const id of ["not-a-uuid", "", "me", `${PERSON_ID}-x`]) {
+        const failure = await httpFailure(
+          service.updateMember(id, body({ name: "Ana T." }), COORDINATOR),
+        );
+
+        expect(failure.getStatus()).toBe(404);
+        expect(failure.getResponse()).toEqual(NOT_FOUND_BODY);
+      }
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for an unknown id and for a person without role nor profile, without writing", async () => {
+      state.personById = null;
+      const unknown = await httpFailure(
+        service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+      );
+      expect(unknown.getStatus()).toBe(404);
+      expect(unknown.getResponse()).toEqual(NOT_FOUND_BODY);
+
+      state.personById = buildPerson({ role: null, accessEnabled: false });
+      state.profile = null;
+      const notAMember = await httpFailure(
+        service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+      );
+      expect(notAMember.getStatus()).toBe(404);
+      expect(notAMember.getResponse()).toEqual(NOT_FOUND_BODY);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("locks Person and then the profile, in the default isolation, before any write", async () => {
+      await service.updateMember(
+        PERSON_ID,
+        body({ name: "Ana T.", course: "Engenharia de Software" }),
+        COORDINATOR,
+      );
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(dataSource.transaction.mock.calls[0]).toHaveLength(1);
+      const locked = manager.findOne.mock.calls
+        .filter((call) => call[1]?.lock?.mode === "pessimistic_write")
+        .map((call) => [call[0], call[1].where]);
+      expect(locked).toEqual([
+        [Person, { id: PERSON_ID }],
+        [MemberProfile, { personId: PERSON_ID }],
+      ]);
+      const lastLock = Math.max(...manager.findOne.mock.invocationCallOrder);
+      expect(Math.min(...manager.save.mock.invocationCallOrder)).toBeGreaterThan(lastLock);
+    });
+
+    it("uses the id read from the database, not the upper-case path id, for the scope, the event and the answer", async () => {
+      const assertCan = jest.spyOn(policy, "assertCan");
+
+      const record = await service.updateMember(
+        PERSON_ID.toUpperCase(),
+        body({ name: "Ana T." }),
+        DIRECTOR,
+      );
+
+      expect(assertCan).toHaveBeenCalledWith(DIRECTOR, Permission.MEMBERS_EDIT, {
+        personId: PERSON_ID,
+        departmentIds: [DEPARTMENT_ID],
+      });
+      expect(emittedEvents()[0].targetId).toBe(PERSON_ID);
+      expect(record.id).toBe(PERSON_ID);
+    });
+
+    it("lets coordination and superadmin edit a member of any department", async () => {
+      state.profile = approvedProfile({ departmentId: OTHER_DEPARTMENT_ID });
+
+      for (const actor of [COORDINATOR, SUPERADMIN]) {
+        const name = `Ana ${actor.role}`;
+        await expect(service.updateMember(PERSON_ID, body({ name }), actor)).resolves.toMatchObject(
+          { id: PERSON_ID, name },
+        );
+      }
+      expect(savedOf(Person)).toHaveLength(2);
+    });
+
+    it("lets a director edit a member of the own department, the own record included", async () => {
+      const assertCan = jest.spyOn(policy, "assertCan");
+
+      await expect(
+        service.updateMember(PERSON_ID, body({ phone: "41999990000" }), DIRECTOR),
+      ).resolves.toMatchObject({ id: PERSON_ID, phone: "41999990000" });
+      expect(assertCan).toHaveBeenCalledWith(DIRECTOR, Permission.MEMBERS_EDIT, {
+        personId: PERSON_ID,
+        departmentIds: [DEPARTMENT_ID],
+      });
+
+      state.personById = buildPerson({
+        id: DIRECTOR.id,
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+      });
+      state.profile = approvedProfile({ personId: DIRECTOR.id });
+      await expect(
+        service.updateMember(DIRECTOR.id, body({ name: "Diretora" }), DIRECTOR),
+      ).resolves.toMatchObject({ id: DIRECTOR.id, name: "Diretora" });
+
+      expect(savedOf(Person)).toHaveLength(2);
+    });
+
+    it("throws 403 FORBIDDEN_SCOPE to a director of another department, to one without department and for a target whose registration is not approved, before any 409", async () => {
+      for (const actor of [DIRECTOR_OF_OTHER_DEPARTMENT, DIRECTOR_WITHOUT_DEPARTMENT]) {
+        const failure = await httpFailure(
+          service.updateMember(PERSON_ID, body({ name: "Ana T." }), actor),
+        );
+        expect(failure.getStatus()).toBe(403);
+        expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+      }
+
+      const targets: Array<[Person, MemberProfile | null]> = [
+        [
+          buildPerson({ role: null, accessEnabled: false }),
+          buildProfile({
+            registrationStatus: MemberRegistrationStatus.PENDING,
+            departmentId: DEPARTMENT_ID,
+          }),
+        ],
+        [buildPerson({ role: Role.COORDINATOR, accessEnabled: true }), null],
+        [
+          buildPerson({ role: Role.MEMBER, accessEnabled: false }),
+          approvedProfile({ status: MemberStatus.INACTIVE, exitDate: "2026-08-01" }),
+        ],
+      ];
+      for (const [person, profile] of targets) {
+        state.personById = person;
+        state.profile = profile;
+        const actor =
+          profile?.status === MemberStatus.INACTIVE ? DIRECTOR_OF_OTHER_DEPARTMENT : DIRECTOR;
+
+        const failure = await httpFailure(
+          service.updateMember(PERSON_ID, body({ name: "Ana T." }), actor),
+        );
+        expect(failure.getStatus()).toBe(403);
+        expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+      }
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(departments.exists).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 FORBIDDEN_SCOPE to a member (the guard answers first; this is the second line)", async () => {
+      const failure = await httpFailure(
+        service.updateMember(PERSON_ID, body({ name: "Ana T." }), MEMBER),
+      );
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual(FORBIDDEN_SCOPE_BODY);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 DEPARTMENT_SCOPE pointing at departmentId when a director moves the member to another department, before MEMBER_INACTIVE and without looking the department up", async () => {
+      const can = jest.spyOn(policy, "can");
+
+      const active = await httpFailure(
+        service.updateMember(
+          PERSON_ID,
+          body({ departmentId: OTHER_DEPARTMENT_ID, name: "Ana T." }),
+          DIRECTOR,
+        ),
+      );
+      expect(active.getStatus()).toBe(403);
+      expect(active.getResponse()).toEqual(DEPARTMENT_SCOPE_BODY);
+      expect(can).toHaveBeenCalledWith(DIRECTOR, Permission.MEMBERS_EDIT, {
+        departmentIds: [OTHER_DEPARTMENT_ID],
+      });
+
+      state.profile = approvedProfile({ status: MemberStatus.INACTIVE, exitDate: "2026-08-01" });
+      const inactive = await httpFailure(
+        service.updateMember(PERSON_ID, body({ departmentId: OTHER_DEPARTMENT_ID }), DIRECTOR),
+      );
+      expect(inactive.getStatus()).toBe(403);
+      expect(inactive.getResponse()).toEqual(DEPARTMENT_SCOPE_BODY);
+
+      expect(departments.exists).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(state.personById?.name).toBe("Ana Torres");
+    });
+
+    it("lets a director keep the current department of the member", async () => {
+      const record = await service.updateMember(
+        PERSON_ID,
+        body({ departmentId: DEPARTMENT_ID, name: "Ana T." }),
+        DIRECTOR,
+      );
+
+      expect(record).toMatchObject({
+        name: "Ana T.",
+        department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+      });
+      expect(departments.exists).not.toHaveBeenCalled();
+      expect(savedOf(MemberProfile)).toEqual([]);
+      expect(savedOf(Person)).toHaveLength(1);
+    });
+
+    it("throws 409 NO_MEMBER_PROFILE for a person with role and no member profile (coordination, superadmin)", async () => {
+      for (const role of [Role.SUPERADMIN, Role.COORDINATOR]) {
+        state.personById = buildPerson({ role, accessEnabled: true });
+        state.profile = null;
+
+        const failure = await httpFailure(
+          service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "NO_MEMBER_PROFILE",
+          message: "This person has no member profile.",
+        });
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 REGISTRATION_NOT_APPROVED for a pending and for a rejected registration", async () => {
+      for (const registrationStatus of [
+        MemberRegistrationStatus.PENDING,
+        MemberRegistrationStatus.REJECTED,
+      ]) {
+        state.personById = buildPerson({ role: null, accessEnabled: false });
+        state.profile = buildProfile({ registrationStatus });
+
+        const failure = await httpFailure(
+          service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "REGISTRATION_NOT_APPROVED",
+          message: "Only members with an approved registration can be edited.",
+        });
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 MEMBER_INACTIVE for an inactive member, even with an empty body", async () => {
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: false });
+      state.profile = approvedProfile({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-08-01",
+        exitReason: "Mudou de cidade.",
+      });
+
+      for (const dto of [body({ name: "Ana T." }), body({})]) {
+        const failure = await httpFailure(service.updateMember(PERSON_ID, dto, COORDINATOR));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "MEMBER_INACTIVE",
+          message: "The member is inactive.",
+        });
+      }
+      expect(state.personById).toMatchObject({ name: "Ana Torres" });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 400 DEPARTMENT_NOT_FOUND for an unknown department sent by coordination, looking it up on the transaction manager", async () => {
+      departments.exists.mockResolvedValue(false);
+
+      const failure = await httpFailure(
+        service.updateMember(
+          PERSON_ID,
+          body({ departmentId: OTHER_DEPARTMENT_ID, name: "Ana T." }),
+          COORDINATOR,
+        ),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toEqual({
+        error: "DEPARTMENT_NOT_FOUND",
+        message: "Department not found.",
+      });
+      expect(departments.exists).toHaveBeenCalledWith(manager, OTHER_DEPARTMENT_ID);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("moves the member to another department when coordination sends an existing one", async () => {
+      await service.updateMember(
+        PERSON_ID,
+        body({ departmentId: OTHER_DEPARTMENT_ID }),
+        COORDINATOR,
+      );
+
+      expect(departments.exists).toHaveBeenCalledWith(manager, OTHER_DEPARTMENT_ID);
+      expect(savedOf(MemberProfile)).toHaveLength(1);
+      expect(savedOf(MemberProfile)[0].departmentId).toBe(OTHER_DEPARTMENT_ID);
+      expect(savedOf(Person)).toEqual([]);
+      expect(departmentRepository.findOne).toHaveBeenCalledWith({
+        where: { id: OTHER_DEPARTMENT_ID },
+      });
+    });
+
+    it("writes the Person fields on people and the profile fields on the profile, in the same transaction, and keeps role and accessEnabled", async () => {
+      await service.updateMember(PERSON_ID, body({ ...PERSON_EDIT, ...PROFILE_EDIT }), COORDINATOR);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(savedOf(Person)).toHaveLength(1);
+      expect(savedOf(Person)[0]).toMatchObject({
+        ...PERSON_EDIT,
+        id: PERSON_ID,
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+      expect(savedOf(MemberProfile)).toHaveLength(1);
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        ...PROFILE_EDIT,
+        personId: PERSON_ID,
+        status: MemberStatus.ACTIVE,
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        reviewedById: ACTOR_ID,
+      });
+    });
+
+    it("keeps omitted fields and clears address, city, state and volunteerTermUrl with null", async () => {
+      await service.updateMember(
+        PERSON_ID,
+        body({ address: null, city: null, state: null, volunteerTermUrl: null }),
+        COORDINATOR,
+      );
+
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        address: null,
+        city: null,
+        state: null,
+        volunteerTermUrl: null,
+        cpf: "52998224725",
+        institutionalEmail: "ana.torres@example.edu",
+        course: "Sistemas de Informação",
+        semester: 7,
+        className: "SI-2024-N",
+        departmentId: DEPARTMENT_ID,
+        mainFunction: "Monitora de informática",
+        joinedAt: "2026-03-01",
+      });
+      expect(savedOf(Person)).toEqual([]);
+      expect(state.personById).toMatchObject({
+        name: "Ana Torres",
+        ra: "a2210001",
+        email: "ana.torres@example.com",
+        birthDate: "1999-07-22",
+        phone: "11981813030",
+      });
+    });
+
+    it("saves only the entity that changed", async () => {
+      await service.updateMember(PERSON_ID, body({ phone: "41999990000" }), COORDINATOR);
+      expect(savedOf(Person)).toHaveLength(1);
+      expect(savedOf(MemberProfile)).toEqual([]);
+
+      manager.save.mockClear();
+      await service.updateMember(
+        PERSON_ID,
+        body({ course: "Engenharia de Software" }),
+        COORDINATOR,
+      );
+      expect(savedOf(Person)).toEqual([]);
+      expect(savedOf(MemberProfile)).toHaveLength(1);
+    });
+
+    it("answers 200 without writing nor emitting for an empty body or values equal to the stored ones", async () => {
+      for (const dto of [
+        body({}),
+        body({
+          name: "Ana Torres",
+          departmentId: DEPARTMENT_ID,
+          address: "Rua das Acácias, 120, apto 42",
+        }),
+      ]) {
+        const record = await service.updateMember(PERSON_ID, dto, COORDINATOR);
+
+        expect(record).toMatchObject({
+          id: PERSON_ID,
+          name: "Ana Torres",
+          department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+        });
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(departments.exists).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("maps uq_people_ra and uq_people_email to 409 RA_ALREADY_IN_USE and EMAIL_ALREADY_IN_USE with details on ra and email, and emits nothing", async () => {
+      const cases: Array<[string, Record<string, unknown>]> = [
+        [
+          "uq_people_ra",
+          {
+            error: "RA_ALREADY_IN_USE",
+            message: "RA already in use.",
+            details: [{ field: "ra", message: "ra is already in use" }],
+          },
+        ],
+        [
+          "uq_people_email",
+          {
+            error: "EMAIL_ALREADY_IN_USE",
+            message: "Email already in use.",
+            details: [{ field: "email", message: "email is already in use" }],
+          },
+        ],
+      ];
+
+      for (const [constraint, expected] of cases) {
+        state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+        manager.save.mockRejectedValueOnce(uniqueViolation(constraint));
+
+        const failure = await httpFailure(
+          service.updateMember(
+            PERSON_ID,
+            body({ ra: "a2219999", email: "ana@example.org", course: "Engenharia" }),
+            COORDINATOR,
+          ),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual(expected);
+        expect(JSON.stringify(failure.getResponse())).not.toContain("a2210001");
+      }
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("keeps any other database error as it is", async () => {
+      const connectionLost = new Error("connection lost");
+      manager.save.mockRejectedValueOnce(connectionLost);
+      await expect(
+        service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+      ).rejects.toBe(connectionLost);
+
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+      const otherConstraint = uniqueViolation("uq_something_else");
+      manager.save.mockRejectedValueOnce(otherConstraint);
+      await expect(
+        service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+      ).rejects.toBe(otherConstraint);
+    });
+
+    it("emits MEMBER_UPDATED after the commit with departmentId, mainFunction and joinedAt values and every changed field by name, never a personal value", async () => {
+      const order: string[] = [];
+      dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+        const result = await runTransaction(args);
+        order.push("commit");
+        return result;
+      });
+      eventEmitter.emit.mockImplementation(() => order.push("emit"));
+
+      await service.updateMember(
+        PERSON_ID,
+        body({
+          name: "Ana T.",
+          phone: "41999990000",
+          cpf: NEW_CPF,
+          address: null,
+          mainFunction: "Professora",
+          departmentId: OTHER_DEPARTMENT_ID,
+        }),
+        COORDINATOR,
+      );
+
+      expect(order).toEqual(["commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit.mock.calls[0][0]).toBe(AUDITABLE_ACTION_EVENT);
+      const [event] = emittedEvents();
+      expect(event).toMatchObject({
+        actorId: COORDINATOR.id,
+        action: AuditableAction.MEMBER_UPDATED,
+        targetType: "member",
+        targetId: PERSON_ID,
+        occurredAt: NOW,
+      });
+      expect(event.before).toStrictEqual({
+        mainFunction: "Monitora de informática",
+        departmentId: DEPARTMENT_ID,
+      });
+      expect(event.after).toStrictEqual({
+        mainFunction: "Professora",
+        departmentId: OTHER_DEPARTMENT_ID,
+        changedFields: ["name", "phone", "cpf", "address", "departmentId", "mainFunction"],
+      });
+      const serialized = JSON.stringify(event);
+      expectNoSensitiveValue(serialized);
+      for (const value of [NEW_CPF, "41999990000", "Ana T."]) {
+        expect(serialized).not.toContain(value);
+      }
+    });
+
+    it("emits an empty before and only changedFields when no allow-listed field changed", async () => {
+      await service.updateMember(PERSON_ID, body({ name: "Ana T.", cpf: NEW_CPF }), COORDINATOR);
+
+      const [event] = emittedEvents();
+      expect(event.before).toStrictEqual({});
+      expect(event.after).toStrictEqual({ changedFields: ["name", "cpf"] });
+    });
+
+    it("does not emit when the transaction fails", async () => {
+      manager.save.mockRejectedValueOnce(new Error("could not serialize access"));
+
+      await expect(
+        service.updateMember(PERSON_ID, body({ name: "Ana T." }), COORDINATOR),
+      ).rejects.toThrow("could not serialize access");
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("answers the member record of the edited member with cpfMasked, never the CPF", async () => {
+      state.reviewer = buildPerson({
+        id: ACTOR_ID,
+        name: "Carla Menezes",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+      });
+
+      const record = await service.updateMember(PERSON_ID, body({ cpf: NEW_CPF }), COORDINATOR);
+
+      expect(record).toMatchObject({
+        id: PERSON_ID,
+        cpfMasked: "***.***.777-35",
+        department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+        reviewedBy: { id: ACTOR_ID, name: "Carla Menezes" },
+      });
+      expect(record).not.toHaveProperty("cpf");
+      expect(JSON.stringify(record)).not.toContain(NEW_CPF);
+      expect(departmentRepository.findOne).toHaveBeenCalledWith({ where: { id: DEPARTMENT_ID } });
+      expect(personRepository.findOne).toHaveBeenCalledWith({ where: { id: ACTOR_ID } });
     });
   });
 

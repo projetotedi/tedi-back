@@ -123,6 +123,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         getMember: async () => ({}),
         deactivateMember: async () => ({}),
         reactivateMember: async () => ({}),
+        updateMember: async () => ({}),
         getRegistration: async () => ({}),
         approve: async () => ({}),
         reject: async () => ({}),

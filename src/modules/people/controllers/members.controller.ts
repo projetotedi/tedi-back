@@ -20,6 +20,7 @@ import { DeactivateMemberDto } from "../dto/deactivate-member.dto";
 import { ListMembersQueryDto } from "../dto/list-members-query.dto";
 import { MemberDetailResponseDto } from "../dto/member-detail.response.dto";
 import { MemberListItemResponseDto } from "../dto/member-list-item.response.dto";
+import { UpdateMemberDto } from "../dto/update-member.dto";
 import { MembersService, memberNotFound } from "../services/members.service";
 
 /**
@@ -31,14 +32,18 @@ const MEMBER_ID = new ParseUUIDPipe({ exceptionFactory: () => memberNotFound() }
 const MEMBER_ID_PARAM = { name: "id", format: "uuid", description: "Person id." };
 
 /**
- * MembersController — the members list (GUS-121), the member record (GUS-144) and the
- * deactivation of a member (GUS-147).
+ * MembersController — the members list (GUS-121), the member record (GUS-144), the deactivation
+ * of a member (GUS-147) and the edit of the member record (GUS-146).
  *
  *  GET /members                  — listMembers      (members.list: director and coordinator, every
  *                                                    member)
  *  GET /members/:id              — getMember        (members.view: coordinator every member,
  *                                                    director only a member of the own department,
  *                                                    a member has no access)
+ *  PATCH /members/:id            — updateMember     (members.edit: coordinator every member,
+ *                                                    director only a member of the own department
+ *                                                    and without moving it out, a member has no
+ *                                                    access)
  *  PATCH /members/:id/deactivate — deactivateMember (members.deactivate: coordination and
  *                                                    superadmin only)
  *  PATCH /members/:id/reactivate — reactivateMember (members.deactivate, the same permission)
@@ -126,5 +131,37 @@ export class MembersController {
     @CurrentUser() actor: AuthUser,
   ): Promise<MemberDetailResponseDto> {
     return this.membersService.reactivateMember(id, actor);
+  }
+
+  /**
+   * Edits the data of a member (the "Editar membro" modal): omitted keeps, null clears address,
+   * city, state and volunteerTermUrl. The access profile and the access stay in /access. A
+   * director edits only members of the own department and cannot move them to another one.
+   * Answers the member record, like GET /members/:id.
+   */
+  @Patch(":id")
+  @RequirePermission(Permission.MEMBERS_EDIT)
+  @ApiParam(MEMBER_ID_PARAM)
+  @ApiOkResponse({ type: MemberDetailResponseDto })
+  @ApiBadRequestResponse({
+    type: ApiErrorDto,
+    description: "VALIDATION_FAILED | DEPARTMENT_NOT_FOUND",
+  })
+  @ApiForbiddenResponse({
+    type: ApiErrorDto,
+    description: "FORBIDDEN | FORBIDDEN_SCOPE | DEPARTMENT_SCOPE",
+  })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: "MEMBER_NOT_FOUND" })
+  @ApiConflictResponse({
+    type: ApiErrorDto,
+    description:
+      "NO_MEMBER_PROFILE | REGISTRATION_NOT_APPROVED | MEMBER_INACTIVE | RA_ALREADY_IN_USE | EMAIL_ALREADY_IN_USE",
+  })
+  updateMember(
+    @Param("id", MEMBER_ID) id: string,
+    @Body() dto: UpdateMemberDto,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<MemberDetailResponseDto> {
+    return this.membersService.updateMember(id, dto, actor);
   }
 }
