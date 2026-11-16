@@ -36,6 +36,7 @@ import { MyHoursController } from "@modules/hours/controllers/my-hours.controlle
 import { HourEntriesController } from "@modules/hours/controllers/hour-entries.controller";
 import { HoursController } from "@modules/hours/controllers/hours.controller";
 import { MemberHoursViewController } from "@modules/hours/controllers/member-hours-view.controller";
+import { LessonMemberAttendanceController } from "@modules/attendance/controllers/lesson-member-attendance.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -61,6 +62,7 @@ import { HoursService } from "@modules/hours/services/hours.service";
 import { HoursExportService } from "@modules/hours/services/hours-export.service";
 import { HoursReviewService } from "@modules/hours/services/hours-review.service";
 import { HoursViewService } from "@modules/hours/services/hours-view.service";
+import { MemberAttendanceService } from "@modules/attendance/services/member-attendance.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -96,6 +98,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MemberHoursViewController,
     HoursController,
     HourEntriesController,
+    LessonMemberAttendanceController,
   ],
   providers: [
     {
@@ -288,6 +291,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: HoursExportService,
       useValue: { exportCsv: async () => ({}) },
+    },
+    {
+      provide: MemberAttendanceService,
+      useValue: { listByLesson: async () => [], confirm: async () => [] },
     },
     {
       provide: ConfigService,

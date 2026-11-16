@@ -92,6 +92,10 @@ export enum AuditableAction {
   HOUR_ENTRY_REJECTED = "HOUR_ENTRY_REJECTED",
   /** The hours of a presence were reversed, by a correction of the attendance to absent or by the cancellation of the lesson (RF-071, RN-07); the entry is soft-deleted, in any status. No free text in the payload (GUS-168). */
   HOUR_ENTRY_REVERSED = "HOUR_ENTRY_REVERSED",
+  /** The attendance of a member at a lesson was signed for the first time, present or absent; a presence carries the hour entry it generated (GUS-168). */
+  MEMBER_ATTENDANCE_CONFIRMED = "MEMBER_ATTENDANCE_CONFIRMED",
+  /** A signed attendance changed status (present to absent or back), with who signed it before and after; there is no reason (GUS-168). */
+  MEMBER_ATTENDANCE_CORRECTED = "MEMBER_ATTENDANCE_CORRECTED",
 }
 
 /**
@@ -101,7 +105,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | "member_attendance" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change
