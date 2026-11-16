@@ -35,7 +35,7 @@ docs {
   role e accessEnabled não são editados aqui (são descartados do corpo): use update-access-role e update-access-enabled. A participação é deactivate-member e reactivate-member.
   Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada.
   Retorna 200 MemberDetailResponseDto (a mesma ficha de get-member).
-  Erros possíveis, na ordem: 400 VALIDATION_FAILED (details[].field); 404 MEMBER_NOT_FOUND; 403 FORBIDDEN_SCOPE (diretor fora do departamento, ou sem departamento); 403 DEPARTMENT_SCOPE (diretor mandando outro departamento); 409 NO_MEMBER_PROFILE (pessoa com perfil de acesso e sem perfil de membro); 409 REGISTRATION_NOT_APPROVED (cadastro pending ou rejected); 409 MEMBER_INACTIVE; 400 DEPARTMENT_NOT_FOUND; 409 RA_ALREADY_IN_USE e 409 EMAIL_ALREADY_IN_USE, com details[].field em ra ou email. Também 401 e 403 FORBIDDEN.
+  Erros possíveis, na ordem: 400 VALIDATION_FAILED (details[].field); 404 MEMBER_NOT_FOUND; 403 FORBIDDEN_SCOPE (diretor fora do departamento, ou sem departamento; para o diretor, alvo com cadastro pending ou rejected, ou sem perfil de membro, também recebe 403 FORBIDDEN_SCOPE, antes de qualquer 409); 403 DEPARTMENT_SCOPE (diretor mandando outro departamento); 409 NO_MEMBER_PROFILE (pessoa com perfil de acesso e sem perfil de membro); 409 REGISTRATION_NOT_APPROVED (cadastro pending ou rejected); 409 MEMBER_INACTIVE; 400 DEPARTMENT_NOT_FOUND; 409 RA_ALREADY_IN_USE e 409 EMAIL_ALREADY_IN_USE, com details[].field em ra ou email. Também 401 e 403 FORBIDDEN.
   CPF e e-mail institucional repetidos são aceitos, como no cadastro.
   Dado pessoal (RNF-13/14): não cole o corpo nem a resposta em issue, chat ou log.
 }
