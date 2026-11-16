@@ -9,6 +9,7 @@ import { LessonAssignmentsController } from "./controllers/lesson-assignments.co
 import { MemberAssignmentsController } from "./controllers/member-assignments.controller";
 import { LessonAssignment } from "./entities/lesson-assignment.entity";
 import { AssignmentsService } from "./services/assignments.service";
+import { ConfirmedStaffService } from "./services/confirmed-staff.service";
 import { LessonStaffCounterService } from "./services/lesson-staff-counter.service";
 
 @Module({
@@ -30,9 +31,9 @@ import { LessonStaffCounterService } from "./services/lesson-staff-counter.servi
   controllers: [LessonAssignmentsController, AssignmentsController, MemberAssignmentsController],
   // LessonStaffCounterService plugs itself in the LessonCoverageRegistry in onModuleInit, so every
   // answer of the lessons counts the confirmed staff through it (F5.4).
-  providers: [AssignmentsService, LessonStaffCounterService, Clock],
-  // Nobody consumes the assignments yet: the attendance and the hours (GUS-166, GUS-168) will say
-  // what they need, and the export is added then.
-  exports: [],
+  providers: [AssignmentsService, LessonStaffCounterService, ConfirmedStaffService, Clock],
+  // The attendance (GUS-168) reads the confirmed assignments of a lesson (ConfirmedStaffService);
+  // the student roll call (GUS-166) will add what it needs.
+  exports: [ConfirmedStaffService],
 })
 export class AssignmentsModule {}
