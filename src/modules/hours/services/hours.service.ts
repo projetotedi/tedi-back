@@ -104,6 +104,8 @@ type BornReview =
       reviewedAt: Date;
     };
 
+type BornApproval = Extract<BornReview, { status: HourEntryStatus.APPROVED }>;
+
 /** How a draft is born: pending, or approved by `approvedById` with the declared minutes, at `now`. */
 function bornReviewOf(draft: HourEntryDraft, now: Date): BornReview {
   if (draft.approvedById === null) {
@@ -255,40 +257,53 @@ export class HoursService {
     ];
 
     if (review.status === HourEntryStatus.APPROVED) {
-      await manager.save(
-        manager.create(HourEntryEvent, {
-          hourEntryId: entry.id,
-          type: HourEntryEventType.APPROVED,
-          actorId: review.reviewedById,
-          fromStatus: HourEntryStatus.PENDING,
-          toStatus: HourEntryStatus.APPROVED,
-          fromMinutes: entry.declaredMinutes,
-          toMinutes: review.validatedMinutes,
-          note: null,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      );
-      // The same shape as the approval of the review (GUS-164).
-      auditEvents.push(
-        this.buildAuditEvent({
-          action: AuditableAction.HOUR_ENTRY_APPROVED,
-          actorId: review.reviewedById,
-          hourEntryId: entry.id,
-          before: { status: HourEntryStatus.PENDING, validatedMinutes: null },
-          after: {
-            personId: entry.personId,
-            status: HourEntryStatus.APPROVED,
-            declaredMinutes: entry.declaredMinutes,
-            validatedMinutes: review.validatedMinutes,
-            reviewedById: review.reviewedById,
-          },
-          occurredAt: now,
-        }),
-      );
+      const approval = await this.recordBornApproval(manager, entry, review, now);
+      auditEvents.push(approval);
     }
 
     return { entry, auditEvents };
+  }
+
+  /**
+   * The approval of an entry born approved: the `approved` row of its history (from pending, the
+   * same minutes, by who approved), saved after the `created` one at the same instant, and the
+   * HOUR_ENTRY_APPROVED it returns, with the same shape as the approval of the review (GUS-164).
+   */
+  private async recordBornApproval(
+    manager: EntityManager,
+    entry: HourEntry,
+    review: BornApproval,
+    now: Date,
+  ): Promise<AuditableActionEvent> {
+    await manager.save(
+      manager.create(HourEntryEvent, {
+        hourEntryId: entry.id,
+        type: HourEntryEventType.APPROVED,
+        actorId: review.reviewedById,
+        fromStatus: HourEntryStatus.PENDING,
+        toStatus: HourEntryStatus.APPROVED,
+        fromMinutes: entry.declaredMinutes,
+        toMinutes: review.validatedMinutes,
+        note: null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    return this.buildAuditEvent({
+      action: AuditableAction.HOUR_ENTRY_APPROVED,
+      actorId: review.reviewedById,
+      hourEntryId: entry.id,
+      before: { status: HourEntryStatus.PENDING, validatedMinutes: null },
+      after: {
+        personId: entry.personId,
+        status: HourEntryStatus.APPROVED,
+        declaredMinutes: entry.declaredMinutes,
+        validatedMinutes: review.validatedMinutes,
+        reviewedById: review.reviewedById,
+      },
+      occurredAt: now,
+    });
   }
 
   /**
