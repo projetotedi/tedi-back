@@ -7,7 +7,9 @@ import { Role } from "@shared/enums/role.enum";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { LessonMemberAttendanceController } from "../controllers/lesson-member-attendance.controller";
+import { MemberAttendanceController } from "../controllers/member-attendance.controller";
 import { MemberAttendanceStatus } from "../enums/member-attendance-status.enum";
+import { MemberAttendanceHistoryService } from "../services/member-attendance-history.service";
 import { MemberAttendanceService } from "../services/member-attendance.service";
 
 const LESSON_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
@@ -39,7 +41,28 @@ describe("the controllers of the attendance", () => {
     }
   });
 
+  it("requires members.view on getMemberAttendanceHistory", () => {
+    const handler = handlerOf(MemberAttendanceController.prototype, "getMemberAttendanceHistory");
+
+    expect(Reflect.getMetadata(PATH_METADATA, MemberAttendanceController)).toBe(
+      "members/:id/attendance",
+    );
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(Permission.MEMBERS_VIEW);
+    expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
+  });
+
   it("hands the id, the body and the actor to the services unchanged", async () => {
+    const history = { getByMember: jest.fn().mockResolvedValue({ totals: {}, items: [] }) };
+    const historyController = new MemberAttendanceController(
+      history as unknown as MemberAttendanceHistoryService,
+    );
+    expect(await historyController.getMemberAttendanceHistory(ACTOR.id, ACTOR)).toEqual({
+      totals: {},
+      items: [],
+    });
+    expect(history.getByMember).toHaveBeenCalledWith(ACTOR.id, ACTOR);
+
     const service = {
       listByLesson: jest.fn().mockResolvedValue(["list"]),
       confirm: jest.fn().mockResolvedValue(["after"]),

@@ -37,6 +37,7 @@ import { HourEntriesController } from "@modules/hours/controllers/hour-entries.c
 import { HoursController } from "@modules/hours/controllers/hours.controller";
 import { MemberHoursViewController } from "@modules/hours/controllers/member-hours-view.controller";
 import { LessonMemberAttendanceController } from "@modules/attendance/controllers/lesson-member-attendance.controller";
+import { MemberAttendanceController } from "@modules/attendance/controllers/member-attendance.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -63,6 +64,7 @@ import { HoursExportService } from "@modules/hours/services/hours-export.service
 import { HoursReviewService } from "@modules/hours/services/hours-review.service";
 import { HoursViewService } from "@modules/hours/services/hours-view.service";
 import { MemberAttendanceService } from "@modules/attendance/services/member-attendance.service";
+import { MemberAttendanceHistoryService } from "@modules/attendance/services/member-attendance-history.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -99,6 +101,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     HoursController,
     HourEntriesController,
     LessonMemberAttendanceController,
+    MemberAttendanceController,
   ],
   providers: [
     {
@@ -295,6 +298,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: MemberAttendanceService,
       useValue: { listByLesson: async () => [], confirm: async () => [] },
+    },
+    {
+      provide: MemberAttendanceHistoryService,
+      useValue: { getByMember: async () => ({ totals: { present: 0, absent: 0 }, items: [] }) },
     },
     {
       provide: ConfigService,

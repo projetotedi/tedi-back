@@ -1,5 +1,7 @@
 import { ConfirmedAssignment } from "@modules/assignments/services/confirmed-staff.service";
+import { LessonSummary } from "@modules/lessons/services/lessons.service";
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
+import { MemberAttendanceHistoryItemResponseDto } from "../dto/member-attendance-history-item.response.dto";
 import { MemberAttendanceResponseDto } from "../dto/member-attendance.response.dto";
 import { MemberAttendance } from "../entities/member-attendance.entity";
 
@@ -29,5 +31,26 @@ export function toMemberAttendanceResponse(
     confirmedBy: row === null ? null : personRefOf(peopleById, row.confirmedById),
     confirmedAt: row === null ? null : row.confirmedAt,
     hourEntryId: row === null ? null : row.hourEntryId,
+  };
+}
+
+/**
+ * An item of the history of a member: the lesson (what says which one it is and when), the status
+ * and when it was signed. Nothing of the class, of who signed or of the hours.
+ */
+export function toMemberAttendanceHistoryItem(
+  row: MemberAttendance,
+  lesson: LessonSummary,
+): MemberAttendanceHistoryItemResponseDto {
+  return {
+    lesson: {
+      id: lesson.id,
+      title: lesson.title,
+      date: lesson.date,
+      startTime: lesson.startTime,
+      endTime: lesson.endTime,
+    },
+    status: row.status,
+    confirmedAt: row.confirmedAt,
   };
 }

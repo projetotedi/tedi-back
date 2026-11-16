@@ -7,7 +7,9 @@ import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { LessonMemberAttendanceController } from "./controllers/lesson-member-attendance.controller";
+import { MemberAttendanceController } from "./controllers/member-attendance.controller";
 import { MemberAttendance } from "./entities/member-attendance.entity";
+import { MemberAttendanceHistoryService } from "./services/member-attendance-history.service";
 import { MemberAttendanceService } from "./services/member-attendance.service";
 
 @Module({
@@ -32,8 +34,8 @@ import { MemberAttendanceService } from "./services/member-attendance.service";
     PeopleModule,
     PermissionsModule,
   ],
-  controllers: [LessonMemberAttendanceController],
-  providers: [MemberAttendanceService, Clock],
+  controllers: [LessonMemberAttendanceController, MemberAttendanceController],
+  providers: [MemberAttendanceService, MemberAttendanceHistoryService, Clock],
   // Nobody consumes the attendance yet.
   exports: [],
 })

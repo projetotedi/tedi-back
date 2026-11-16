@@ -115,8 +115,10 @@ describe("member attendance routes (e2e)", () => {
   let lessonsService: LessonsService;
 
   let tech: string;
+  let comms: string;
   let coordinator: Actor;
   let director: Actor;
+  let directorComms: Actor;
   let teacher: Actor;
   let monitor: Actor;
   let otherMonitor: Actor;
@@ -180,9 +182,11 @@ describe("member attendance routes (e2e)", () => {
     );
 
     tech = await insertDepartment(dataSource, "Tecnologia");
+    comms = await insertDepartment(dataSource, "Comunicação");
 
     coordinator = await createActor("Coordinator", Role.COORDINATOR, null);
     director = await createActor("Director Tech", Role.DIRECTOR, tech);
+    directorComms = await createActor("Director Comms", Role.DIRECTOR, comms);
     teacher = await createActor("Teacher", Role.MEMBER, tech);
     monitor = await createActor("Monitor", Role.MEMBER, tech);
     otherMonitor = await createActor("Other Monitor", Role.MEMBER, tech);
@@ -282,6 +286,12 @@ describe("member attendance routes (e2e)", () => {
   function getAttendance(actor: Actor, forLessonId = lessonId) {
     return request(app.getHttpServer())
       .get(`/lessons/${forLessonId}/attendance/members`)
+      .set("Cookie", actor.cookie);
+  }
+
+  function getHistory(actor: Actor, personId: string) {
+    return request(app.getHttpServer())
+      .get(`/members/${personId}/attendance`)
       .set("Cookie", actor.cookie);
   }
 
@@ -678,6 +688,82 @@ describe("member attendance routes (e2e)", () => {
           hourEntryId: null,
         });
         expect(list[1]).toMatchObject({ status: "present", confirmedBy: { id: teacher.id } });
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /members/:id/attendance
+  // ---------------------------------------------------------------------------
+
+  describe("GET /members/:id/attendance", () => {
+    it("GET /members/:id/attendance: coordination reads the presences and absences with the totals, without the cancelled lessons", async () => {
+      const laterLesson = await createLesson({ date: "2026-03-17" });
+      const cancelledLesson = await createLesson({ date: "2026-03-24" });
+      const laterAssignment = await confirmedAssignment(laterLesson, monitor, "monitor");
+      const cancelledAssignment = await confirmedAssignment(cancelledLesson, monitor, "monitor");
+      await putAttendance(teacher, [{ assignmentId: monitorAssignment, status: "present" }]).expect(
+        200,
+      );
+      await putAttendance(
+        coordinator,
+        [{ assignmentId: laterAssignment, status: "absent" }],
+        laterLesson,
+      ).expect(200);
+      await putAttendance(
+        coordinator,
+        [{ assignmentId: cancelledAssignment, status: "absent" }],
+        cancelledLesson,
+      ).expect(200);
+      await request(app.getHttpServer())
+        .patch(`/lessons/${cancelledLesson}/cancel`)
+        .set("Cookie", coordinator.cookie)
+        .send({ reason: "Feriado municipal." })
+        .expect(200);
+
+      const res = await getHistory(coordinator, monitor.id).expect(200);
+
+      expect(res.body).toEqual({
+        totals: { present: 1, absent: 1 },
+        items: [
+          {
+            lesson: {
+              id: laterLesson,
+              title: "Teclado, mouse e janelas",
+              date: "2026-03-17",
+              startTime: "14:00",
+              endTime: "15:30",
+            },
+            status: "absent",
+            confirmedAt: expect.any(String),
+          },
+          {
+            lesson: {
+              id: lessonId,
+              title: "Teclado, mouse e janelas",
+              date: "2026-03-10",
+              startTime: "14:00",
+              endTime: "15:30",
+            },
+            status: "present",
+            confirmedAt: expect.any(String),
+          },
+        ],
+      });
+      // The director of the department of the member reads it too.
+      await getHistory(director, monitor.id).expect(200);
+    });
+
+    it("GET /members/:id/attendance answers 403 FORBIDDEN to a member, 403 FORBIDDEN_SCOPE to a director of another department and 404 MEMBER_NOT_FOUND before the scope", async () => {
+      const asMember = await getHistory(teacher, monitor.id).expect(403);
+      expect(asMember.body).toMatchObject({ error: "FORBIDDEN" });
+
+      const outside = await getHistory(directorComms, monitor.id).expect(403);
+      expect(outside.body).toMatchObject({ error: "FORBIDDEN_SCOPE" });
+
+      for (const id of [UNKNOWN_ID, "not-a-uuid"]) {
+        const missing = await getHistory(directorComms, id).expect(404);
+        expect(missing.body).toMatchObject({ error: "MEMBER_NOT_FOUND" });
       }
     });
   });

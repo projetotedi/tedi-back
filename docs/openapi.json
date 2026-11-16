@@ -277,6 +277,42 @@
         ],
         "type": "string"
       },
+      "AttendanceLessonRefResponseDto": {
+        "properties": {
+          "date": {
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "startTime",
+          "endTime"
+        ],
+        "type": "object"
+      },
       "BrazilianState": {
         "description": "Federative unit (UF). Upper-cased.",
         "enum": [
@@ -3831,6 +3867,53 @@
         ],
         "type": "object"
       },
+      "MemberAttendanceHistoryItemResponseDto": {
+        "properties": {
+          "confirmedAt": {
+            "description": "When it was signed the last time (the first signature or a correction).",
+            "example": "2026-03-10T18:30:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AttendanceLessonRefResponseDto"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A presence generates the lesson hours of the member (an hour entry of origin attendance); an absence generates nothing.",
+            "example": "absent"
+          }
+        },
+        "required": [
+          "lesson",
+          "status",
+          "confirmedAt"
+        ],
+        "type": "object"
+      },
+      "MemberAttendanceHistoryResponseDto": {
+        "properties": {
+          "items": {
+            "description": "Presences and absences, the latest lesson first (day, then start time, both descending). Cancelled lessons are left out: they did not happen (RN-07). Not paginated.",
+            "items": {
+              "$ref": "#/components/schemas/MemberAttendanceHistoryItemResponseDto"
+            },
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/MemberAttendanceTotalsResponseDto"
+          }
+        },
+        "required": [
+          "totals",
+          "items"
+        ],
+        "type": "object"
+      },
       "MemberAttendanceResponseDto": {
         "description": "A confirmed assignment of the lesson, the teacher first, with the attendance of its member. status, confirmedBy, confirmedAt and hourEntryId are null while the attendance is not signed.",
         "properties": {
@@ -3911,6 +3994,23 @@
           "absent"
         ],
         "type": "string"
+      },
+      "MemberAttendanceTotalsResponseDto": {
+        "properties": {
+          "absent": {
+            "example": 1,
+            "type": "integer"
+          },
+          "present": {
+            "example": 12,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "present",
+          "absent"
+        ],
+        "type": "object"
       },
       "MemberDetailResponseDto": {
         "properties": {
@@ -13124,6 +13224,88 @@
         },
         "tags": [
           "assignments"
+        ]
+      }
+    },
+    "/members/{id}/attendance": {
+      "get": {
+        "operationId": "getMemberAttendanceHistory",
+        "parameters": [
+          {
+            "description": "Person id of the member.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberAttendanceHistoryResponseDto"
+                }
+              }
+            },
+            "description": "The presences and absences of the member, the latest lesson first, with the totals; cancelled lessons are left out of both. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
         ]
       }
     },
