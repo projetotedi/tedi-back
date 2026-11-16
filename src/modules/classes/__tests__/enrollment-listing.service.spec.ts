@@ -291,7 +291,7 @@ describe("EnrollmentListingService", () => {
       expect(parameters).toEqual([CLASS_ID]);
       expect(students.listStudentRefs).toHaveBeenCalledWith(
         { excludeIds: [ANA, BRUNO], search: "Car", includeArchived: false },
-        { search: "Car", page: 1, limit: 20 },
+        { page: 1, limit: 20 },
       );
     });
 
@@ -408,6 +408,8 @@ describe("EnrollmentListingService", () => {
       const [sql, parameters] = queriesWith("e.student_id = $1")[0];
       expect(sql).toContain("e.status_changed_at::text");
       expect(sql).toContain("ORDER BY e.enrolled_at DESC, e.id DESC");
+      // The same rule as currentClasses: a removed class leaves the history.
+      expect(sql).toContain("JOIN classes c ON c.id = e.class_id AND c.deleted_at IS NULL");
       expect(parameters).toEqual([ANA]);
       expect(history.enrollments.map((item) => [item.id, item.course.name])).toEqual([
         ["e1", "Smartphones"],

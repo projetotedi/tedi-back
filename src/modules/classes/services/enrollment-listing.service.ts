@@ -111,6 +111,7 @@ export class EnrollmentListingService {
     query: ListAvailableStudentsQueryDto,
   ): Promise<PaginatedResult<AvailableStudentItemResponseDto>> {
     const schoolClass = await this.findClass(classId);
+    const { page, limit } = normalizePagination(query);
 
     const enrolled: Array<{ studentId: string }> = await this.dataSource.query(
       `SELECT student_id AS "studentId" FROM enrollments WHERE class_id = $1 AND deleted_at IS NULL`,
@@ -122,7 +123,7 @@ export class EnrollmentListingService {
         search: query.search,
         includeArchived: false,
       },
-      query,
+      { page, limit },
     );
     const currentClasses = await this.findCurrentClasses(
       students.data.map((student) => student.id),
@@ -143,7 +144,7 @@ export class EnrollmentListingService {
 
   /**
    * The enrollment history of a student (RF-031): every enrollment that is not removed, archived
-   * classes included, the newest first (`enrolledAt`, then id), each with its class and the course
+   * classes included (a removed class is left out, the rule of `currentClasses`), the newest first (`enrolledAt`, then id), each with its class and the course
    * of the class (read in one call to the catalog), and the summary derived from them (RN-16: the
    * completed courses come from the completed enrollments, no table of their own). Not paginated:
    * a student has tens of enrollments.
@@ -155,13 +156,15 @@ export class EnrollmentListingService {
     const [student] = await this.students.findStudentSummaries([studentId]);
     if (student === undefined) throw studentNotFound();
 
+    // A removed class (soft delete) leaves the history, as it leaves `currentClasses`: one rule for
+    // both reads. No route removes a class today; an archived class stays in both.
     const rows: StudentEnrollmentRow[] = await this.dataSource.query(
       `SELECT e.id AS "id", e.status AS "status", e.enrolled_at AS "enrolledAt",
               e.status_changed_at::text AS "statusChangedAt", c.course_id AS "courseId",
               c.id AS "classId", c.code AS "classCode", c.name AS "className",
               ed.id AS "editionId", ed.name AS "editionName"
          FROM enrollments e
-         JOIN classes c ON c.id = e.class_id
+         JOIN classes c ON c.id = e.class_id AND c.deleted_at IS NULL
          JOIN editions ed ON ed.id = c.edition_id
         WHERE e.student_id = $1 AND e.deleted_at IS NULL
         ORDER BY e.enrolled_at DESC, e.id DESC`,
