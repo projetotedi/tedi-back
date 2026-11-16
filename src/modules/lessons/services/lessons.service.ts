@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { DataSource, EntityManager, QueryFailedError } from "typeorm";
+import { isUUID } from "class-validator";
+import { DataSource, EntityManager, FindOptionsSelect, In, QueryFailedError } from "typeorm";
 import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import {
@@ -25,6 +26,9 @@ import { RescheduleLessonDto } from "../dto/reschedule-lesson.dto";
 import { UpdateLessonDto } from "../dto/update-lesson.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { lessonCreatedPayload } from "./lesson-audit";
+import { ConfirmedStaffCount, NO_CONFIRMED_STAFF } from "./lesson-coverage";
+import { LessonCoverageRegistry } from "./lesson-coverage.registry";
 import { LessonCreationService, LessonDraft } from "./lesson-creation.service";
 import {
   classArchived,
@@ -67,6 +71,51 @@ const LESSON_TIME_RANGE_CHECK = "ck_lessons_time_range";
 const LESSON_CLASS_FOREIGN_KEY = "fk_lessons_class_id";
 const LESSON_PLAN_FOREIGN_KEY = "fk_lessons_lesson_plan_id";
 
+/**
+ * What another module needs to know about a lesson (the assignments check that it exists, that it
+ * is not cancelled and show it in the list of a member, GUS-158). The shape is the contract of
+ * `getLessonSummary` and `findLessonSummaries`: the entity itself never leaves this module.
+ */
+export interface LessonSummary {
+  id: string;
+  classId: string;
+  title: string;
+  /** Day of the lesson, "YYYY-MM-DD". */
+  date: string;
+  /** "HH:mm". */
+  startTime: string;
+  /** "HH:mm". */
+  endTime: string;
+  status: LessonStatus;
+  /** How many monitors the lesson expects. Null when not informed. */
+  expectedMonitors: number | null;
+}
+
+/** The columns of a LessonSummary: the free texts of a lesson (post notes, reasons) are not read for it. */
+const LESSON_SUMMARY_COLUMNS: FindOptionsSelect<Lesson> = {
+  id: true,
+  classId: true,
+  title: true,
+  date: true,
+  startTime: true,
+  endTime: true,
+  status: true,
+  expectedMonitors: true,
+};
+
+function toLessonSummary(lesson: Lesson): LessonSummary {
+  return {
+    id: lesson.id,
+    classId: lesson.classId,
+    title: lesson.title,
+    date: lesson.date,
+    startTime: lesson.startTime,
+    endTime: lesson.endTime,
+    status: lesson.status,
+    expectedMonitors: lesson.expectedMonitors ?? null,
+  };
+}
+
 interface FieldChanges {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
@@ -108,7 +157,8 @@ function assertWithinPeriod(date: string, schoolClass: ClassSummary): void {
 
 /**
  * Lessons (aulas) of the classes: create, read, edit, cancel and reschedule (F4.1, F4.3, F4.5).
- * Listing, the calendar and the series of lessons are other cards (GUS-153, GUS-154).
+ * Listing and the calendar are `LessonListingService` (GUS-153); the series of lessons is another
+ * card (GUS-154).
  *
  * A lesson is never deleted or archived: cancelling keeps the row, with the reason and who did it.
  * The title and the objective are copied from the lesson plan when the lesson is created from one,
@@ -116,7 +166,10 @@ function assertWithinPeriod(date: string, schoolClass: ClassSummary): void {
  *
  * Every write runs in a transaction and the audit event goes out after the commit, only when
  * something changed. The class is read through `ClassesService` and the plan, the course and the
- * position in the sequence through the catalog: this module touches no table of another one.
+ * position in the sequence through the catalog: this module touches no table of another one. The
+ * same goes for who is assigned to a lesson: the coverage (F5.4) of every answer is counted through
+ * the `LessonCoverageRegistry`, the port the assignments module plugs its counter in (section 15 of
+ * docs/ARCHITECTURE.md), and this module touches no table of it.
  *
  * Locks, always in this order, so no two writes wait for each other in a circle:
  * - creating: the class FOR SHARE, then the lesson plan FOR SHARE, then the insert;
@@ -137,6 +190,7 @@ export class LessonsService {
     private readonly courses: CoursesService,
     private readonly lessonPlans: LessonPlansService,
     private readonly courseLessonPlans: CourseLessonPlansService,
+    private readonly coverage: LessonCoverageRegistry,
   ) {}
 
   /**
@@ -181,26 +235,23 @@ export class LessonsService {
 
       return {
         lesson,
-        response: await this.buildResponse(manager, lesson, { schoolClass, lessonPlan }),
+        // A lesson that was just created has nobody assigned: no need to ask for the coverage.
+        response: await this.buildResponse(manager, lesson, {
+          schoolClass,
+          lessonPlan,
+          staff: NO_CONFIRMED_STAFF,
+        }),
       };
     });
 
     const { lesson } = created;
-    this.emit(AuditableAction.LESSON_CREATED, actorId, lesson.id, null, {
-      classId: lesson.classId,
-      lessonPlanId: lesson.lessonPlanId,
-      sequenceOrder: lesson.sequenceOrder,
-      title: lesson.title,
-      objective: lesson.objective,
-      date: lesson.date,
-      startTime: lesson.startTime,
-      endTime: lesson.endTime,
-      location: lesson.location,
-      expectedStudents: lesson.expectedStudents,
-      expectedMonitors: lesson.expectedMonitors,
-      subject: lesson.subject,
-      status: lesson.status,
-    });
+    this.emit(
+      AuditableAction.LESSON_CREATED,
+      actorId,
+      lesson.id,
+      null,
+      lessonCreatedPayload(lesson),
+    );
 
     return created.response;
   }
@@ -219,6 +270,61 @@ export class LessonsService {
     if (lesson === null) throw lessonNotFound();
 
     return this.buildResponse(undefined, lesson);
+  }
+
+  /**
+   * Summary of a lesson for another module (the assignments, GUS-158). Null when the id is not a
+   * lesson or is not even a UUID: whoever calls decides the error. A cancelled lesson is returned
+   * too, with its status, so the caller can say 409 for a write and still show the lesson.
+   *
+   * Pass the `manager` of a transaction to read inside it. `forShare` locks the row of the lesson
+   * FOR SHARE until the end of that transaction (it needs the `manager` of one: Postgres only keeps
+   * a row lock inside a transaction). That lock conflicts with the FOR UPDATE that `update`,
+   * `cancel` and `reschedule` take, so assigning someone to a lesson and cancelling it at the same
+   * time are serialized: either the assignment sees the lesson cancelled, or the cancellation waits
+   * for it. Shared locks do not conflict with each other, so two assignments to the same lesson do
+   * not wait for one another. Without `forShare` it is a plain read.
+   *
+   * It emits no event and writes nothing.
+   */
+  async getLessonSummary(
+    id: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<LessonSummary | null> {
+    // A malformed id would reach Postgres as invalid uuid text (22P02) and become a 500.
+    if (!isUUID(id)) return null;
+
+    const source = manager ?? this.dataSource.manager;
+    const lesson = await source.findOne(Lesson, {
+      select: LESSON_SUMMARY_COLUMNS,
+      where: { id },
+      ...(options.forShare ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
+
+    return lesson === null ? null : toLessonSummary(lesson);
+  }
+
+  /**
+   * The summaries of several lessons in ONE query (the lessons of the list of a member, GUS-158).
+   * An id that is not a UUID, a repeated id and an id that is not a lesson are skipped, so there is
+   * at most one summary per lesson and the order is not guaranteed: the caller orders them. A plain
+   * read: no lock.
+   */
+  async findLessonSummaries(
+    ids: readonly string[],
+    manager?: EntityManager,
+  ): Promise<LessonSummary[]> {
+    const unique = [...new Set(ids)].filter((id) => isUUID(id));
+    if (unique.length === 0) return [];
+
+    const source = manager ?? this.dataSource.manager;
+    const lessons = await source.find(Lesson, {
+      select: LESSON_SUMMARY_COLUMNS,
+      where: { id: In(unique) },
+    });
+
+    return lessons.map(toLessonSummary);
   }
 
   /**
@@ -526,14 +632,20 @@ export class LessonsService {
 
   /**
    * The answer of every route. `known` is what the caller already holds (it read the class under a
-   * lock, the plan under a lock), so it is not read again. The course is always read here, and so
-   * is whatever is missing. The foreign keys guarantee the class, the course and the plan of a
-   * lesson exist, so a missing one is a broken database and an error, not a 404.
+   * lock, the plan under a lock, and a new lesson has no staff at all), so it is not read again.
+   * The course is always read here, and so is whatever is missing, the confirmed staff of the
+   * lesson included (one count through the port of the coverage). The foreign keys guarantee the
+   * class, the course and the plan of a lesson exist, so a missing one is a broken database and an
+   * error, not a 404.
    */
   private async buildResponse(
     manager: EntityManager | undefined,
     lesson: Lesson,
-    known: { schoolClass?: ClassSummary; lessonPlan?: LessonPlanSummary | null } = {},
+    known: {
+      schoolClass?: ClassSummary;
+      lessonPlan?: LessonPlanSummary | null;
+      staff?: ConfirmedStaffCount;
+    } = {},
   ): Promise<LessonResponseDto> {
     const schoolClass =
       known.schoolClass ?? (await this.classes.getClassSummary(lesson.classId, manager));
@@ -558,7 +670,12 @@ export class LessonsService {
       }
     }
 
-    return toLessonResponse(lesson, { schoolClass, course, lessonPlan });
+    const staff =
+      known.staff ??
+      (await this.coverage.countConfirmedStaff([lesson.id], manager)).get(lesson.id) ??
+      NO_CONFIRMED_STAFF;
+
+    return toLessonResponse(lesson, { schoolClass, course, lessonPlan, staff });
   }
 
   /** Copies the fields that were sent and differ into the lesson, and records before and after. */
@@ -632,3 +749,7 @@ export class LessonsService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+// The enum of the contract of `getLessonSummary`, re-exported so that `assignments` imports it from
+// the service LessonsModule exports and never from `lessons/enums/*` (module is a closed box).
+export { LessonStatus } from "../enums/lesson-status.enum";

@@ -17,6 +17,9 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
+import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
+import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
@@ -26,12 +29,14 @@ import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans
 import { ClassesController } from "@modules/classes/controllers/classes.controller";
 import { CourseClassesController } from "@modules/classes/controllers/course-classes.controller";
 import { EditionsController } from "@modules/classes/controllers/editions.controller";
+import { ClassLessonsController } from "@modules/lessons/controllers/class-lessons.controller";
 import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
+import { AssignmentsService } from "@modules/assignments/services/assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
@@ -44,6 +49,8 @@ import { ClassDetailService } from "@modules/classes/services/class-detail.servi
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { CourseClassesService } from "@modules/classes/services/course-classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
+import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
+import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
@@ -71,6 +78,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     EditionsController,
     CourseClassesController,
     LessonsController,
+    ClassLessonsController,
+    LessonAssignmentsController,
+    AssignmentsController,
+    MemberAssignmentsController,
   ],
   providers: [
     {
@@ -168,6 +179,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         list: async () => ({}),
         replace: async () => ({}),
         findPosition: async () => null,
+        getSequenceSummaries: async () => [],
       },
     },
     {
@@ -182,6 +194,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
         getClassSummary: async () => null,
+        listClassRefs: async () => [],
       },
     },
     {
@@ -200,6 +213,13 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       },
     },
     {
+      provide: LessonListingService,
+      useValue: {
+        list: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listCalendar: async () => [],
+      },
+    },
+    {
       provide: LessonsService,
       useValue: {
         create: async () => ({}),
@@ -207,6 +227,20 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         update: async () => ({}),
         cancel: async () => ({}),
         reschedule: async () => ({}),
+      },
+    },
+    {
+      provide: LessonGenerationService,
+      useValue: { preview: async () => ({}), generate: async () => ({}) },
+    },
+    {
+      provide: AssignmentsService,
+      useValue: {
+        create: async () => ({}),
+        listByLesson: async () => [],
+        confirm: async () => ({}),
+        cancel: async () => ({}),
+        listByMember: async () => [],
       },
     },
     {

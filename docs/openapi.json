@@ -182,6 +182,78 @@
         },
         "type": "object"
       },
+      "AssignmentLessonRefDto": {
+        "properties": {
+          "date": {
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5): the same type as the lesson itself.",
+            "example": "planned"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "startTime",
+          "endTime",
+          "status"
+        ],
+        "type": "object"
+      },
+      "AssignmentRole": {
+        "description": "What the member does in the lesson: the teacher gives it and a monitor helps.",
+        "enum": [
+          "teacher",
+          "monitor"
+        ],
+        "type": "string"
+      },
+      "AssignmentSource": {
+        "description": "direct is made by a coordinator or a director; application is a member who applied.",
+        "enum": [
+          "direct",
+          "application"
+        ],
+        "type": "string"
+      },
+      "AssignmentStatus": {
+        "description": "Where the assignment stands: pending waits for a decision, confirmed puts the member in the lesson (and records who confirmed it and when), declined (a refused application) and cancelled are final.",
+        "enum": [
+          "pending",
+          "confirmed",
+          "declined",
+          "cancelled"
+        ],
+        "type": "string"
+      },
       "BrazilianState": {
         "description": "Federative unit (UF). Upper-cased.",
         "enum": [
@@ -514,6 +586,142 @@
           "id",
           "student",
           "enrolledAt"
+        ],
+        "type": "object"
+      },
+      "ClassLessonPreviewItemResponseDto": {
+        "properties": {
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD, one week after the lesson before it.",
+            "example": "2026-04-07",
+            "format": "date",
+            "type": "string"
+          },
+          "expectedDurationMinutes": {
+            "description": "The duration the lesson plan expects, in minutes. The lesson itself gets the time of the body (startTime to endTime), which is the top-level durationMinutes.",
+            "example": 90,
+            "type": "integer"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000011",
+            "format": "uuid",
+            "type": "string"
+          },
+          "outsideClassPeriod": {
+            "description": "True when `date` is before the first day or after the last day of the class (RN-21). The preview only marks it: generating with any such lesson answers 409 LESSONS_OUTSIDE_CLASS_PERIOD.",
+            "example": false,
+            "type": "boolean"
+          },
+          "sequenceOrder": {
+            "description": "Position of the plan in the sequence of the course: the `sequenceOrder` its lesson would carry. It keeps the real position, so it can skip a number when an archived plan is left out (see skippedLessonPlans).",
+            "example": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "description": "The title the lesson would copy from the plan (RN-18).",
+            "example": "Conhecendo o computador",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequenceOrder",
+          "lessonPlanId",
+          "title",
+          "date",
+          "expectedDurationMinutes",
+          "outsideClassPeriod"
+        ],
+        "type": "object"
+      },
+      "ClassLessonsPreviewResponseDto": {
+        "properties": {
+          "classEndDate": {
+            "description": "Last day of the class: no lesson can be after it. The warning of the lessons outside the period reads it.",
+            "example": "2026-04-24",
+            "format": "date",
+            "type": "string"
+          },
+          "classId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "classStartDate": {
+            "description": "First day of the class: no lesson can be before it.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "durationMinutes": {
+            "description": "From startTime to endTime, in minutes: how long each lesson would be. Calculated, not typed.",
+            "example": 120,
+            "type": "integer"
+          },
+          "endTime": {
+            "example": "11:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "items": {
+            "description": "One per active lesson plan of the sequence of the course, in the order of the sequence: the first on the first weekday on or after firstDate and each next one a week later. Never empty (a course without an active plan answers 409 COURSE_WITHOUT_SEQUENCE).",
+            "items": {
+              "$ref": "#/components/schemas/ClassLessonPreviewItemResponseDto"
+            },
+            "type": "array"
+          },
+          "lessonCount": {
+            "description": "How many lessons would be created: the number of items.",
+            "example": 4,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "location": {
+            "description": "The place every lesson would have. Null when not informed.",
+            "example": "Laboratório 2 — Bloco B",
+            "nullable": true,
+            "type": "string"
+          },
+          "outsideClassPeriodCount": {
+            "description": "How many items are outsideClassPeriod. Above 0, generating answers 409 LESSONS_OUTSIDE_CLASS_PERIOD: the class must be extended (or the series moved) first.",
+            "example": 1,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skippedLessonPlans": {
+            "description": "The archived plans of the sequence, which originate no lesson (RN-27). The days stay consecutive: a skipped plan leaves no gap. Empty when none is archived.",
+            "items": {
+              "$ref": "#/components/schemas/SkippedLessonPlanResponseDto"
+            },
+            "type": "array"
+          },
+          "startTime": {
+            "example": "09:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "weekday": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Weekday"
+              }
+            ],
+            "example": "tuesday"
+          }
+        },
+        "required": [
+          "classId",
+          "classStartDate",
+          "classEndDate",
+          "weekday",
+          "startTime",
+          "endTime",
+          "durationMinutes",
+          "location",
+          "lessonCount",
+          "outsideClassPeriodCount",
+          "items",
+          "skippedLessonPlans"
         ],
         "type": "object"
       },
@@ -1077,6 +1285,48 @@
         ],
         "type": "string"
       },
+      "CreateAssignmentDto": {
+        "description": "Who is assigned to the lesson of the URL, as what, and whether it is already confirmed. status takes only pending or confirmed: declined and cancelled come out of a decision about an assignment that exists, so they are rejected with 400 VALIDATION_FAILED. A lesson has at most one confirmed teacher: a teacher asked confirmed in a lesson that already has one is 409 LESSON_TEACHER_TAKEN. There is no source: an assignment made here is always direct (the candidature of a member is another route).",
+        "properties": {
+          "note": {
+            "description": "Note about the assignment. Optional; null or blank means none. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Cobre a segunda hora da aula.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "personId": {
+            "description": "Id of the member to assign. It must be an active member: an id that is not a member is 400 MEMBER_NOT_FOUND, and a member without access (inactive or with the registration still pending) is 409 MEMBER_INACTIVE. A member holds one place per lesson: if she already has an active assignment in it, as the same role or as the other one, it is 409 DUPLICATE_ROLE_IN_LESSON.",
+            "example": "01999a3e-0000-7000-8000-0000000000b1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "description": "What the member does in the lesson: the teacher gives it and a monitor helps.",
+            "example": "monitor"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "Where the assignment stands: pending waits for a decision, confirmed puts the member in the lesson (and records who confirmed it and when), declined (a refused application) and cancelled are final.",
+            "example": "confirmed"
+          }
+        },
+        "required": [
+          "personId",
+          "role",
+          "status"
+        ],
+        "type": "object"
+      },
       "CreateClassDto": {
         "properties": {
           "capacity": {
@@ -1602,6 +1852,72 @@
         ],
         "type": "object"
       },
+      "GenerateClassLessonsDto": {
+        "properties": {
+          "endTime": {
+            "description": "End of every lesson, HH:mm in 24 hours. It must be after startTime (else 400 INVALID_TIME_RANGE): a lesson does not cross midnight.",
+            "example": "11:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "firstDate": {
+            "description": "Where the series starts, YYYY-MM-DD. The first lesson is on the first weekday on or after this date: this very date when it already is that weekday, otherwise the next one (a monday with weekday tuesday starts the next day). Each next lesson is a week after the one before.",
+            "example": "2026-04-07",
+            "format": "date",
+            "type": "string"
+          },
+          "location": {
+            "description": "Place of every lesson. Null or blank means not informed. A lesson can have its place changed afterwards.",
+            "example": "Laboratório 2 — Bloco B",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "startTime": {
+            "description": "Start of every lesson, HH:mm in 24 hours.",
+            "example": "09:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "weekday": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Weekday"
+              }
+            ],
+            "description": "The day of the week of the lessons: one lesson a week, always on this day. Lower case English name.",
+            "example": "tuesday"
+          }
+        },
+        "required": [
+          "weekday",
+          "startTime",
+          "endTime",
+          "firstDate"
+        ],
+        "type": "object"
+      },
+      "GeneratedClassLessonsResponseDto": {
+        "properties": {
+          "classId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessons": {
+            "description": "The lessons created, planned, in the order of the sequence (so by date). Each one is the same LessonResponseDto the other routes of the module answer.",
+            "items": {
+              "$ref": "#/components/schemas/LessonResponseDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "classId",
+          "lessons"
+        ],
+        "type": "object"
+      },
       "HealthResponseDto": {
         "properties": {
           "database": {
@@ -1768,6 +2084,124 @@
         ],
         "type": "string"
       },
+      "LessonAssignmentResponseDto": {
+        "properties": {
+          "cancelledAt": {
+            "description": "When it was cancelled. Set exactly when the status is cancelled.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelledById": {
+            "description": "Id of the person who cancelled the assignment.",
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Id of the person who made the assignment.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000a1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonId": {
+            "description": "Id of the lesson the member is assigned to.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "note": {
+            "description": "Free text (RNF-13). Null when there is none, and null for profiles without assignments.create: only who can manage assignments reads the note.",
+            "example": "Cobre a segunda hora da aula.",
+            "nullable": true,
+            "type": "string"
+          },
+          "person": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "The member: id and name. Null if the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "reviewedAt": {
+            "description": "When it was confirmed. Always set for a confirmed assignment.",
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedById": {
+            "description": "Id of the person who confirmed the assignment, or who made it already confirmed. Set exactly when reviewedAt is, and kept if the assignment is cancelled later.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentSource"
+              }
+            ],
+            "description": "direct is made by a coordinator or a director; application is a member who applied.",
+            "example": "direct"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "pending waits for a decision; confirmed counts in the coverage of the lesson; declined (a refused application) and cancelled are final.",
+            "example": "confirmed"
+          },
+          "updatedAt": {
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lessonId",
+          "person",
+          "role",
+          "status",
+          "source",
+          "note",
+          "createdById",
+          "reviewedById",
+          "reviewedAt",
+          "cancelledById",
+          "cancelledAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "LessonClassRefDto": {
         "properties": {
           "archivedAt": {
@@ -1834,6 +2268,21 @@
         ],
         "type": "object"
       },
+      "LessonCoverageDto": {
+        "properties": {
+          "monitors": {
+            "$ref": "#/components/schemas/LessonMonitorCoverageDto"
+          },
+          "teacher": {
+            "$ref": "#/components/schemas/LessonTeacherCoverageDto"
+          }
+        },
+        "required": [
+          "teacher",
+          "monitors"
+        ],
+        "type": "object"
+      },
       "LessonEditionRefDto": {
         "properties": {
           "id": {
@@ -1844,6 +2293,150 @@
           "name": {
             "description": "Year and term, \"<year>.<term>\".",
             "example": "2026.1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "LessonListClassRefDto": {
+        "properties": {
+          "code": {
+            "description": "Unique inside its edition.",
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "colorIndex": {
+            "description": "Color slot of the class in the calendar, from 0 to 7; the front picks the color of the class by it. It follows the order the classes were created in and does not change with the filter, the page or the period, nor when another class is archived. Classes created in sequence get different slots until the slots run out, and then they repeat.",
+            "example": 0,
+            "maximum": 7,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The label of the class on the row: its name, or its code when it has no name. Never null.",
+            "example": "Informática Básica, turma A",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "colorIndex"
+        ],
+        "type": "object"
+      },
+      "LessonListItemResponseDto": {
+        "properties": {
+          "belowExpectedMonitors": {
+            "description": "True when the lesson has fewer CONFIRMED monitors than it expects (F4.4, F5.4, RF-050): a pending monitor does not count. False for a cancelled lesson and when the lesson does not say how many monitors it expects (expectedMonitors null, so nothing is missing). The teacher is not part of it: a lesson without a teacher shows a dash in teacher. It is the same rule as belowExpectedMonitors of the lesson in full.",
+            "example": false,
+            "type": "boolean"
+          },
+          "class": {
+            "$ref": "#/components/schemas/LessonListClassRefDto"
+          },
+          "date": {
+            "description": "Day of the lesson, YYYY-MM-DD.",
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5). A cancelled lesson is listed like the others: the calendar draws it with a style of its own.",
+            "example": "planned"
+          },
+          "teacher": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonPersonRefDto"
+              }
+            ],
+            "description": "The CONFIRMED teacher of the lesson (F5.2, RN-02): her id and her name. Null when the lesson has none, and the front shows a dash: a pending assignment is a candidate, not the teacher. A cancelled lesson keeps the teacher that was confirmed in it, because cancelling a lesson does not cancel its assignments.",
+            "example": {
+              "id": "01999a3e-0000-7000-8000-0000000000aa",
+              "name": "Maria Silva Santos"
+            },
+            "nullable": true,
+            "type": "object"
+          },
+          "title": {
+            "description": "The lesson's own title (RN-18).",
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "class",
+          "date",
+          "startTime",
+          "endTime",
+          "title",
+          "status",
+          "teacher",
+          "belowExpectedMonitors"
+        ],
+        "type": "object"
+      },
+      "LessonMonitorCoverageDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Monitors confirmed for the lesson. A pending assignment is not counted.",
+            "example": 2,
+            "type": "integer"
+          },
+          "expected": {
+            "description": "The expectedMonitors of the lesson. Null when it was not informed: nothing is expected then.",
+            "example": 2,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confirmed",
+          "expected"
+        ],
+        "type": "object"
+      },
+      "LessonPersonRefDto": {
+        "properties": {
+          "id": {
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
             "type": "string"
           }
         },
@@ -2232,6 +2825,11 @@
       },
       "LessonResponseDto": {
         "properties": {
+          "belowExpectedMonitors": {
+            "description": "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
+            "example": false,
+            "type": "boolean"
+          },
           "cancelReason": {
             "description": "Why the lesson was cancelled. Set exactly when the status is cancelled.",
             "example": null,
@@ -2262,6 +2860,14 @@
               }
             ],
             "description": "The course the class offers."
+          },
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet."
           },
           "createdAt": {
             "example": "2026-10-01T13:00:00.000Z",
@@ -2415,6 +3021,8 @@
           "location",
           "expectedStudents",
           "expectedMonitors",
+          "coverage",
+          "belowExpectedMonitors",
           "subject",
           "postNotes",
           "status",
@@ -2439,6 +3047,25 @@
           "cancelled"
         ],
         "type": "string"
+      },
+      "LessonTeacherCoverageDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Teachers confirmed for the lesson: 0 or 1, since a lesson has at most one confirmed teacher. A pending assignment is not counted.",
+            "example": 1,
+            "type": "integer"
+          },
+          "expected": {
+            "description": "Always 1: a lesson has one teacher.",
+            "example": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confirmed",
+          "expected"
+        ],
+        "type": "object"
       },
       "LoginDto": {
         "properties": {
@@ -2502,6 +3129,57 @@
           "email",
           "role",
           "permissions"
+        ],
+        "type": "object"
+      },
+      "MemberAssignmentResponseDto": {
+        "properties": {
+          "createdAt": {
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000a1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonRefDto"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentSource"
+              }
+            ],
+            "example": "direct"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "Every status is listed, the cancelled and the declined ones too.",
+            "example": "confirmed"
+          }
+        },
+        "required": [
+          "id",
+          "lesson",
+          "role",
+          "status",
+          "source",
+          "createdAt"
         ],
         "type": "object"
       },
@@ -3796,6 +4474,38 @@
         ],
         "type": "string"
       },
+      "SkippedLessonPlanResponseDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "When the plan was archived.",
+            "example": "2026-03-20T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "lessonPlanId": {
+            "example": "01999a3e-7c1b-7000-8000-000000000012",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sequenceOrder": {
+            "description": "Position of the plan in the sequence of the course.",
+            "example": 2,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequenceOrder",
+          "lessonPlanId",
+          "title",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
       "StudentDetailDto": {
         "properties": {
           "accessibilityNeed": {
@@ -4524,6 +5234,19 @@
           }
         },
         "type": "object"
+      },
+      "Weekday": {
+        "description": "The day of the week of the lessons: one lesson a week, always on this day. Lower case English name.",
+        "enum": [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday"
+        ],
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -4946,6 +5669,190 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/assignments/{id}/cancel": {
+      "patch": {
+        "operationId": "cancelAssignment",
+        "parameters": [
+          {
+            "description": "Id of the assignment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The assignment, now cancelled, with cancelledById and cancelledAt. It stays: the member can be assigned to the lesson again. Cancelling one that is already cancelled changes nothing and answers the same, with the first instant."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_ACTIVE"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/assignments/{id}/confirm": {
+      "patch": {
+        "operationId": "confirmAssignment",
+        "parameters": [
+          {
+            "description": "Id of the assignment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The assignment, now confirmed, with reviewedById and reviewedAt. Confirming one that is already confirmed changes nothing and answers the same."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_PENDING | LESSON_CANCELLED | MEMBER_INACTIVE | LESSON_TEACHER_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },
@@ -5786,6 +6693,210 @@
         },
         "tags": [
           "classes"
+        ]
+      }
+    },
+    "/classes/{id}/lessons/generate": {
+      "post": {
+        "operationId": "generateClassLessons",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateClassLessonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeneratedClassLessonsResponseDto"
+                }
+              }
+            },
+            "description": "The lessons created, in the order of the sequence, all or none. Each one is planned and copies the title and the objective of its lesson plan (RN-18)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | LESSONS_ALREADY_GENERATED | COURSE_WITHOUT_SEQUENCE | LESSONS_OUTSIDE_CLASS_PERIOD"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/classes/{id}/lessons/preview": {
+      "post": {
+        "operationId": "previewClassLessons",
+        "parameters": [
+          {
+            "description": "Id of the class.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateClassLessonsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassLessonsPreviewResponseDto"
+                }
+              }
+            },
+            "description": "What generateClassLessons would create with the same body, without creating it: one lesson per active lesson plan of the sequence of the course, in order, with its day. A lesson outside the period of the class is marked (outsideClassPeriod), not refused. Writes nothing and emits no event."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_TIME_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "CLASS_ARCHIVED | LESSONS_ALREADY_GENERATED | COURSE_WITHOUT_SEQUENCE"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
         ]
       }
     },
@@ -7734,6 +8845,195 @@
       }
     },
     "/lessons": {
+      "get": {
+        "operationId": "listLessons",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Words to look for in the title and in the subject of the lesson. Every word has to show up, each one in either of the two, in any order and not necessarily next to each other: senhas privacidade finds Senhas e privacidade. Case and accents are ignored.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "senhas privacidade",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of this class, archived class included. Without it, the lessons of an archived class are left out (RN-27). An id that matches no class answers an empty list.",
+            "in": "query",
+            "name": "classId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of the classes of this course. The lessons of its archived classes are left out. An id that matches no course answers an empty list.",
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons created from this lesson plan. An id that matches no plan answers an empty list.",
+            "in": "query",
+            "name": "lessonPlanId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons with this status. One value. Omit for every status: the cancelled lessons are listed too.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LessonStatus"
+            }
+          },
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. It can come alone. With `to`, it cannot be after it (else 400 INVALID_DATE_RANGE).",
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. It can come alone. With `from`, it cannot be before it (else 400 INVALID_DATE_RANGE).",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "example": "2026-04-11",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LessonListItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      },
       "post": {
         "operationId": "createLesson",
         "parameters": [],
@@ -7807,6 +9107,153 @@
               }
             },
             "description": "CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "lessons"
+        ]
+      }
+    },
+    "/lessons/calendar": {
+      "get": {
+        "operationId": "listLessonsCalendar",
+        "parameters": [
+          {
+            "description": "Words to look for in the title and in the subject of the lesson. Every word has to show up, each one in either of the two, in any order and not necessarily next to each other: senhas privacidade finds Senhas e privacidade. Case and accents are ignored.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "senhas privacidade",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of this class, archived class included. Without it, the lessons of an archived class are left out (RN-27). An id that matches no class answers an empty list.",
+            "in": "query",
+            "name": "classId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons of the classes of this course. The lessons of its archived classes are left out. An id that matches no course answers an empty list.",
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons created from this lesson plan. An id that matches no plan answers an empty list.",
+            "in": "query",
+            "name": "lessonPlanId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the lessons with this status. One value. Omit for every status: the cancelled lessons are listed too.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LessonStatus"
+            }
+          },
+          {
+            "description": "First day of the period, YYYY-MM-DD, included. Required. It cannot be after `to` (else 400 INVALID_DATE_RANGE).",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "example": "2026-03-01",
+              "format": "date",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Last day of the period, YYYY-MM-DD, included. Required. The period holds at most 42 days counting both ends, six weeks, a month grid (else 400 DATE_RANGE_TOO_LONG).",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "example": "2026-04-11",
+              "format": "date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LessonListItemResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every lesson of the period, ordered by date, start time and id, the cancelled ones included. A plain array: there is no page."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | INVALID_DATE_RANGE | DATE_RANGE_TOO_LONG"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
           },
           "500": {
             "content": {
@@ -8003,6 +9450,191 @@
         },
         "tags": [
           "lessons"
+        ]
+      }
+    },
+    "/lessons/{id}/assignments": {
+      "get": {
+        "operationId": "listLessonAssignments",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated. The note of each one is null for profiles without assignments.create (RNF-13)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      },
+      "post": {
+        "operationId": "createAssignment",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The assignment, direct and pending or confirmed as the body asked. With confirmed, reviewedById is the actor and reviewedAt is now."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | MEMBER_NOT_FOUND"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | MEMBER_INACTIVE | DUPLICATE_ROLE_IN_LESSON | LESSON_TEACHER_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },
@@ -9058,6 +10690,91 @@
         },
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/members/{id}/assignments": {
+      "get": {
+        "operationId": "listMemberAssignments",
+        "parameters": [
+          {
+            "description": "Person id of the member.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberAssignmentResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every assignment of the member, whatever its status, each with its lesson (id, title, day, times and status), the latest lesson first. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },

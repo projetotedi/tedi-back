@@ -50,10 +50,21 @@ import { LessonStatus } from "../enums/lesson-status.enum";
  * too, so an e2e of this module loads the entities of every module.
  *
  * The index on `(class_id, date)` serves "the lessons of this class, in order", which the
- * listing of a class and its calendar are made of.
+ * listing of a class and its calendar are made of. The index on `date` alone serves the calendar
+ * of every class, "the lessons between two days" with no class in the filter (GUS-153).
+ *
+ * The search of the list and the calendar (`GET /lessons`, `GET /lessons/calendar`) is by title
+ * and subject, and has two GIN trigram indexes, `idx_lessons_title_search` and
+ * `idx_lessons_subject_search`, on `public.search_normalize(column)` (docs/ARCHITECTURE.md
+ * section 12). They are NOT declared here, on purpose, and exist only in the migration
+ * `CreateLessonListIndexes`: `@Index` only takes columns, TypeORM cannot declare an expression
+ * index (same case as `uq_classes_edition_id_code`), and this repo never runs `synchronize` or
+ * `migration:generate` (see ci.yml), so nothing would drop or recreate them. The schema e2e
+ * (`lessons.repository.e2e.spec.ts`) checks them in `pg_indexes` and in the plan of a query.
  */
 @Entity({ name: "lessons" })
 @Index("idx_lessons_class_id_date", ["classId", "date"])
+@Index("idx_lessons_date", ["date"])
 @Check("ck_lessons_time_range", '"end_time" > "start_time"')
 @Check("ck_lessons_sequence_order", '"sequence_order" IS NULL OR "sequence_order" >= 1')
 @Check(

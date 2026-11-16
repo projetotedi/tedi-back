@@ -88,6 +88,11 @@ interface LessonBody extends Record<string, unknown> {
   location: string | null;
   expectedStudents: number | null;
   expectedMonitors: number | null;
+  coverage: {
+    teacher: { confirmed: number; expected: number };
+    monitors: { confirmed: number; expected: number | null };
+  };
+  belowExpectedMonitors: boolean;
   subject: string | null;
   postNotes: string | null;
   status: string;
@@ -376,6 +381,11 @@ describe("LessonsController (e2e)", () => {
         location: null,
         expectedStudents: null,
         expectedMonitors: null,
+        coverage: {
+          teacher: { confirmed: 0, expected: 1 },
+          monitors: { confirmed: 0, expected: null },
+        },
+        belowExpectedMonitors: false,
         subject: null,
         postNotes: null,
         status: "planned",
@@ -1107,6 +1117,30 @@ describe("LessonsController (e2e)", () => {
       expect(res.body).toEqual(created);
     });
 
+    it("answers zero confirmed staff in coverage for a lesson without assignments", async () => {
+      const created = await createLesson(body({ expectedMonitors: 2 }));
+
+      const res = await getLesson(created.id, member).expect(200);
+
+      expect(res.body.coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 0, expected: 2 },
+      });
+      expect(res.body.belowExpectedMonitors).toBe(true);
+    });
+
+    it("answers a coverage with no expected monitors, and not below it, for a lesson that does not say how many it expects", async () => {
+      const created = await createLesson();
+
+      const res = await getLesson(created.id, member).expect(200);
+
+      expect(res.body.coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 0, expected: null },
+      });
+      expect(res.body.belowExpectedMonitors).toBe(false);
+    });
+
     it("every profile reads a lesson: director, coordinator and superadmin too", async () => {
       const created = await createLesson();
 
@@ -1223,6 +1257,12 @@ describe("LessonsController (e2e)", () => {
         location: "Sala 2",
         expectedStudents: 12,
         expectedMonitors: 3,
+        // Three monitors are expected now and none is confirmed: the coverage follows the edit.
+        coverage: {
+          teacher: { confirmed: 0, expected: 1 },
+          monitors: { confirmed: 0, expected: 3 },
+        },
+        belowExpectedMonitors: true,
         status: "confirmed",
         updatedAt: expect.any(String),
       });
@@ -2451,13 +2491,16 @@ describe("LessonsController (e2e)", () => {
       expect(await countLessons()).toBe(1);
     });
 
-    it("has no listing yet: GET /lessons is another card", async () => {
+    it("has the listing since GUS-153: GET /lessons answers a page with the lesson that was created (its own tests are in lessons-list.controller.e2e.spec.ts)", async () => {
+      const created = await createLesson();
+
       const res = await request(app.getHttpServer())
         .get("/lessons")
         .set("Cookie", coordinator.cookie)
-        .expect(404);
+        .expect(200);
 
-      expect(res.body.error).toBe("NOT_FOUND");
+      expect(res.body).toMatchObject({ total: 1, page: 1, limit: 20 });
+      expect(res.body.data.map((item: { id: string }) => item.id)).toEqual([created.id]);
     });
 
     it("emits one event per mutation: CREATED, UPDATED, RESCHEDULED, CANCELLED", async () => {

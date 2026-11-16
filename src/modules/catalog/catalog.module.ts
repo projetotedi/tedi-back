@@ -41,7 +41,10 @@ import { LessonPlansService } from "./services/lesson-plans.service";
   // - classes: the course (category, status) through CoursesService.getCourseSummary;
   // - lessons (GUS-151): the course name (CoursesService.getCourseSummary), the lesson plan a lesson
   //   is created from (LessonPlansService.getLessonPlanSummary) and the position of that plan in the
-  //   sequence of the course (CourseLessonPlansService.findPosition).
+  //   sequence of the course (CourseLessonPlansService.findPosition);
+  // - lessons (GUS-154): the whole sequence of a course with the title, the objective and the
+  //   duration of each plan, to generate the lessons of a class (CourseLessonPlansService.
+  //   getSequenceSummaries).
   exports: [CoursesService, LessonPlansService, CourseLessonPlansService],
 })
 export class CatalogModule {}

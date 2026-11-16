@@ -10,6 +10,7 @@ import { PeopleModule } from "@modules/people/people.module";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { ClassesModule } from "@modules/classes/classes.module";
 import { LessonsModule } from "@modules/lessons/lessons.module";
+import { AssignmentsModule } from "@modules/assignments/assignments.module";
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { LessonsModule } from "@modules/lessons/lessons.module";
     CatalogModule,
     ClassesModule,
     LessonsModule,
+    AssignmentsModule,
     // Os próximos módulos de domínio entram aqui, um por área (ver docs/ARCHITECTURE.md).
   ],
   controllers: [HealthController],

@@ -24,6 +24,36 @@ export function isValidCalendarDate(value: string): boolean {
   );
 }
 
+const MILLISECONDS_PER_DAY = 86_400_000;
+
+/** The instant of midnight UTC of a "YYYY-MM-DD" day: a number that days subtract exactly. */
+function utcMidnightOf(value: string): number {
+  if (!isValidCalendarDate(value)) {
+    throw new Error(`Invalid calendar date "${value}": expected "YYYY-MM-DD".`);
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+
+  // Same as isValidCalendarDate: Date.UTC maps years 0 to 99 to 1900-1999.
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+
+  return date.getTime();
+}
+
+/**
+ * Days from `from` to `to`, both "YYYY-MM-DD": the same day is 0, the next day is 1, and it is
+ * negative when `to` is before `from`. Counting the days on both ends (a month grid from the 1st to
+ * the 42nd day) is this plus one.
+ *
+ * It works on midnight UTC, which has no daylight saving, so a day is always 24 hours long.
+ * Both dates must exist in the calendar (`isValidCalendarDate`): it throws on anything else,
+ * because a NaN here would let a comparison like `days + 1 > max` pass without anyone noticing.
+ */
+export function calendarDaysBetween(from: string, to: string): number {
+  return (utcMidnightOf(to) - utcMidnightOf(from)) / MILLISECONDS_PER_DAY;
+}
+
 /**
  * Today's date in APP_TIME_ZONE as "YYYY-MM-DD".
  * Uses Intl parts, never toISOString (which would give the UTC date).
