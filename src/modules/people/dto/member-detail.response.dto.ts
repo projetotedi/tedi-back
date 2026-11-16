@@ -1,6 +1,7 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { Role } from "@shared/enums/role.enum";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 import { DepartmentResponseDto } from "./department.response.dto";
 import { PersonRefDto } from "./person-ref.response.dto";
 
@@ -167,6 +168,32 @@ export class MemberDetailResponseDto {
     description: WITHOUT_MEMBER_PROFILE,
   })
   registrationStatus!: MemberRegistrationStatus | null;
+
+  @ApiProperty({
+    enum: MemberStatus,
+    enumName: "MemberStatus",
+    example: MemberStatus.ACTIVE,
+    description:
+      "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+  })
+  status!: MemberStatus;
+
+  @ApiProperty({
+    type: String,
+    format: "date",
+    nullable: true,
+    example: "2026-06-30",
+    description: "Day the member left (YYYY-MM-DD). Null while active.",
+  })
+  exitDate!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: "Formou-se.",
+    description: "Why the member left. Null while active.",
+  })
+  exitReason!: string | null;
 
   // Registration review
 

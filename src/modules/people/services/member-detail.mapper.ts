@@ -2,6 +2,7 @@ import { MemberDetailResponseDto } from "../dto/member-detail.response.dto";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
+import { MemberStatus } from "../enums/member-status.enum";
 import { maskCpf } from "../validators/cpf";
 import { toDepartmentResponse } from "./member-registration.mapper";
 
@@ -16,6 +17,9 @@ import { toDepartmentResponse } from "./member-registration.mapper";
  *  - `registrationStatus` null means "no member profile"; every other member field is null too.
  *  - `reviewedBy` is { id, name } of the reviewer; null when there is none (pending, approved by
  *    the backfill, or the reviewer was deleted).
+ *  - `status` is never null: without a member profile it is `active`, because only a deactivation
+ *    makes somebody inactive (GUS-147). `exitDate` and `exitReason` are null while active;
+ *    `exitNote`, `deactivatedAt` and `deactivatedById` never leave here (RNF-13).
  *
  * Phone and address are shown to every reader of the record, the director of the member's
  * department included (Q9.4, answered on 2026-11-11). This is the one place that decides what the
@@ -49,6 +53,9 @@ export function toMemberDetail(
     joinedAt: profile?.joinedAt ?? null,
     volunteerTermUrl: profile?.volunteerTermUrl ?? null,
     registrationStatus: profile?.registrationStatus ?? null,
+    status: profile?.status ?? MemberStatus.ACTIVE,
+    exitDate: profile?.exitDate ?? null,
+    exitReason: profile?.exitReason ?? null,
     reviewedAt: profile?.reviewedAt ?? null,
     reviewedBy: reviewer === null ? null : { id: reviewer.id, name: reviewer.name },
   };

@@ -1,0 +1,29 @@
+meta {
+  name: reactivate-member
+  type: http
+  seq: 16
+}
+
+patch {
+  url: {{baseUrl}}/members/:id/reactivate
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01999a3e-7c1b-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Reativa um membro inativo (GUS-147). O :id é o id da Person.
+  Requer cookie tedi_session e a permissão members.deactivate (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  Volta o status para active e limpa exitDate, exitReason, a observação e quem inativou; a saída anterior fica só no evento de auditoria MEMBER_DEACTIVATED.
+  O login NÃO volta: reativar o acesso é update-access-enabled.
+  Membro já ativo, cadastro pendente ou recusado e quem não tem perfil de membro respondem 200 sem alterar nada.
+  Retorna 200 MemberDetailResponseDto.
+  Erros possíveis: 401, 403 FORBIDDEN ou OWN_ACCOUNT (a própria conta), 404 MEMBER_NOT_FOUND.
+}

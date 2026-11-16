@@ -1,9 +1,24 @@
-import { Injectable } from "@nestjs/common";
+import { HttpException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { isUUID } from "class-validator";
-import { DeepPartial, In, Repository } from "typeorm";
+import { DeepPartial, EntityManager, In, Repository } from "typeorm";
+import { Role } from "@shared/enums/role.enum";
 import { PersonRefDto } from "../dto/person-ref.response.dto";
 import { Person } from "../entities/person.entity";
+
+/**
+ * The one place that builds the 409 LAST_COORDINATOR: removing the role or the access of the last
+ * active coordinator is refused, by /access and by the member deactivation alike.
+ */
+export function lastCoordinator(): HttpException {
+  return new HttpException(
+    {
+      error: "LAST_COORDINATOR",
+      message: "Cannot demote or disable the last active coordinator.",
+    },
+    409,
+  );
+}
 
 @Injectable()
 export class PeopleService {
@@ -68,5 +83,24 @@ export class PeopleService {
       entity.ra = entity.ra.trim().toLowerCase();
     }
     return this.repository.save(entity);
+  }
+
+  /**
+   * 409 LAST_COORDINATOR when at most one coordinator with access enabled exists (decision 10 of
+   * E9.a): the system must keep somebody who can manage access. Superadmin is not counted.
+   *
+   * Runs on the `manager` of the caller's transaction, before the write that would remove a
+   * coordinator, with the target row already locked. The caller decides when it applies (target
+   * is a coordinator, actor is not superadmin). Every caller runs SERIALIZABLE: two coordinators
+   * removing each other at the same time lock different rows, so only Postgres SSI catches that
+   * write skew.
+   */
+  async assertNotLastActiveCoordinator(manager: EntityManager): Promise<void> {
+    const count = await manager.count(Person, {
+      where: { role: Role.COORDINATOR, accessEnabled: true },
+    });
+    if (count <= 1) {
+      throw lastCoordinator();
+    }
   }
 }
