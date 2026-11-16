@@ -369,6 +369,8 @@ describe("MyHoursController (e2e)", () => {
       { case: "a blank activity", overrides: { activity: "   " }, field: "activity" },
       { case: "the category lesson", overrides: { category: "lesson" }, field: "category" },
       { case: "the date 2026-02-30", overrides: { date: "2026-02-30" }, field: "date" },
+      { case: "the date 0000-06-15", overrides: { date: "0000-06-15" }, field: "date" },
+      { case: "the date 1999-12-31", overrides: { date: "1999-12-31" }, field: "date" },
       {
         case: "no declaredMinutes",
         overrides: { declaredMinutes: undefined },

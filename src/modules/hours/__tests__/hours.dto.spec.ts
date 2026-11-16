@@ -3,6 +3,7 @@ import { plainToInstance } from "class-transformer";
 import { validate, ValidationError } from "class-validator";
 import { buildValidationPipe } from "@shared/filters/validation-pipe.factory";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
+import { HOUR_ENTRY_MIN_DATE } from "../dto/hour-entry-limits";
 import { HoursPeriodQueryDto } from "../dto/hours-period-query.dto";
 import { ListMyHourEntriesQueryDto } from "../dto/list-my-hour-entries-query.dto";
 import {
@@ -153,6 +154,16 @@ describe("CreateHourEntryDto", () => {
     expect((await checkCreate({ ...CARD_BODY, date: "2024-02-29" })).errors).toHaveLength(0);
   });
 
+  it("rejects a date before 2000-01-01, the year 0000 included, and accepts 2000-01-01", async () => {
+    for (const date of ["0000-06-15", "0001-01-01", "1999-12-31"]) {
+      const { errors, fields } = await checkCreate({ ...CARD_BODY, date });
+
+      expect(fields).toEqual(["date"]);
+      expect(errors[0].constraints).toHaveProperty("isOnOrAfterDate");
+    }
+    expect((await checkCreate({ ...CARD_BODY, date: HOUR_ENTRY_MIN_DATE })).errors).toHaveLength(0);
+  });
+
   it("drops personId, status, origin, validatedMinutes, classId and lessonId through the global pipe", async () => {
     const transformed: unknown = await buildValidationPipe().transform(
       {
@@ -247,5 +258,15 @@ describe("HoursPeriodQueryDto", () => {
       "to",
     ]);
     expect((await checkPeriod({ from: "" })).fields).toEqual(["from"]);
+  });
+
+  it("rejects from and to before 2000-01-01, the year 0000 included, and accepts 2000-01-01", async () => {
+    for (const date of ["0000-06-15", "1999-12-31"]) {
+      expect((await checkPeriod({ from: date, to: date })).fields).toEqual(["from", "to"]);
+      expect((await checkList({ from: date })).fields).toEqual(["from"]);
+    }
+    expect(
+      (await checkPeriod({ from: HOUR_ENTRY_MIN_DATE, to: HOUR_ENTRY_MIN_DATE })).errors,
+    ).toHaveLength(0);
   });
 });

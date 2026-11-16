@@ -31,7 +31,7 @@ docs {
   Obrigatórios: activity (até 200 caracteres, aparado; em branco é recusado), category, date (AAAA-MM-DD) e declaredMinutes. Opcional: notes (até 2000 caracteres; null ou em branco vira null).
   declaredMinutes é um inteiro de 1 a 1440 (um dia): 2h30 = 150. 0, mais de 1440, número fracionário e a string "150" respondem 400 VALIDATION_FAILED.
   category: planning, event, management, meeting, support ou other. lesson é recusada (400 VALIDATION_FAILED): horas de aula só nascem da presença confirmada (RN-03).
-  date não pode ser depois de hoje no fuso de São Paulo: 400 HOUR_ENTRY_DATE_IN_FUTURE, com details[].field = "date". Hoje vale.
+  date não pode ser depois de hoje no fuso de São Paulo: 400 HOUR_ENTRY_DATE_IN_FUTURE, com details[].field = "date". Hoje vale. Nem antes de 2000-01-01: 400 VALIDATION_FAILED, field date.
   personId, status, origin, validatedMinutes, classId e lessonId enviados no corpo são descartados.
   Lançamento enviado não é editado: para corrigir, remova (enquanto pending) e lance de novo.
   Retorna 201 HourEntryResponseDto. Grava o evento created no histórico do lançamento (hour_entry_events) e registra HOUR_ENTRY_CREATED, sem activity nem notes (texto livre, RNF-13).

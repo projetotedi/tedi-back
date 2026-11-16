@@ -1371,7 +1371,7 @@
             "example": "planning"
           },
           "date": {
-            "description": "Day of the work, YYYY-MM-DD. Today or before, in America/Sao_Paulo (else 400 HOUR_ENTRY_DATE_IN_FUTURE).",
+            "description": "Day of the work, YYYY-MM-DD, from 2000-01-01 (else 400 VALIDATION_FAILED). Today or before, in America/Sao_Paulo (else 400 HOUR_ENTRY_DATE_IN_FUTURE).",
             "example": "2026-03-10",
             "format": "date",
             "type": "string"
@@ -8808,7 +8808,7 @@
         "operationId": "listMyHourEntries",
         "parameters": [
           {
-            "description": "First day, YYYY-MM-DD, inclusive. Omit for no lower bound.",
+            "description": "First day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no lower bound.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -8819,7 +8819,7 @@
             }
           },
           {
-            "description": "Last day, YYYY-MM-DD, inclusive. Omit for no upper bound.",
+            "description": "Last day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no upper bound.",
             "in": "query",
             "name": "to",
             "required": false,
@@ -9131,7 +9131,7 @@
         "operationId": "getMyHoursSummary",
         "parameters": [
           {
-            "description": "First day, YYYY-MM-DD, inclusive. Omit for no lower bound.",
+            "description": "First day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no lower bound.",
             "in": "query",
             "name": "from",
             "required": false,
@@ -9142,7 +9142,7 @@
             }
           },
           {
-            "description": "Last day, YYYY-MM-DD, inclusive. Omit for no upper bound.",
+            "description": "Last day, YYYY-MM-DD, inclusive, from 2000-01-01. Omit for no upper bound.",
             "in": "query",
             "name": "to",
             "required": false,

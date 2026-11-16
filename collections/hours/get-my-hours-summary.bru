@@ -22,7 +22,7 @@ query {
 docs {
   Resumo das horas da pessoa logada (F7.3): totais por status e por categoria e o banco de horas.
   Requer cookie tedi_session e a permissão account.manageOwn (@RequirePermission; todos os perfis).
-  Período opcional: ?from e ?to (AAAA-MM-DD, extremos incluídos). from e to voltam na resposta (null quando abertos).
+  Período opcional: ?from e ?to (AAAA-MM-DD a partir de 2000-01-01, extremos incluídos). from e to voltam na resposta (null quando abertos).
   bankMinutes é o banco de horas: a soma de validatedMinutes dos lançamentos approved e adjusted.
   byStatus traz sempre os 4 status (pending, approved, adjusted, rejected), na ordem, com entries, declaredMinutes e validatedMinutes.
   byCategory traz sempre as 7 categorias (lesson, planning, event, management, meeting, support, other), na ordem, com entries, declaredMinutes, bankMinutes (validado de approved e adjusted) e pendingMinutes (declarado dos pending). O que não tem lançamento vem zerado.

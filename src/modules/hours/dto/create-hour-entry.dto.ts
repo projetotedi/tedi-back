@@ -19,8 +19,10 @@ import {
 import {
   HOUR_ENTRY_ACTIVITY_MAX_LENGTH,
   HOUR_ENTRY_MAX_MINUTES,
+  HOUR_ENTRY_MIN_DATE,
   HOUR_ENTRY_NOTES_MAX_LENGTH,
 } from "./hour-entry-limits";
+import { IsOnOrAfterDate } from "./is-on-or-after-date.validator";
 
 /**
  * The body of `POST /me/hour-entries` and `POST /members/:id/hour-entries`. Whose hours they are,
@@ -56,9 +58,10 @@ export class CreateHourEntryDto {
     format: "date",
     example: "2026-03-10",
     description:
-      "Day of the work, YYYY-MM-DD. Today or before, in America/Sao_Paulo (else 400 HOUR_ENTRY_DATE_IN_FUTURE).",
+      "Day of the work, YYYY-MM-DD, from 2000-01-01 (else 400 VALIDATION_FAILED). Today or before, in America/Sao_Paulo (else 400 HOUR_ENTRY_DATE_IN_FUTURE).",
   })
   @IsCalendarDate()
+  @IsOnOrAfterDate(HOUR_ENTRY_MIN_DATE)
   date!: string;
 
   @ApiProperty({
