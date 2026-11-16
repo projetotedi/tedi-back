@@ -582,6 +582,28 @@ describe("EnrollmentsService", () => {
       expect(order).not.toContain("commit");
     });
 
+    it("throws when manager.save answers an enrollment whose student was not read, a broken invariant", async () => {
+      const unread = "01999a3e-7c1b-7000-8000-0000000000ff";
+      manager.save.mockImplementationOnce(async (entity: Enrollment[]) => {
+        order.push("save");
+        entity.forEach((enrollment, index) => {
+          enrollment.id = `01999a3e-7c1b-7000-8000-00000000010${String(index)}`;
+          enrollment.studentId = unread;
+        });
+        return entity;
+      });
+
+      await expect(service.enroll(CLASS_ID, { studentIds: [ANA] }, ACTOR_ID)).rejects.toThrow(
+        `The student ${unread} of a new enrollment was not read.`,
+      );
+
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      // The guard runs after the commit and after the events, when the answer is built: the event of
+      // the enrollment that was written is already out.
+      expect(order.slice(-3)).toEqual(["save", "commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+    });
+
     it("maps a 23505 on uq_enrollments_class_id_student_id to 409 ALREADY_ENROLLED and rethrows any other error", async () => {
       dataSource.transaction.mockRejectedValueOnce(
         driverFailure("23505", "uq_enrollments_class_id_student_id"),

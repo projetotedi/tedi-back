@@ -130,6 +130,16 @@ describe("enrollment DTOs", () => {
     expect((await check(ListStudentsByEnrollmentQueryDto, {})).fields).toEqual([]);
   });
 
+  it("keeps page and limit undefined when they come as undefined, with no validation error", async () => {
+    for (const target of [ListClassEnrollmentsQueryDto, ListStudentsByEnrollmentQueryDto]) {
+      const dto = plainToInstance(target, { page: undefined, limit: undefined });
+
+      expect(dto.page).toBeUndefined();
+      expect(dto.limit).toBeUndefined();
+      await expect(validate(dto, { whitelist: true })).resolves.toEqual([]);
+    }
+  });
+
   it("refuses a classId that is not a uuid and an unknown situation", async () => {
     expect(
       (await check(ListStudentsByEnrollmentQueryDto, { classId: "not-a-uuid", situation: "all" }))
