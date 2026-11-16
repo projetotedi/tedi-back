@@ -1121,7 +1121,7 @@ describe("MembersService", () => {
       expect(state.profile).toMatchObject({ status: MemberStatus.INACTIVE, exitNote: null });
     });
 
-    it("checks LAST_COORDINATOR on the transaction manager for a coordinator target and propagates the 409 without writing", async () => {
+    it("checks LAST_COORDINATOR on the transaction manager for an active coordinator target and propagates the 409 without writing", async () => {
       state.personById = buildPerson({ role: Role.COORDINATOR, accessEnabled: true });
       people.assertNotLastActiveCoordinator.mockRejectedValue(lastCoordinator());
 
@@ -1157,6 +1157,21 @@ describe("MembersService", () => {
 
       expect(people.assertNotLastActiveCoordinator).not.toHaveBeenCalled();
       expect(savedOf(Person)).toHaveLength(3);
+    });
+
+    it("skips LAST_COORDINATOR for a coordinator target whose access is already disabled, and deactivates her", async () => {
+      state.personById = buildPerson({ role: Role.COORDINATOR, accessEnabled: false });
+      people.assertNotLastActiveCoordinator.mockRejectedValue(lastCoordinator());
+
+      const record = await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+
+      expect(people.assertNotLastActiveCoordinator).not.toHaveBeenCalled();
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+      });
+      expect(savedOf(Person)[0]).toMatchObject({ role: Role.COORDINATOR, accessEnabled: false });
+      expect(record).toMatchObject({ status: MemberStatus.INACTIVE, accessEnabled: false });
     });
 
     it("emits MEMBER_DEACTIVATED after the commit with status, access, exitDate and exitReason, never the note", async () => {

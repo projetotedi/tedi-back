@@ -364,7 +364,12 @@ export class MembersService {
    * The exit may be on the join date ("YYYY-MM-DD" compares chronologically as text); a profile
    * approved by the backfill has no join date, so only the floor of the DTO applies.
    * LAST_COORDINATOR is the rule of /access with the same superadmin bypass (decision 10 of E9.a,
-   * GUS-81): it runs when the target is a coordinator, even one whose access is already disabled.
+   * GUS-81), but it only runs when the target coordinator still has the access enabled: a target
+   * that is already disabled is not in the count, so deactivating her does not change the set of
+   * active coordinators, and checking would refuse the legitimate "disable the access, then
+   * register the exit" flow. With a coordinator as the actor (active, and never the target) the
+   * count is then always 2 or more, so the 409 does not show up in sequence; the check stays as
+   * the read that lets SERIALIZABLE catch two coordinators removing each other at the same time.
    *
    * SERIALIZABLE, like PATCH /access/:id/role and /enabled: LAST_COORDINATOR counts the active
    * coordinators, and two coordinators removing each other at the same time (one here, one in
@@ -390,7 +395,11 @@ export class MembersService {
       if (profile.joinedAt !== null && dto.exitDate < profile.joinedAt) {
         throw exitDateBeforeJoinedAt();
       }
-      if (person.role === Role.COORDINATOR && actor.role !== Role.SUPERADMIN) {
+      if (
+        person.role === Role.COORDINATOR &&
+        person.accessEnabled &&
+        actor.role !== Role.SUPERADMIN
+      ) {
         await this.people.assertNotLastActiveCoordinator(manager);
       }
 

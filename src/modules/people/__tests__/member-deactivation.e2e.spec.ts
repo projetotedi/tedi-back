@@ -430,29 +430,44 @@ describe("PATCH /members/:id/deactivate and /reactivate (e2e)", () => {
       });
     });
 
-    // Same scenario as CA81-5 of /access: with an active coordinator as the actor (she passed the
-    // guard) and OWN_ACCOUNT forbidding herself, the count is always 2 or more while the target is
-    // active. The 409 only shows up when the target coordinator already has the access disabled.
-    it("409 LAST_COORDINATOR when the target coordinator is the last active one; superadmin bypasses", async () => {
+    // A coordinator that already has the access disabled is not in the count of active
+    // coordinators, so deactivating her does not change it: the flow "disable the access in
+    // /access, then register the exit" passes (409 LAST_COORDINATOR here was a false positive).
+    // The second part disables the coordinator actor, so coord3 is the last active coordinator:
+    // only the superadmin bypass lets her be deactivated.
+    it("coordinator deactivates a coordinator whose access is already disabled (200); superadmin deactivates the last active coordinator (200)", async () => {
       const coord2 = await createActor("Coordinator Two", Role.COORDINATOR);
       await insertMemberProfile(dataSource, { personId: coord2.id, status: "approved" });
       await request(app.getHttpServer())
         .patch(`/access/${coord2.id}/enabled`)
+        .set("Cookie", coordinator.cookie)
+        .send({ enabled: false })
+        .expect(200);
+
+      const afterDisable = await deactivate(coord2.id, coordinator, EXIT).expect(200);
+
+      expect(afterDisable.body).toMatchObject({
+        role: "coordinator",
+        status: "inactive",
+        accessEnabled: false,
+      });
+      expect(await exitOf(coord2.id)).toMatchObject({
+        status: "inactive",
+        deactivated_by_id: coordinator.id,
+      });
+
+      const coord3 = await createActor("Coordinator Three", Role.COORDINATOR);
+      await insertMemberProfile(dataSource, { personId: coord3.id, status: "approved" });
+      await request(app.getHttpServer())
+        .patch(`/access/${coordinator.id}/enabled`)
         .set("Cookie", superadmin.cookie)
         .send({ enabled: false })
         .expect(200);
 
-      const blocked = await deactivate(coord2.id, coordinator, EXIT).expect(409);
+      const bypass = await deactivate(coord3.id, superadmin, EXIT).expect(200);
 
-      expect(blocked.body).toStrictEqual({
-        statusCode: 409,
-        error: "LAST_COORDINATOR",
-        message: "Cannot demote or disable the last active coordinator.",
-      });
-      expect((await exitOf(coord2.id)).status).toBe("active");
-
-      const bypass = await deactivate(coord2.id, superadmin, EXIT).expect(200);
       expect(bypass.body).toMatchObject({ status: "inactive", accessEnabled: false });
+      expect(await accessEnabledOf(coord3.id)).toBe(false);
     });
   });
 
