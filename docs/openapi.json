@@ -12179,7 +12179,7 @@
                 }
               }
             },
-            "description": "ENTRY_NOT_PENDING"
+            "description": "ATTENDANCE_ENTRY_NOT_REMOVABLE: lesson hours of an attendance, in any status (they change only with the attendance) | ENTRY_NOT_PENDING"
           },
           "500": {
             "content": {

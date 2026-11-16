@@ -20,6 +20,21 @@ export function entryNotPending(): HttpException {
   );
 }
 
+/**
+ * 409: lesson hours of an attendance (GUS-168) are not removed by the person, in any status: they
+ * change only with the attendance (a correction to absent, or the cancellation of the lesson).
+ */
+export function attendanceEntryNotRemovable(): HttpException {
+  return new HttpException(
+    {
+      error: "ATTENDANCE_ENTRY_NOT_REMOVABLE",
+      message:
+        "Lesson hours of an attendance cannot be removed; the attendance is corrected instead.",
+    },
+    409,
+  );
+}
+
 /** 400: hours are logged for work already done, never after today in APP_TIME_ZONE. */
 export function hourEntryDateInFuture(): HttpException {
   return new HttpException(

@@ -416,6 +416,22 @@ describe("member attendance routes (e2e)", () => {
       });
     });
 
+    it("does not let the monitor remove the lesson hours of his presence: 409 ATTENDANCE_ENTRY_NOT_REMOVABLE", async () => {
+      await putAttendance(teacher, [{ assignmentId: monitorAssignment, status: "present" }]).expect(
+        200,
+      );
+      const [entry] = await entriesOf(lessonId);
+
+      const res = await request(app.getHttpServer())
+        .delete(`/me/hour-entries/${entry.id}`)
+        .set("Cookie", monitor.cookie)
+        .expect(409);
+
+      expect(res.body).toMatchObject({ error: "ATTENDANCE_ENTRY_NOT_REMOVABLE" });
+      expect(await activeEntriesOf(lessonId)).toEqual([expect.objectContaining({ id: entry.id })]);
+      expect((await historyOf(entry.id)).map((row) => row.type)).toEqual(["created", "approved"]);
+    });
+
     it("answers 403 SELF_ATTENDANCE_NOT_ALLOWED to the teacher confirming himself and to a coordinator assigned as monitor confirming herself, writing nothing", async () => {
       const own = await putAttendance(teacher, [
         { assignmentId: monitorAssignment, status: "present" },

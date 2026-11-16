@@ -102,7 +102,11 @@ export class MyHoursController {
     type: ApiErrorDto,
     description: "HOUR_ENTRY_NOT_FOUND: malformed, unknown, of another person or already removed.",
   })
-  @ApiConflictResponse({ type: ApiErrorDto, description: "ENTRY_NOT_PENDING" })
+  @ApiConflictResponse({
+    type: ApiErrorDto,
+    description:
+      "ATTENDANCE_ENTRY_NOT_REMOVABLE: lesson hours of an attendance, in any status (they change only with the attendance) | ENTRY_NOT_PENDING",
+  })
   removeMyHourEntry(
     @Param("id", HOUR_ENTRY_ID) id: string,
     @CurrentUser() actor: AuthUser,

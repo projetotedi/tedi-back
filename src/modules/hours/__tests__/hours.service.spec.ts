@@ -1009,6 +1009,33 @@ describe("HoursService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
+    it.each([
+      { status: HourEntryStatus.PENDING, validatedMinutes: null },
+      { status: HourEntryStatus.APPROVED, validatedMinutes: 90 },
+    ])(
+      "throws ATTENDANCE_ENTRY_NOT_REMOVABLE for lesson hours of an attendance that are $status, before ENTRY_NOT_PENDING, and writes nothing",
+      async ({ status, validatedMinutes }) => {
+        stored = storedEntry({
+          origin: HourEntryOrigin.ATTENDANCE,
+          createdById: DIRECTOR.id,
+          category: HourEntryCategory.LESSON,
+          classId: CLASS_ID,
+          lessonId: LESSON_ID,
+          declaredMinutes: 90,
+          status,
+          validatedMinutes,
+        });
+
+        const failure = await httpFailure(service.removeMyEntry(ENTRY_ID, MEMBER));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(codeOf(failure)).toBe("ATTENDANCE_ENTRY_NOT_REMOVABLE");
+        expect(manager.update).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      },
+    );
+
     it.each([HourEntryStatus.APPROVED, HourEntryStatus.ADJUSTED, HourEntryStatus.REJECTED])(
       "throws ENTRY_NOT_PENDING for an entry that is %s and writes nothing",
       async (status) => {

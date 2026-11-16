@@ -26,6 +26,7 @@ import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import {
+  attendanceEntryNotRemovable,
   entryNotPending,
   hourEntryDateInFuture,
   hourEntryNotFound,
@@ -430,7 +431,10 @@ export class HoursService {
    * The owner is checked by the query (`id` and `person_id` of the session), never by the policy:
    * the superadmin has `all` on account.manageOwn and would remove anyone's entry. So an entry of
    * another person answers 404 HOUR_ENTRY_NOT_FOUND, like an unknown one and one already removed;
-   * a reviewed entry answers 409 ENTRY_NOT_PENDING.
+   * lesson hours of an attendance answer 409 ATTENDANCE_ENTRY_NOT_REMOVABLE, whatever their status
+   * (GUS-168: they change only with the attendance, by a correction or the cancellation of the
+   * lesson, and removing them would leave a presence pointing to an entry that is gone); a reviewed
+   * entry answers 409 ENTRY_NOT_PENDING.
    *
    * The entry is read FOR UPDATE: two removals of it, or a removal and the review of GUS-164, run
    * one after the other. The one that waits reads the row again after the other commits, and
@@ -450,6 +454,7 @@ export class HoursService {
         lock: { mode: "pessimistic_write" },
       });
       if (entry === null) throw hourEntryNotFound();
+      if (entry.origin === HourEntryOrigin.ATTENDANCE) throw attendanceEntryNotRemovable();
       if (entry.status !== HourEntryStatus.PENDING) throw entryNotPending();
 
       await manager.update(HourEntry, { id: entry.id }, { deletedAt: now, updatedAt: now });
