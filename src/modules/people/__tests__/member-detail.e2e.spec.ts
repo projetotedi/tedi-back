@@ -322,6 +322,9 @@ describe("GET /members/:id (e2e)", () => {
         joinedAt: JOINED_AT,
         volunteerTermUrl: "https://drive.google.com/file/d/exemplo/view",
         registrationStatus: "approved",
+        status: "active",
+        exitDate: null,
+        exitReason: null,
         // The instant of the approval, as an ISO string, and who approved.
         reviewedAt: reviewedAt.toISOString(),
         reviewedBy: { id: coordinator.id, name: "Coordinator" },
@@ -449,6 +452,9 @@ describe("GET /members/:id (e2e)", () => {
         joinedAt: null,
         volunteerTermUrl: null,
         registrationStatus: null,
+        status: "active",
+        exitDate: null,
+        exitReason: null,
         reviewedAt: null,
         reviewedBy: null,
       });

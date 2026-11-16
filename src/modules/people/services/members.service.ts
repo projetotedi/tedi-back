@@ -27,6 +27,7 @@ import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 import { DepartmentsService } from "./departments.service";
 import { buildMemberEvent } from "./member-audit";
 import { toMemberDetail } from "./member-detail.mapper";
@@ -74,7 +75,17 @@ interface MemberListRawRow {
   mainFunction: string | null;
   joinedAt: string | null;
   registrationStatus: MemberRegistrationStatus | null;
+  status: MemberStatus;
+  exitDate: string | null;
+  exitReason: string | null;
 }
+
+/**
+ * Situation of a row of GET /members: the participation of the member profile, and `active` for a
+ * person without one, who was never deactivated. It interpolates a constant of the code, never
+ * input.
+ */
+const MEMBER_STATUS_SQL = `COALESCE(member_profile.status, '${MemberStatus.ACTIVE}')`;
 
 /**
  * The one place that builds the "member registration not found" error: an unknown id, a
@@ -161,6 +172,8 @@ export class MembersService {
   /**
    * Lists people with an access role and all people with a member profile, including pending
    * and rejected registrations whose role is null. Sensitive registration fields are not selected.
+   * The `status` filter is the participation (GUS-147): omitted lists every status, and a person
+   * without member profile counts as active.
    */
   async listMembers(
     query: ListMembersQueryDto,
@@ -191,6 +204,9 @@ export class MembersService {
         mainFunction: row.mainFunction,
         joinedAt: row.joinedAt,
         registrationStatus: row.registrationStatus,
+        status: row.status,
+        exitDate: row.exitDate,
+        exitReason: row.exitReason,
       })),
       total,
       page,
@@ -214,6 +230,9 @@ export class MembersService {
       .addSelect("member_profile.main_function", "mainFunction")
       .addSelect("member_profile.joined_at::text", "joinedAt")
       .addSelect("member_profile.registration_status", "registrationStatus")
+      .addSelect(MEMBER_STATUS_SQL, "status")
+      .addSelect("member_profile.exit_date::text", "exitDate")
+      .addSelect("member_profile.exit_reason", "exitReason")
       .where("(person.role IS NOT NULL OR member_profile.id IS NOT NULL)");
 
     applyTextSearch(builder, ["person.name", "person.ra"], query.search);
@@ -240,6 +259,9 @@ export class MembersService {
     }
     if (query.enabled !== undefined) {
       builder.andWhere("person.access_enabled = :enabled", { enabled: query.enabled });
+    }
+    if (query.status !== undefined) {
+      builder.andWhere(`${MEMBER_STATUS_SQL} = :status`, { status: query.status });
     }
   }
 
@@ -281,18 +303,7 @@ export class MembersService {
       departmentIds: departmentScopeOf(profile),
     });
 
-    // The department shown is the one of the profile, even a pending one's suggestion (as in
-    // GET /members): only the scope above uses "approved". A reviewer that was deleted is null.
-    const [department, reviewer] = await Promise.all([
-      profile?.departmentId
-        ? this.dataSource.getRepository(Department).findOne({ where: { id: profile.departmentId } })
-        : null,
-      profile?.reviewedById
-        ? this.dataSource.getRepository(Person).findOne({ where: { id: profile.reviewedById } })
-        : null,
-    ]);
-
-    return toMemberDetail(person, profile, department, reviewer);
+    return this.toMemberRecord(person, profile);
   }
 
   /**
@@ -665,6 +676,31 @@ export class MembersService {
     }
 
     return { person, profile };
+  }
+
+  /**
+   * The member record (MemberDetailResponseDto) of a Person and her member profile, null without
+   * one: reads the department of the profile and who reviewed the registration, through the
+   * DataSource. Shared by getMember and by the writes that answer the record.
+   *
+   * The department shown is the one of the profile, even a pending one's suggestion (as in
+   * GET /members): only the scope of getMember uses "approved". A reviewer that was deleted is
+   * null.
+   */
+  private async toMemberRecord(
+    person: Person,
+    profile: MemberProfile | null,
+  ): Promise<MemberDetailResponseDto> {
+    const [department, reviewer] = await Promise.all([
+      profile?.departmentId
+        ? this.dataSource.getRepository(Department).findOne({ where: { id: profile.departmentId } })
+        : null,
+      profile?.reviewedById
+        ? this.dataSource.getRepository(Person).findOne({ where: { id: profile.reviewedById } })
+        : null,
+    ]);
+
+    return toMemberDetail(person, profile, department, reviewer);
   }
 
   /**

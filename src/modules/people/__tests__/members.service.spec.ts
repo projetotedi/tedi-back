@@ -16,6 +16,7 @@ import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 import { DepartmentsService } from "../services/departments.service";
 import {
   MembersService,
@@ -146,6 +147,12 @@ function buildProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
     reviewedAt: null,
     reviewedById: null,
     reviewNote: null,
+    status: MemberStatus.ACTIVE,
+    exitDate: null,
+    exitReason: null,
+    exitNote: null,
+    deactivatedAt: null,
+    deactivatedById: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     deletedAt: null,

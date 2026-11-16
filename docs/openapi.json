@@ -2534,6 +2534,19 @@
             "nullable": true,
             "type": "string"
           },
+          "exitDate": {
+            "description": "Day the member left (YYYY-MM-DD). Null while active.",
+            "example": "2026-06-30",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "exitReason": {
+            "description": "Why the member left. Null while active.",
+            "example": "Formou-se.",
+            "nullable": true,
+            "type": "string"
+          },
           "id": {
             "description": "Id of the Person.",
             "example": "01999a3e-7c1b-7000-8000-000000000001",
@@ -2623,6 +2636,15 @@
             "nullable": true,
             "type": "string"
           },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberStatus"
+              }
+            ],
+            "description": "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+            "example": "active"
+          },
           "volunteerTermUrl": {
             "description": "Null for a person without a member profile (e.g. the seeded admin).",
             "example": "https://drive.google.com/file/d/exemplo/view",
@@ -2652,6 +2674,9 @@
           "joinedAt",
           "volunteerTermUrl",
           "registrationStatus",
+          "status",
+          "exitDate",
+          "exitReason",
           "reviewedAt",
           "reviewedBy"
         ],
@@ -2670,6 +2695,19 @@
             ],
             "nullable": true,
             "type": "object"
+          },
+          "exitDate": {
+            "description": "Day the member left (YYYY-MM-DD). Null while active.",
+            "example": "2026-06-30",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "exitReason": {
+            "description": "Why the member left. Null while active.",
+            "example": "Formou-se.",
+            "nullable": true,
+            "type": "string"
           },
           "id": {
             "format": "uuid",
@@ -2710,6 +2748,15 @@
               }
             ],
             "nullable": true
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberStatus"
+              }
+            ],
+            "description": "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+            "example": "active"
           }
         },
         "required": [
@@ -2721,7 +2768,10 @@
           "department",
           "mainFunction",
           "joinedAt",
-          "registrationStatus"
+          "registrationStatus",
+          "status",
+          "exitDate",
+          "exitReason"
         ],
         "type": "object"
       },
@@ -3130,6 +3180,14 @@
           "pending",
           "approved",
           "rejected"
+        ],
+        "type": "string"
+      },
+      "MemberStatus": {
+        "description": "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+        "enum": [
+          "active",
+          "inactive"
         ],
         "type": "string"
       },
@@ -8499,6 +8557,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/MemberRegistrationStatus"
+            }
+          },
+          {
+            "description": "Participation in the project. Omitted lists every status; a person without member profile counts as active.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemberStatus"
             }
           },
           {
