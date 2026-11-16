@@ -90,6 +90,7 @@ function draftOf(overrides: Partial<HourEntryDraft> = {}): HourEntryDraft {
     date: "2026-03-10",
     declaredMinutes: 150,
     notes: "Revisei os exercícios do plano 3.",
+    approvedById: null,
     ...overrides,
   };
 }
@@ -227,9 +228,10 @@ describe("HoursService", () => {
 
   describe("createEntry", () => {
     it("creates a pending entry and its created event in the caller's transaction, and returns the audit event without emitting it", async () => {
-      const { entry, auditEvent } = await service.createEntry(
+      const { entry, auditEvents } = await service.createEntry(
         entityManager,
         draftOf({ notes: null }),
+        NOW,
       );
 
       expect(dataSource.transaction).not.toHaveBeenCalled();
@@ -252,8 +254,9 @@ describe("HoursService", () => {
         reviewedById: null,
         reviewedAt: null,
       });
-      expect(auditEvent).toBeInstanceOf(AuditableActionEvent);
-      expect(auditEvent).toMatchObject({
+      expect(auditEvents).toHaveLength(1);
+      expect(auditEvents[0]).toBeInstanceOf(AuditableActionEvent);
+      expect(auditEvents[0]).toMatchObject({
         action: AuditableAction.HOUR_ENTRY_CREATED,
         actorId: MEMBER.id,
         targetType: "hour_entry",
@@ -280,6 +283,7 @@ describe("HoursService", () => {
           origin: HourEntryOrigin.ON_BEHALF,
           declaredMinutes: 45,
         }),
+        NOW,
       );
 
       expect(savedEvents()).toHaveLength(1);
@@ -295,18 +299,32 @@ describe("HoursService", () => {
       });
     });
 
-    it("stamps the entry, the created event and the audit event with the same instant from the Clock", async () => {
-      const { auditEvent } = await service.createEntry(entityManager, draftOf());
+    it("stamps the entry, the created event and the audit events with the instant it is given, without reading the Clock", async () => {
+      const given = new Date("2026-03-10T18:30:00.000Z");
 
-      expect(clock.now).toHaveBeenCalledTimes(1);
-      expect(savedEntries()[0]).toMatchObject({ createdAt: NOW, updatedAt: NOW });
-      expect(savedEvents()[0]).toMatchObject({ createdAt: NOW, updatedAt: NOW });
-      expect(auditEvent.occurredAt).toBe(NOW);
+      const { auditEvents } = await service.createEntry(
+        entityManager,
+        draftOf({ approvedById: DIRECTOR.id }),
+        given,
+      );
+
+      expect(clock.now).not.toHaveBeenCalled();
+      expect(savedEntries()[0]).toMatchObject({
+        createdAt: given,
+        updatedAt: given,
+        reviewedAt: given,
+      });
+      for (const event of savedEvents()) {
+        expect(event).toMatchObject({ createdAt: given, updatedAt: given });
+      }
+      expect(auditEvents.map((event) => event.occurredAt)).toEqual([given, given]);
     });
 
     it("throws HOUR_ENTRY_DATE_IN_FUTURE for a date after today in America/Sao_Paulo, before inserting anything", async () => {
       for (const date of [TOMORROW, "2027-01-01"]) {
-        const failure = await httpFailure(service.createEntry(entityManager, draftOf({ date })));
+        const failure = await httpFailure(
+          service.createEntry(entityManager, draftOf({ date }), NOW),
+        );
 
         expect(failure.getStatus()).toBe(400);
         expect(codeOf(failure)).toBe("HOUR_ENTRY_DATE_IN_FUTURE");
@@ -315,7 +333,7 @@ describe("HoursService", () => {
     });
 
     it("accepts today in America/Sao_Paulo even when the UTC date is already the next day", async () => {
-      const { entry } = await service.createEntry(entityManager, draftOf({ date: TODAY }));
+      const { entry } = await service.createEntry(entityManager, draftOf({ date: TODAY }), NOW);
 
       expect(entry.date).toBe(TODAY);
       expect(order).toEqual(["insert-entry", "insert-event"]);
@@ -325,24 +343,26 @@ describe("HoursService", () => {
       const given = await service.createEntry(
         entityManager,
         draftOf({ classId: CLASS_ID, lessonId: LESSON_ID }),
+        NOW,
       );
       expect(given.entry).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
-      expect(given.auditEvent.after).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
+      expect(given.auditEvents[0].after).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
 
-      const omitted = await service.createEntry(entityManager, draftOf());
+      const omitted = await service.createEntry(entityManager, draftOf(), NOW);
       expect(omitted.entry.classId).toBeNull();
       expect(omitted.entry.lessonId).toBeNull();
 
       const explicitNull = await service.createEntry(
         entityManager,
         draftOf({ classId: null, lessonId: null }),
+        NOW,
       );
       expect(explicitNull.entry.classId).toBeNull();
       expect(explicitNull.entry.lessonId).toBeNull();
     });
 
     it("creates an attendance entry created by someone else, for the presence of GUS-168", async () => {
-      const { entry, auditEvent } = await service.createEntry(
+      const { entry, auditEvents } = await service.createEntry(
         entityManager,
         draftOf({
           origin: HourEntryOrigin.ATTENDANCE,
@@ -351,6 +371,7 @@ describe("HoursService", () => {
           classId: CLASS_ID,
           lessonId: LESSON_ID,
         }),
+        NOW,
       );
 
       expect(entry).toMatchObject({
@@ -360,17 +381,113 @@ describe("HoursService", () => {
         category: HourEntryCategory.LESSON,
         status: HourEntryStatus.PENDING,
       });
-      expect(auditEvent.actorId).toBe(DIRECTOR.id);
+      expect(auditEvents[0].actorId).toBe(DIRECTOR.id);
       expect(savedEvents()[0].actorId).toBe(DIRECTOR.id);
     });
 
-    it("leaves the activity and the notes out of the audit event (RNF-13)", async () => {
-      const { auditEvent } = await service.createEntry(entityManager, draftOf());
+    it("creates an entry approved on creation when the draft has approvedById: validated minutes equal to the declared ones, the reviewer and the instant, no review note", async () => {
+      const { entry } = await service.createEntry(
+        entityManager,
+        draftOf({ approvedById: DIRECTOR.id, declaredMinutes: 90 }),
+        NOW,
+      );
 
-      const serialized = JSON.stringify(auditEvent);
+      expect(entry).toMatchObject({
+        status: HourEntryStatus.APPROVED,
+        declaredMinutes: 90,
+        validatedMinutes: 90,
+        reviewNote: null,
+        reviewedById: DIRECTOR.id,
+        reviewedAt: NOW,
+      });
+    });
+
+    it("records created (to pending) and then approved (from pending, same minutes, by approvedById) in the history, with the same instant", async () => {
+      await service.createEntry(
+        entityManager,
+        draftOf({ createdById: COORDINATOR.id, approvedById: DIRECTOR.id, declaredMinutes: 90 }),
+        NOW,
+      );
+
+      expect(order).toEqual(["insert-entry", "insert-event", "insert-event"]);
+      expect(savedEvents()).toEqual([
+        expect.objectContaining({
+          hourEntryId: ENTRY_ID,
+          type: HourEntryEventType.CREATED,
+          actorId: COORDINATOR.id,
+          fromStatus: null,
+          toStatus: HourEntryStatus.PENDING,
+          fromMinutes: null,
+          toMinutes: 90,
+          note: null,
+          createdAt: NOW,
+        }),
+        expect.objectContaining({
+          hourEntryId: ENTRY_ID,
+          type: HourEntryEventType.APPROVED,
+          actorId: DIRECTOR.id,
+          fromStatus: HourEntryStatus.PENDING,
+          toStatus: HourEntryStatus.APPROVED,
+          fromMinutes: 90,
+          toMinutes: 90,
+          note: null,
+          createdAt: NOW,
+        }),
+      ]);
+    });
+
+    it("returns HOUR_ENTRY_CREATED with status pending and then HOUR_ENTRY_APPROVED, without activity or notes", async () => {
+      const { auditEvents } = await service.createEntry(
+        entityManager,
+        draftOf({ createdById: COORDINATOR.id, approvedById: DIRECTOR.id, declaredMinutes: 90 }),
+        NOW,
+      );
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(auditEvents).toEqual([
+        expect.objectContaining({
+          action: AuditableAction.HOUR_ENTRY_CREATED,
+          actorId: COORDINATOR.id,
+          after: expect.objectContaining({ status: HourEntryStatus.PENDING }),
+          occurredAt: NOW,
+        }),
+        expect.objectContaining({
+          action: AuditableAction.HOUR_ENTRY_APPROVED,
+          actorId: DIRECTOR.id,
+          targetType: "hour_entry",
+          targetId: ENTRY_ID,
+          before: { status: HourEntryStatus.PENDING, validatedMinutes: null },
+          after: {
+            personId: MEMBER.id,
+            status: HourEntryStatus.APPROVED,
+            declaredMinutes: 90,
+            validatedMinutes: 90,
+            reviewedById: DIRECTOR.id,
+          },
+          occurredAt: NOW,
+        }),
+      ]);
+      const serialized = JSON.stringify(auditEvents);
       expect(serialized).not.toContain("Planejamento da aula");
       expect(serialized).not.toContain("Revisei os exercícios");
-      expect(Object.keys(auditEvent.after).sort()).toEqual([
+    });
+
+    it("returns only HOUR_ENTRY_CREATED for a draft without approvedById", async () => {
+      const { auditEvents } = await service.createEntry(entityManager, draftOf(), NOW);
+
+      expect(auditEvents.map((event) => event.action)).toEqual([
+        AuditableAction.HOUR_ENTRY_CREATED,
+      ]);
+      expect(savedEvents().map((event) => event.type)).toEqual([HourEntryEventType.CREATED]);
+    });
+
+    it("leaves the activity and the notes out of the audit event (RNF-13)", async () => {
+      const { auditEvents } = await service.createEntry(entityManager, draftOf(), NOW);
+
+      const serialized = JSON.stringify(auditEvents);
+      expect(serialized).not.toContain("Planejamento da aula");
+      expect(serialized).not.toContain("Revisei os exercícios");
+      expect(Object.keys(auditEvents[0].after).sort()).toEqual([
         "category",
         "classId",
         "date",
@@ -380,6 +497,44 @@ describe("HoursService", () => {
         "personId",
         "status",
       ]);
+    });
+  });
+
+  describe("logMyHours and logHoursForMember", () => {
+    it("logMyHours and logHoursForMember read the Clock once and emit every audit event after the commit", async () => {
+      const original = service.createEntry.bind(service);
+      const createEntry = jest.spyOn(service, "createEntry");
+
+      await service.logMyHours(CARD_DTO, MEMBER);
+      expect(clock.now).toHaveBeenCalledTimes(1);
+      expect(createEntry).toHaveBeenLastCalledWith(
+        manager,
+        expect.objectContaining({ approvedById: null }),
+        NOW,
+      );
+
+      clock.now.mockClear();
+      order = [];
+      await service.logHoursForMember(MEMBER.id, CARD_DTO, DIRECTOR);
+      expect(clock.now).toHaveBeenCalledTimes(1);
+      expect(createEntry).toHaveBeenLastCalledWith(
+        manager,
+        expect.objectContaining({ approvedById: null }),
+        NOW,
+      );
+      expect(order.slice(-2)).toEqual(["commit", "emit-audit"]);
+
+      // Every event createEntry returns goes out, in order, after the commit.
+      const approval = new AuditableActionEvent();
+      createEntry.mockImplementationOnce(async (...args) => {
+        const created = await original(...args);
+        return { ...created, auditEvents: [...created.auditEvents, approval] };
+      });
+      eventEmitter.emit.mockClear();
+      order = [];
+      await service.logMyHours(CARD_DTO, MEMBER);
+      expect(order).toEqual(["insert-entry", "insert-event", "commit", "emit-audit", "emit-audit"]);
+      expect(auditEvents()[1]).toBe(approval);
     });
   });
 

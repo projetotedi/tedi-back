@@ -6,8 +6,9 @@ export const LESSON_CANCELLED_EVENT = "lesson.cancelled";
  * `cancelled` (GUS-151). A repeated cancel of a lesson that is already cancelled emits nothing.
  *
  * It is the hook of RN-07: hours already recorded for a cancelled lesson must be reversed. The
- * `hours` module (E7) will listen to this channel and do it, without `lessons` knowing it exists
- * (docs/ARCHITECTURE.md section 3). Nobody listens today, so emitting it is free.
+ * `hours` module listens to this channel (LessonCancelledListener, GUS-168) and reverses the
+ * attendance hours of the lesson, without `lessons` knowing it exists (docs/ARCHITECTURE.md
+ * section 3).
  *
  * It is not the audit event: the trail of the cancellation goes out on `auditable.action` as
  * `LESSON_CANCELLED`. This one carries only what a reaction needs, and no free text (the reason

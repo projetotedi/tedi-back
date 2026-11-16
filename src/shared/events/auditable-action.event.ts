@@ -84,12 +84,14 @@ export enum AuditableAction {
   HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
   /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */
   HOUR_ENTRY_REMOVED = "HOUR_ENTRY_REMOVED",
-  /** A pending hour entry was approved by coordination with its declared minutes, alone or in a batch; one event per entry (GUS-164). */
+  /** A pending hour entry was approved by coordination with its declared minutes, alone or in a batch; one event per entry (GUS-164). Or on creation, by whoever confirmed the attendance of the lesson, while lesson hours are born approved (GUS-168). */
   HOUR_ENTRY_APPROVED = "HOUR_ENTRY_APPROVED",
   /** A pending hour entry was approved with other minutes. The justification is not in the payload (RNF-13, GUS-164). */
   HOUR_ENTRY_ADJUSTED = "HOUR_ENTRY_ADJUSTED",
   /** A pending hour entry was rejected; it leaves the bank of hours. The reason is not in the payload (RNF-13, GUS-164). */
   HOUR_ENTRY_REJECTED = "HOUR_ENTRY_REJECTED",
+  /** The hours of a presence were reversed, by a correction of the attendance to absent or by the cancellation of the lesson (RF-071, RN-07); the entry is soft-deleted, in any status. No free text in the payload (GUS-168). */
+  HOUR_ENTRY_REVERSED = "HOUR_ENTRY_REVERSED",
 }
 
 /**
