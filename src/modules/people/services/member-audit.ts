@@ -14,6 +14,10 @@ export const MEMBER_TARGET_TYPE = "member";
  *
  * reviewNote enters: it is the "why" of the decision (like archiveReason). The DTOs warn the
  * coordinator not to record sensitive data in it.
+ *
+ * status, exitDate and exitReason enter (GUS-147): exitReason is the "why" of the deactivation,
+ * like reviewNote. exitNote never enters: the free note of the exit is stored and nothing else
+ * (RNF-13).
  */
 export const MEMBER_AUDIT_FIELDS = [
   "registrationStatus",
@@ -26,6 +30,9 @@ export const MEMBER_AUDIT_FIELDS = [
   "reviewNote",
   "inviteId",
   "resubmitted",
+  "status",
+  "exitDate",
+  "exitReason",
 ] as const;
 
 /** Picks only the allow-listed fields from the given values. */

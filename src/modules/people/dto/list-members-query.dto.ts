@@ -13,6 +13,7 @@ import {
 } from "class-validator";
 import { Role } from "@shared/enums/role.enum";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 
 /** Query parameters for GET /members. */
 export class ListMembersQueryDto {
@@ -51,6 +52,16 @@ export class ListMembersQueryDto {
   @IsOptional()
   @IsEnum(MemberRegistrationStatus)
   registrationStatus?: MemberRegistrationStatus;
+
+  @ApiPropertyOptional({
+    enum: MemberStatus,
+    enumName: "MemberStatus",
+    description:
+      "Participation in the project. Omitted lists every status; a person without member profile counts as active.",
+  })
+  @IsOptional()
+  @IsEnum(MemberStatus)
+  status?: MemberStatus;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()

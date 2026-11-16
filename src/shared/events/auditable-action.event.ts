@@ -36,6 +36,10 @@ export enum AuditableAction {
   MEMBER_REGISTRATION_APPROVED = "MEMBER_REGISTRATION_APPROVED",
   /** Coordination rejected a registration with a mandatory note; access stays closed. */
   MEMBER_REGISTRATION_REJECTED = "MEMBER_REGISTRATION_REJECTED",
+  /** Coordination ended the participation of a member: status inactive, exit date and reason; access disabled in the same transaction. The free note is never in the payload (RNF-13, GUS-147). */
+  MEMBER_DEACTIVATED = "MEMBER_DEACTIVATED",
+  /** An inactive member is active again; the exit is cleared and the access is NOT enabled (PATCH /access/:id/enabled, GUS-147). */
+  MEMBER_REACTIVATED = "MEMBER_REACTIVATED",
   /** Coordination created a department (GUS-91). */
   DEPARTMENT_CREATED = "DEPARTMENT_CREATED",
   LESSON_PLAN_CREATED = "LESSON_PLAN_CREATED",

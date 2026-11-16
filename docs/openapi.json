@@ -1752,6 +1752,35 @@
         ],
         "type": "object"
       },
+      "DeactivateMemberDto": {
+        "properties": {
+          "exitDate": {
+            "description": "YYYY-MM-DD, between 2000-01-01 and today (America/Sao_Paulo), and not before the join date of the member (400 EXIT_DATE_BEFORE_JOINED_AT).",
+            "example": "2026-06-30",
+            "format": "date",
+            "type": "string"
+          },
+          "note": {
+            "description": "Optional note. Stored, never returned by the API nor kept in the audit event. Do not record health information or diagnosis (RNF-13).",
+            "example": "Vai fazer mestrado em outra cidade.",
+            "maxLength": 2000,
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the member left. Required, and not blank. Shown in GET /members and kept in the audit event: do not record health information or diagnosis (RNF-13).",
+            "example": "Formou-se.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "exitDate",
+          "reason"
+        ],
+        "type": "object"
+      },
       "DepartmentResponseDto": {
         "properties": {
           "id": {
@@ -3212,6 +3241,19 @@
             "nullable": true,
             "type": "string"
           },
+          "exitDate": {
+            "description": "Day the member left (YYYY-MM-DD). Null while active.",
+            "example": "2026-06-30",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "exitReason": {
+            "description": "Why the member left. Null while active.",
+            "example": "Formou-se.",
+            "nullable": true,
+            "type": "string"
+          },
           "id": {
             "description": "Id of the Person.",
             "example": "01999a3e-7c1b-7000-8000-000000000001",
@@ -3301,6 +3343,15 @@
             "nullable": true,
             "type": "string"
           },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberStatus"
+              }
+            ],
+            "description": "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+            "example": "active"
+          },
           "volunteerTermUrl": {
             "description": "Null for a person without a member profile (e.g. the seeded admin).",
             "example": "https://drive.google.com/file/d/exemplo/view",
@@ -3330,6 +3381,9 @@
           "joinedAt",
           "volunteerTermUrl",
           "registrationStatus",
+          "status",
+          "exitDate",
+          "exitReason",
           "reviewedAt",
           "reviewedBy"
         ],
@@ -3348,6 +3402,19 @@
             ],
             "nullable": true,
             "type": "object"
+          },
+          "exitDate": {
+            "description": "Day the member left (YYYY-MM-DD). Null while active.",
+            "example": "2026-06-30",
+            "format": "date",
+            "nullable": true,
+            "type": "string"
+          },
+          "exitReason": {
+            "description": "Why the member left. Null while active.",
+            "example": "Formou-se.",
+            "nullable": true,
+            "type": "string"
           },
           "id": {
             "format": "uuid",
@@ -3388,6 +3455,15 @@
               }
             ],
             "nullable": true
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MemberStatus"
+              }
+            ],
+            "description": "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+            "example": "active"
           }
         },
         "required": [
@@ -3399,7 +3475,10 @@
           "department",
           "mainFunction",
           "joinedAt",
-          "registrationStatus"
+          "registrationStatus",
+          "status",
+          "exitDate",
+          "exitReason"
         ],
         "type": "object"
       },
@@ -3808,6 +3887,14 @@
           "pending",
           "approved",
           "rejected"
+        ],
+        "type": "string"
+      },
+      "MemberStatus": {
+        "description": "Participation in the project (RF-011): `inactive` after PATCH /members/:id/deactivate, `active` otherwise, also while the registration is pending or rejected and for a person without member profile. Independent from `accessEnabled` (login) and `registrationStatus` (validation).",
+        "enum": [
+          "active",
+          "inactive"
         ],
         "type": "string"
       },
@@ -10134,6 +10221,15 @@
             }
           },
           {
+            "description": "Participation in the project. Omitted lists every status; a person without member profile counts as active.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemberStatus"
+            }
+          },
+          {
             "in": "query",
             "name": "enabled",
             "required": false,
@@ -10471,6 +10567,190 @@
         },
         "tags": [
           "assignments"
+        ]
+      }
+    },
+    "/members/{id}/deactivate": {
+      "patch": {
+        "operationId": "deactivateMember",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeactivateMemberDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDetailResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | EXIT_DATE_BEFORE_JOINED_AT"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | OWN_ACCOUNT"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "NO_MEMBER_PROFILE | REGISTRATION_NOT_APPROVED | MEMBER_INACTIVE | LAST_COORDINATOR"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      }
+    },
+    "/members/{id}/reactivate": {
+      "patch": {
+        "operationId": "reactivateMember",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDetailResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | OWN_ACCOUNT"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
         ]
       }
     },
