@@ -147,7 +147,8 @@ describe("hours csv", () => {
     expect(hoursExportFileName({})).toBe("hours_start_end.csv");
   });
 
-  it("starts the file with the byte order mark", () => {
-    expect(CSV_BOM).toBe("﻿");
+  it("starts the file with the byte order mark, the bytes EF BB BF in UTF-8", () => {
+    expect([...Buffer.from(CSV_BOM, "utf8")]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(CSV_BOM).toBe("\uFEFF");
   });
 });

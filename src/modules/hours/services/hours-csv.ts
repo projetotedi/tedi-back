@@ -6,7 +6,7 @@ import { HourEntry } from "../entities/hour-entry.entity";
 export const HOURS_EXPORT_BATCH_SIZE = 500;
 
 /** The Excel of pt-BR reads the accents of a UTF-8 file only with the byte order mark. */
-export const CSV_BOM = "﻿";
+export const CSV_BOM = "\uFEFF";
 /** `;` opens straight in the Excel of pt-BR, where `,` is the decimal separator. */
 export const CSV_SEPARATOR = ";";
 export const CSV_LINE_END = "\r\n";

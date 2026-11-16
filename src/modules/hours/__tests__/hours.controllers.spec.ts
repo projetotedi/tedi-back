@@ -349,7 +349,7 @@ describe("hours controllers", () => {
       await expect(controller.exportHours({}, ACTOR)).rejects.toBe(failure);
     });
 
-    it("answers a generic 500 before the first byte and destroys the response after it, never with the message of the error", () => {
+    it("answers a generic 500 as JSON before the first byte (no Content-Disposition) and destroys the response after it, never with the message of the error", () => {
       const logged = jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
       const error = new Error('relation "hour_entries" does not exist');
 
@@ -359,8 +359,21 @@ describe("hours controllers", () => {
         statusCode: 200,
         send: jest.fn(),
         end: jest.fn(),
+        removeHeader: jest.fn(),
+        setHeader: jest.fn(),
       };
       abortExportResponse(error, unsent);
+      expect(unsent.removeHeader).toHaveBeenCalledWith("Content-Disposition");
+      expect(unsent.setHeader).toHaveBeenCalledWith(
+        "Content-Type",
+        "application/json; charset=utf-8",
+      );
+      expect(unsent.removeHeader.mock.invocationCallOrder[0]).toBeLessThan(
+        unsent.send.mock.invocationCallOrder[0],
+      );
+      expect(unsent.setHeader.mock.invocationCallOrder[0]).toBeLessThan(
+        unsent.send.mock.invocationCallOrder[0],
+      );
       expect(unsent.statusCode).toBe(500);
       expect(unsent.send).toHaveBeenCalledTimes(1);
       const body: unknown = JSON.parse(String(unsent.send.mock.calls[0][0]));

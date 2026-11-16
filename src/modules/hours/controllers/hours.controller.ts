@@ -29,7 +29,9 @@ const exportLogger = new Logger("HoursExport");
  * The error is logged here: the Express adapter hands an error of the stream only to this handler,
  * never to the error logger of the StreamableFile. Then:
  * - the response is already gone: nothing else;
- * - nothing was sent yet: a generic 500, without the message of the error;
+ * - nothing was sent yet: a generic 500 as JSON, without the message of the error, after the
+ *   headers of the file (already set by the adapter) give way to `Content-Type: application/json`
+ *   and no `Content-Disposition`, so the client reads an ApiErrorDto and not a file;
  * - the file is half sent: the connection is destroyed, so the download arrives broken, never cut
  *   as if it were whole.
  */
@@ -37,6 +39,12 @@ export function abortExportResponse(error: Error, response: StreamableHandlerRes
   exportLogger.error(error.message, error.stack);
   if (response.destroyed) return;
   if (!response.headersSent) {
+    if ("removeHeader" in response && typeof response.removeHeader === "function") {
+      response.removeHeader("Content-Disposition");
+    }
+    if ("setHeader" in response && typeof response.setHeader === "function") {
+      response.setHeader("Content-Type", "application/json; charset=utf-8");
+    }
     response.statusCode = 500;
     response.send(
       JSON.stringify({
