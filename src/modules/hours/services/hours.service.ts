@@ -1,8 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { DataSource, EntityManager, SelectQueryBuilder } from "typeorm";
-import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
-import { MembersService } from "@modules/people/services/members.service";
+import { MemberRegistrationStatus, MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
 import { Clock } from "@shared/dates/clock";

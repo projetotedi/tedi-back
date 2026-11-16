@@ -692,3 +692,10 @@ export class MembersService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+/**
+ * The enum of `MemberAccessFacts.registrationStatus`, the contract of `findAccessFacts`,
+ * re-exported so that other modules (`hours`) import it from the service PeopleModule exports and
+ * never from `people/enums/*` (module is a closed box).
+ */
+export { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
