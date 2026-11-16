@@ -8,6 +8,8 @@ import { LESSON_CALENDAR_MAX_DAYS } from "../dto/lesson-limits";
 import { LessonListItemResponseDto } from "../dto/lesson-list-item.response.dto";
 import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
 import { Lesson } from "../entities/lesson.entity";
+import { ConfirmedStaff, NO_CONFIRMED_STAFF } from "./lesson-coverage";
+import { LessonCoverageRegistry } from "./lesson-coverage.registry";
 import { assertDateRange } from "./lesson-date-range";
 import { toLessonListItem } from "./lesson-list-item.mapper";
 
@@ -40,14 +42,22 @@ const SEARCH_COLUMNS = ["lesson.title", "lesson.subject"] as const;
  * the classes whose period crosses `[from, to]`.
  *
  * `getMany()` reads the entity on purpose: the `timeOfDayTransformer` of the entity is what hands
- * `startTime` and `endTime` back as "HH:mm". The allocation (E5, GUS-158) will fill in `teacher`
- * and `belowExpectedMonitors` for a whole page in one query, never one per lesson.
+ * `startTime` and `endTime` back as "HH:mm".
+ *
+ * `teacher` and `belowExpectedMonitors` come from the allocation (E5, GUS-158), which this module
+ * does not know: it asks the `LessonCoverageRegistry`, the port the assignments module plugs its
+ * counter in (docs/ARCHITECTURE.md section 15), ONCE for the whole page of the list and ONCE for the
+ * whole period of the calendar, with the ids of the lessons it just read, never once per lesson. The
+ * answer says the confirmed teacher (a pending one is not the teacher) and how many monitors are
+ * confirmed. Without a counter registered nobody is allocated as far as this module knows, so every
+ * lesson reads as `NO_CONFIRMED_STAFF`: no teacher, and the monitors it expects are all missing.
  */
 @Injectable()
 export class LessonListingService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly classes: ClassesService,
+    private readonly coverage: LessonCoverageRegistry,
   ) {}
 
   /**
@@ -75,7 +85,7 @@ export class LessonListingService {
       builder.clone().getCount(),
     ]);
 
-    return { data: lessons.map((lesson) => this.toItem(lesson, classes)), total, page, limit };
+    return { data: await this.toItems(lessons, classes), total, page, limit };
   }
 
   /**
@@ -96,7 +106,7 @@ export class LessonListingService {
 
     const lessons = await this.buildQuery(query, [...classes.keys()]).getMany();
 
-    return lessons.map((lesson) => this.toItem(lesson, classes));
+    return this.toItems(lessons, classes);
   }
 
   /**
@@ -150,18 +160,38 @@ export class LessonListingService {
   }
 
   /**
+   * The items of a page, or of a period: the lessons with the class of each one and the confirmed
+   * staff of each one, which comes from ONE call to the registry with the ids of all of them (the
+   * N+1 this avoids is one call per lesson). A lesson that the registry does not list has nobody
+   * confirmed. An empty page asks for nothing.
+   */
+  private async toItems(
+    lessons: Lesson[],
+    classes: ReadonlyMap<string, ClassRef>,
+  ): Promise<LessonListItemResponseDto[]> {
+    if (lessons.length === 0) return [];
+
+    const staff = await this.coverage.findConfirmedStaff(lessons.map((lesson) => lesson.id));
+
+    return lessons.map((lesson) =>
+      this.toItem(lesson, classes, staff.get(lesson.id) ?? NO_CONFIRMED_STAFF),
+    );
+  }
+
+  /**
    * The item of a lesson. The query only takes lessons of the classes that were resolved, so a
    * class that is missing is a broken invariant and not a business error.
    */
   private toItem(
     lesson: Lesson,
     classes: ReadonlyMap<string, ClassRef>,
+    staff: ConfirmedStaff,
   ): LessonListItemResponseDto {
     const schoolClass = classes.get(lesson.classId);
     if (schoolClass === undefined) {
       throw new Error(`The class ${lesson.classId} of the lesson ${lesson.id} was not resolved.`);
     }
 
-    return toLessonListItem(lesson, schoolClass);
+    return toLessonListItem(lesson, schoolClass, staff);
   }
 }

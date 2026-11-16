@@ -396,13 +396,42 @@ describe("Lessons list and calendar (e2e)", () => {
         expect(items.map((item) => item.date)).toEqual(["2026-03-31", "2026-04-01"]);
       });
 
-      it("answers belowExpectedMonitors false and teacher null, even for a lesson that expects 3 monitors", async () => {
-        await lesson({ expectedMonitors: 3, expectedStudents: 15 });
+      it("answers teacher null while nobody is allocated, and belowExpectedMonitors by what the lesson expects: true for 3 monitors, false for zero or for not saying", async () => {
+        // This app has no allocation module: no counter is registered, so nobody is confirmed in any
+        // lesson. The e2e of the allocation, with real teachers and monitors, is in the assignments.
+        await lesson({
+          title: "Espera três monitores",
+          expectedMonitors: 3,
+          expectedStudents: 15,
+          startTime: "09:00",
+          endTime: "10:30",
+        });
+        await lesson({
+          title: "Não espera monitor",
+          expectedMonitors: 0,
+          startTime: "11:00",
+          endTime: "12:30",
+        });
+        await lesson({ title: "Não diz quantos", startTime: "14:00" });
+
+        const items = await itemsOf(route);
+
+        expect(items.map((item) => [item.title, item.teacher, item.belowExpectedMonitors])).toEqual(
+          [
+            ["Espera três monitores", null, true],
+            ["Não espera monitor", null, false],
+            ["Não diz quantos", null, false],
+          ],
+        );
+      });
+
+      it("answers belowExpectedMonitors false for a cancelled lesson, though it expects monitors", async () => {
+        await lesson({ expectedMonitors: 3, status: LessonStatus.CANCELLED });
 
         const [item] = await itemsOf(route);
 
+        expect(item.status).toBe("cancelled");
         expect(item.belowExpectedMonitors).toBe(false);
-        expect(item.teacher).toBeNull();
       });
 
       it("carries only what a row shows: none of the other fields of the lesson", async () => {

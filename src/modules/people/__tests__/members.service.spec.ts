@@ -198,7 +198,8 @@ describe("MembersService", () => {
   const profileRepository = { findOne: jest.fn() };
   const personRepository = { findOne: jest.fn() };
   const departmentRepository = { findOne: jest.fn() };
-  const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
+  // `manager` is what a read without a transaction goes through (getMemberSummary).
+  const dataSource = { transaction: jest.fn(), getRepository: jest.fn(), manager };
   const eventEmitter = { emit: jest.fn() };
   const clock = { now: jest.fn() };
   const departments = { exists: jest.fn() };
@@ -599,6 +600,215 @@ describe("MembersService", () => {
           departmentIds: [],
         });
       }
+    });
+  });
+
+  describe("getMemberSummary()", () => {
+    /** The target as the database has it: a person and, maybe, her member profile. */
+    function givenMember(person: Partial<Person>, profile: Partial<MemberProfile> | null): void {
+      state.personById = buildPerson(person);
+      state.profile = profile === null ? null : buildProfile(profile);
+    }
+
+    it("returns null for a student, an unknown id and a malformed id", async () => {
+      // A student: a person with neither an access role nor a member profile.
+      givenMember({ role: null, accessEnabled: true }, null);
+      await expect(
+        service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+
+      // No such person.
+      state.personById = null;
+      await expect(
+        service.getMemberSummary(OTHER_PERSON_ID, manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+
+      // A malformed id never reaches the database (22P02 would be a 500).
+      manager.findOne.mockClear();
+      await expect(
+        service.getMemberSummary("not-a-uuid", manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+      await expect(service.getMemberSummary("")).resolves.toBeNull();
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("looks for the profile only when the person exists", async () => {
+      state.personById = null;
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager);
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
+    });
+
+    it("marks active only with role, access enabled and no profile or an approved one", async () => {
+      const approved = { registrationStatus: MemberRegistrationStatus.APPROVED };
+      const cases: Array<[string, Partial<Person>, Partial<MemberProfile> | null, boolean]> = [
+        [
+          "a member with no profile (the seeded admin, a coordinator)",
+          { role: Role.COORDINATOR, accessEnabled: true },
+          null,
+          true,
+        ],
+        ["an approved member", { role: Role.MEMBER, accessEnabled: true }, approved, true],
+        ["an approved director", { role: Role.DIRECTOR, accessEnabled: true }, approved, true],
+        [
+          "a member whose access was disabled",
+          { role: Role.MEMBER, accessEnabled: false },
+          approved,
+          false,
+        ],
+        [
+          "a person with no profile and access disabled",
+          { role: Role.MEMBER, accessEnabled: false },
+          null,
+          false,
+        ],
+        [
+          "a pending registration (no role, no access)",
+          { role: null, accessEnabled: false },
+          { registrationStatus: MemberRegistrationStatus.PENDING },
+          false,
+        ],
+        [
+          "a rejected registration",
+          { role: null, accessEnabled: false },
+          { registrationStatus: MemberRegistrationStatus.REJECTED },
+          false,
+        ],
+        [
+          "a role with a profile that is not approved",
+          { role: Role.MEMBER, accessEnabled: true },
+          { registrationStatus: MemberRegistrationStatus.PENDING },
+          false,
+        ],
+        [
+          "an approved profile whose person has no role",
+          { role: null, accessEnabled: true },
+          approved,
+          false,
+        ],
+      ];
+
+      for (const [label, person, profile, active] of cases) {
+        givenMember(person, profile);
+
+        const summary = await service.getMemberSummary(
+          PERSON_ID,
+          manager as unknown as EntityManager,
+        );
+
+        expect({ label, active: summary?.active }).toEqual({ label, active });
+      }
+    });
+
+    it("returns a pending and a rejected registration as members that are not active, not as null", async () => {
+      for (const status of [MemberRegistrationStatus.PENDING, MemberRegistrationStatus.REJECTED]) {
+        givenMember({ role: null, accessEnabled: false }, { registrationStatus: status });
+
+        await expect(
+          service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager),
+        ).resolves.toEqual({
+          id: PERSON_ID,
+          name: "Ana Torres",
+          active: false,
+          departmentIds: [],
+        });
+      }
+    });
+
+    it("returns the id and the name of the person, and nothing else about her", async () => {
+      givenMember(
+        { role: Role.MEMBER, accessEnabled: true },
+        { registrationStatus: MemberRegistrationStatus.APPROVED },
+      );
+
+      const summary = await service.getMemberSummary(
+        PERSON_ID,
+        manager as unknown as EntityManager,
+      );
+
+      expect(summary).toEqual({
+        id: PERSON_ID,
+        name: "Ana Torres",
+        active: true,
+        departmentIds: [DEPARTMENT_ID],
+      });
+      expectNoSensitiveValue(JSON.stringify(summary));
+    });
+
+    it("returns the department of the approved profile only", async () => {
+      const cases: Array<[Partial<MemberProfile> | null, string[]]> = [
+        [{ registrationStatus: MemberRegistrationStatus.APPROVED }, [DEPARTMENT_ID]],
+        [{ registrationStatus: MemberRegistrationStatus.APPROVED, departmentId: null }, []],
+        [{ registrationStatus: MemberRegistrationStatus.PENDING }, []],
+        [{ registrationStatus: MemberRegistrationStatus.REJECTED }, []],
+        [null, []],
+      ];
+
+      for (const [profile, departmentIds] of cases) {
+        givenMember({ role: Role.MEMBER, accessEnabled: true }, profile);
+
+        const summary = await service.getMemberSummary(
+          PERSON_ID,
+          manager as unknown as EntityManager,
+        );
+
+        expect(summary?.departmentIds).toEqual(departmentIds);
+      }
+    });
+
+    it("reads the person without a lock unless asked", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager);
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager, {
+        forShare: false,
+      });
+
+      expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
+      expect(manager.findOne).not.toHaveBeenCalledWith(
+        Person,
+        expect.objectContaining({ lock: expect.anything() }),
+      );
+    });
+
+    it("locks the person FOR SHARE when asked", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager, {
+        forShare: true,
+      });
+
+      expect(manager.findOne).toHaveBeenCalledWith(Person, {
+        where: { id: PERSON_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+      // Only the person is locked: the profile only changes under the lock of the person.
+      expect(manager.findOne).toHaveBeenCalledWith(MemberProfile, {
+        where: { personId: PERSON_ID },
+      });
+    });
+
+    it("reads through the manager of the data source when it gets none", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      const summary = await service.getMemberSummary(PERSON_ID);
+
+      expect(summary?.id).toBe(PERSON_ID);
+      expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing and emits nothing", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager, {
+        forShare: true,
+      });
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 

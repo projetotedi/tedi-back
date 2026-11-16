@@ -182,6 +182,78 @@
         },
         "type": "object"
       },
+      "AssignmentLessonRefDto": {
+        "properties": {
+          "date": {
+            "example": "2026-03-10",
+            "format": "date",
+            "type": "string"
+          },
+          "endTime": {
+            "example": "15:30",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "startTime": {
+            "example": "14:00",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonStatus"
+              }
+            ],
+            "description": "Status of the lesson (F4.5): the same type as the lesson itself.",
+            "example": "planned"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "startTime",
+          "endTime",
+          "status"
+        ],
+        "type": "object"
+      },
+      "AssignmentRole": {
+        "description": "What the member does in the lesson: the teacher gives it and a monitor helps.",
+        "enum": [
+          "teacher",
+          "monitor"
+        ],
+        "type": "string"
+      },
+      "AssignmentSource": {
+        "description": "direct is made by a coordinator or a director; application is a member who applied.",
+        "enum": [
+          "direct",
+          "application"
+        ],
+        "type": "string"
+      },
+      "AssignmentStatus": {
+        "description": "Where the assignment stands: pending waits for a decision, confirmed puts the member in the lesson (and records who confirmed it and when), declined (a refused application) and cancelled are final.",
+        "enum": [
+          "pending",
+          "confirmed",
+          "declined",
+          "cancelled"
+        ],
+        "type": "string"
+      },
       "BrazilianState": {
         "description": "Federative unit (UF). Upper-cased.",
         "enum": [
@@ -1212,6 +1284,48 @@
           "archived"
         ],
         "type": "string"
+      },
+      "CreateAssignmentDto": {
+        "description": "Who is assigned to the lesson of the URL, as what, and whether it is already confirmed. status takes only pending or confirmed: declined and cancelled come out of a decision about an assignment that exists, so they are rejected with 400 VALIDATION_FAILED. A lesson has at most one confirmed teacher: a teacher asked confirmed in a lesson that already has one is 409 LESSON_TEACHER_TAKEN. There is no source: an assignment made here is always direct (the candidature of a member is another route).",
+        "properties": {
+          "note": {
+            "description": "Note about the assignment. Optional; null or blank means none. Free text: do not record health information or diagnosis (RNF-13).",
+            "example": "Cobre a segunda hora da aula.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "personId": {
+            "description": "Id of the member to assign. It must be an active member: an id that is not a member is 400 MEMBER_NOT_FOUND, and a member without access (inactive or with the registration still pending) is 409 MEMBER_INACTIVE. A member holds one place per lesson: if she already has an active assignment in it, as the same role or as the other one, it is 409 DUPLICATE_ROLE_IN_LESSON.",
+            "example": "01999a3e-0000-7000-8000-0000000000b1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "description": "What the member does in the lesson: the teacher gives it and a monitor helps.",
+            "example": "monitor"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "Where the assignment stands: pending waits for a decision, confirmed puts the member in the lesson (and records who confirmed it and when), declined (a refused application) and cancelled are final.",
+            "example": "confirmed"
+          }
+        },
+        "required": [
+          "personId",
+          "role",
+          "status"
+        ],
+        "type": "object"
       },
       "CreateClassDto": {
         "properties": {
@@ -2278,6 +2392,124 @@
         ],
         "type": "string"
       },
+      "LessonAssignmentResponseDto": {
+        "properties": {
+          "cancelledAt": {
+            "description": "When it was cancelled. Set exactly when the status is cancelled.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "cancelledById": {
+            "description": "Id of the person who cancelled the assignment.",
+            "example": null,
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "createdAt": {
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdById": {
+            "description": "Id of the person who made the assignment.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000a1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonId": {
+            "description": "Id of the lesson the member is assigned to.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "note": {
+            "description": "Free text (RNF-13). Null when there is none, and null for profiles without assignments.create: only who can manage assignments reads the note.",
+            "example": "Cobre a segunda hora da aula.",
+            "nullable": true,
+            "type": "string"
+          },
+          "person": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "The member: id and name. Null if the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "reviewedAt": {
+            "description": "When it was confirmed. Always set for a confirmed assignment.",
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "reviewedById": {
+            "description": "Id of the person who confirmed the assignment, or who made it already confirmed. Set exactly when reviewedAt is, and kept if the assignment is cancelled later.",
+            "example": "01999a3e-0000-7000-8000-0000000000aa",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentSource"
+              }
+            ],
+            "description": "direct is made by a coordinator or a director; application is a member who applied.",
+            "example": "direct"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "pending waits for a decision; confirmed counts in the coverage of the lesson; declined (a refused application) and cancelled are final.",
+            "example": "confirmed"
+          },
+          "updatedAt": {
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "lessonId",
+          "person",
+          "role",
+          "status",
+          "source",
+          "note",
+          "createdById",
+          "reviewedById",
+          "reviewedAt",
+          "cancelledById",
+          "cancelledAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "LessonClassRefDto": {
         "properties": {
           "archivedAt": {
@@ -2344,6 +2576,21 @@
         ],
         "type": "object"
       },
+      "LessonCoverageDto": {
+        "properties": {
+          "monitors": {
+            "$ref": "#/components/schemas/LessonMonitorCoverageDto"
+          },
+          "teacher": {
+            "$ref": "#/components/schemas/LessonTeacherCoverageDto"
+          }
+        },
+        "required": [
+          "teacher",
+          "monitors"
+        ],
+        "type": "object"
+      },
       "LessonEditionRefDto": {
         "properties": {
           "id": {
@@ -2399,7 +2646,7 @@
       "LessonListItemResponseDto": {
         "properties": {
           "belowExpectedMonitors": {
-            "description": "True when the lesson has fewer monitors allocated than it expects (F4.4, RF-050). Always false until the allocation exists (GUS-158).",
+            "description": "True when the lesson has fewer CONFIRMED monitors than it expects (F4.4, F5.4, RF-050): a pending monitor does not count. False for a cancelled lesson and when the lesson does not say how many monitors it expects (expectedMonitors null, so nothing is missing). The teacher is not part of it: a lesson without a teacher shows a dash in teacher. It is the same rule as belowExpectedMonitors of the lesson in full.",
             "example": false,
             "type": "boolean"
           },
@@ -2442,8 +2689,11 @@
                 "$ref": "#/components/schemas/LessonPersonRefDto"
               }
             ],
-            "description": "The teacher of the lesson. Always null until the allocation exists (E5, GUS-158): the front shows a dash.",
-            "example": null,
+            "description": "The CONFIRMED teacher of the lesson (F5.2, RN-02): her id and her name. Null when the lesson has none, and the front shows a dash: a pending assignment is a candidate, not the teacher. A cancelled lesson keeps the teacher that was confirmed in it, because cancelling a lesson does not cancel its assignments.",
+            "example": {
+              "id": "01999a3e-0000-7000-8000-0000000000aa",
+              "name": "Maria Silva Santos"
+            },
             "nullable": true,
             "type": "object"
           },
@@ -2463,6 +2713,26 @@
           "status",
           "teacher",
           "belowExpectedMonitors"
+        ],
+        "type": "object"
+      },
+      "LessonMonitorCoverageDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Monitors confirmed for the lesson. A pending assignment is not counted.",
+            "example": 2,
+            "type": "integer"
+          },
+          "expected": {
+            "description": "The expectedMonitors of the lesson. Null when it was not informed: nothing is expected then.",
+            "example": 2,
+            "nullable": true,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confirmed",
+          "expected"
         ],
         "type": "object"
       },
@@ -2863,6 +3133,11 @@
       },
       "LessonResponseDto": {
         "properties": {
+          "belowExpectedMonitors": {
+            "description": "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
+            "example": false,
+            "type": "boolean"
+          },
           "cancelReason": {
             "description": "Why the lesson was cancelled. Set exactly when the status is cancelled.",
             "example": null,
@@ -2893,6 +3168,14 @@
               }
             ],
             "description": "The course the class offers."
+          },
+          "coverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonCoverageDto"
+              }
+            ],
+            "description": "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet."
           },
           "createdAt": {
             "example": "2026-10-01T13:00:00.000Z",
@@ -3046,6 +3329,8 @@
           "location",
           "expectedStudents",
           "expectedMonitors",
+          "coverage",
+          "belowExpectedMonitors",
           "subject",
           "postNotes",
           "status",
@@ -3070,6 +3355,25 @@
           "cancelled"
         ],
         "type": "string"
+      },
+      "LessonTeacherCoverageDto": {
+        "properties": {
+          "confirmed": {
+            "description": "Teachers confirmed for the lesson: 0 or 1, since a lesson has at most one confirmed teacher. A pending assignment is not counted.",
+            "example": 1,
+            "type": "integer"
+          },
+          "expected": {
+            "description": "Always 1: a lesson has one teacher.",
+            "example": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confirmed",
+          "expected"
+        ],
+        "type": "object"
       },
       "LoginDto": {
         "properties": {
@@ -3133,6 +3437,57 @@
           "email",
           "role",
           "permissions"
+        ],
+        "type": "object"
+      },
+      "MemberAssignmentResponseDto": {
+        "properties": {
+          "createdAt": {
+            "example": "2026-03-09T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000a1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lesson": {
+            "$ref": "#/components/schemas/AssignmentLessonRefDto"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentRole"
+              }
+            ],
+            "example": "monitor"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentSource"
+              }
+            ],
+            "example": "direct"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatus"
+              }
+            ],
+            "description": "Every status is listed, the cancelled and the declined ones too.",
+            "example": "confirmed"
+          }
+        },
+        "required": [
+          "id",
+          "lesson",
+          "role",
+          "status",
+          "source",
+          "createdAt"
         ],
         "type": "object"
       },
@@ -5456,6 +5811,190 @@
         },
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/assignments/{id}/cancel": {
+      "patch": {
+        "operationId": "cancelAssignment",
+        "parameters": [
+          {
+            "description": "Id of the assignment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The assignment, now cancelled, with cancelledById and cancelledAt. It stays: the member can be assigned to the lesson again. Cancelling one that is already cancelled changes nothing and answers the same, with the first instant."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_ACTIVE"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
+    "/assignments/{id}/confirm": {
+      "patch": {
+        "operationId": "confirmAssignment",
+        "parameters": [
+          {
+            "description": "Id of the assignment.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The assignment, now confirmed, with reviewedById and reviewedAt. Confirming one that is already confirmed changes nothing and answers the same."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "ASSIGNMENT_NOT_PENDING | LESSON_CANCELLED | MEMBER_INACTIVE | LESSON_TEACHER_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },
@@ -9056,6 +9595,191 @@
         ]
       }
     },
+    "/lessons/{id}/assignments": {
+      "get": {
+        "operationId": "listLessonAssignments",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated. The note of each one is null for profiles without assignments.create (RNF-13)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      },
+      "post": {
+        "operationId": "createAssignment",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssignmentDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LessonAssignmentResponseDto"
+                }
+              }
+            },
+            "description": "The assignment, direct and pending or confirmed as the body asked. With confirmed, reviewedById is the actor and reviewedAt is now."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | MEMBER_NOT_FOUND"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | MEMBER_INACTIVE | DUPLICATE_ROLE_IN_LESSON | LESSON_TEACHER_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
+        ]
+      }
+    },
     "/lessons/{id}/cancel": {
       "patch": {
         "operationId": "cancelLesson",
@@ -10416,6 +11140,91 @@
         },
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/members/{id}/assignments": {
+      "get": {
+        "operationId": "listMemberAssignments",
+        "parameters": [
+          {
+            "description": "Person id of the member.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberAssignmentResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every assignment of the member, whatever its status, each with its lesson (id, title, day, times and status), the latest lesson first. Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "assignments"
         ]
       }
     },

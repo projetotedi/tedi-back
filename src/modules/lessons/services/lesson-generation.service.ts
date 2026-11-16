@@ -19,6 +19,7 @@ import { GenerateClassLessonsDto } from "../dto/generate-class-lessons.dto";
 import { GeneratedClassLessonsResponseDto } from "../dto/generated-class-lessons.response.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { lessonCreatedPayload } from "./lesson-audit";
+import { NO_CONFIRMED_STAFF } from "./lesson-coverage";
 import { LessonCreationService, LessonDraft } from "./lesson-creation.service";
 import {
   classArchived,
@@ -211,6 +212,9 @@ export class LessonGenerationService {
               schoolClass,
               course,
               lessonPlan: this.planOf(lesson, plansById),
+              // A lesson that was just generated has nobody allocated yet, so the coverage is zero
+              // without asking the counter (A2, the same as POST /lessons).
+              staff: NO_CONFIRMED_STAFF,
             }),
           ),
         },
