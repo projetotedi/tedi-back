@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { DataSource, EntityManager, SelectQueryBuilder } from "typeorm";
+import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
+import { MembersService } from "@modules/people/services/members.service";
+import { PeopleService } from "@modules/people/services/people.service";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
@@ -10,6 +13,8 @@ import {
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
+import { Permission } from "@shared/permissions/permission.enum";
+import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
 import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
 import { HoursPeriodQueryDto } from "../dto/hours-period-query.dto";
@@ -26,6 +31,8 @@ import {
   hourEntryDateInFuture,
   hourEntryNotFound,
   invalidPeriod,
+  memberNotFound,
+  selfOnBehalfNotAllowed,
 } from "./hour-entry-errors";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
 import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
@@ -72,14 +79,23 @@ export interface CreatedHourEntry {
   auditEvent: AuditableActionEvent;
 }
 
+/** Who an entry logged on behalf of someone is for, with the facts the policy needs. */
+interface MemberTarget {
+  personId: string;
+  departmentIds: string[];
+}
+
 /**
- * Hour entries of the people (E7, GUS-162): log for oneself, read one's own statement and summary,
- * and remove one's own pending entry.
+ * Hour entries of the people (E7, GUS-162): log for oneself or on behalf of a member, read one's
+ * own statement and summary, and remove one's own pending entry.
  *
  * Every write runs in a transaction and the audit event goes out after the commit. Every instant
  * of a write (the columns of the entry, the row of its history and the audit event) is the same
  * `now`, read once from the Clock: the API and the database run on different hosts, and two clocks
  * could put the history of an entry out of order.
+ *
+ * The people are read through the services PeopleModule exports; this module touches no table of
+ * another one.
  */
 @Injectable()
 export class HoursService {
@@ -87,6 +103,9 @@ export class HoursService {
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly clock: Clock,
+    private readonly people: PeopleService,
+    private readonly members: MembersService,
+    private readonly permissions: PermissionPolicy,
   ) {}
 
   /**
@@ -174,6 +193,48 @@ export class HoursService {
         personId: actor.id,
         createdById: actor.id,
         origin: HourEntryOrigin.MANUAL,
+        activity: dto.activity,
+        category: dto.category,
+        date: dto.date,
+        declaredMinutes: dto.declaredMinutes,
+        notes: dto.notes ?? null,
+      }),
+    );
+
+    this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
+    return toHourEntryResponse(entry);
+  }
+
+  /**
+   * `POST /members/:id/hour-entries`: someone with hours.logForOthers logs hours for a member,
+   * `on_behalf` and authored by herself. A director only for a member of her own department;
+   * coordination and the superadmin for any member.
+   *
+   * Errors, in the order they are answered: 400 VALIDATION_FAILED (the DTO), 400
+   * SELF_ON_BEHALF_NOT_ALLOWED (the id is the actor's, in any letter case, before the target is
+   * read), 404 MEMBER_NOT_FOUND, 403 FORBIDDEN_SCOPE and 400 HOUR_ENTRY_DATE_IN_FUTURE. The 404
+   * comes before the 403, as in the member record. Emits HOUR_ENTRY_CREATED after the commit.
+   *
+   * The scope is read before the transaction: a change of department at the same instant is not
+   * serialized with the entry (accepted, as in the member record).
+   */
+  async logHoursForMember(
+    requestedPersonId: string,
+    dto: CreateHourEntryDto,
+    actor: AuthUser,
+  ): Promise<HourEntryResponseDto> {
+    if (requestedPersonId.toLowerCase() === actor.id.toLowerCase()) {
+      throw selfOnBehalfNotAllowed();
+    }
+
+    const target = await this.findMemberTarget(requestedPersonId);
+    this.permissions.assertCan(actor, Permission.HOURS_LOG_FOR_OTHERS, target);
+
+    const { entry, auditEvent } = await this.dataSource.transaction((manager) =>
+      this.createEntry(manager, {
+        personId: target.personId,
+        createdById: actor.id,
+        origin: HourEntryOrigin.ON_BEHALF,
         activity: dto.activity,
         category: dto.category,
         date: dto.date,
@@ -314,6 +375,25 @@ export class HoursService {
         now,
       ),
     );
+  }
+
+  /**
+   * The member an entry on behalf is for: a person that exists (not deleted) with an APPROVED
+   * member registration, else 404 MEMBER_NOT_FOUND (a pending or rejected registration, a student,
+   * coordination and the superadmin without a profile). A member whose access was disabled is still
+   * one: the hours are of work already done.
+   *
+   * The departments are the ones of the approved profile, the same rule the AuthGuard uses for the
+   * actor. The id returned is the one of the database (lower case), not the one of the URL.
+   */
+  private async findMemberTarget(requestedPersonId: string): Promise<MemberTarget> {
+    const person = (await this.people.findRefsByIds([requestedPersonId])).at(0);
+    if (person === undefined) throw memberNotFound();
+
+    const facts = await this.members.findAccessFacts(person.id);
+    if (facts.registrationStatus !== MemberRegistrationStatus.APPROVED) throw memberNotFound();
+
+    return { personId: person.id, departmentIds: facts.departmentIds };
   }
 
   private buildAuditEvent(

@@ -3,6 +3,9 @@ import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
 import { DataSource, EntityManager } from "typeorm";
+import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
+import { MembersService } from "@modules/people/services/members.service";
+import { PeopleService } from "@modules/people/services/people.service";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Role } from "@shared/enums/role.enum";
@@ -11,6 +14,7 @@ import {
   AuditableAction,
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
+import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
 import { HourEntryEvent } from "../entities/hour-entry-event.entity";
 import { HourEntry } from "../entities/hour-entry.entity";
@@ -30,17 +34,44 @@ const EVENT_ID = "01999a3e-7c1b-7000-8000-000000000e01";
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
 const LESSON_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
 
+const TECH = "01999a3e-1111-7000-8000-000000000001";
+const COMMS = "01999a3e-1111-7000-8000-000000000002";
+
 const MEMBER: AuthUser = {
   id: "01999a3e-0000-7000-8000-0000000000aa",
   role: Role.MEMBER,
   accessEnabled: true,
-  departmentIds: [],
+  departmentIds: [TECH],
 };
 const DIRECTOR: AuthUser = {
   id: "01999a3e-0000-7000-8000-0000000000bb",
   role: Role.DIRECTOR,
   accessEnabled: true,
-  departmentIds: ["01999a3e-1111-7000-8000-000000000001"],
+  departmentIds: [TECH],
+};
+const DIRECTOR_OF_OTHER_DEPARTMENT: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000cc",
+  role: Role.DIRECTOR,
+  accessEnabled: true,
+  departmentIds: [COMMS],
+};
+const DIRECTOR_WITHOUT_DEPARTMENT: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000dd",
+  role: Role.DIRECTOR,
+  accessEnabled: true,
+  departmentIds: [],
+};
+const COORDINATOR: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000ee",
+  role: Role.COORDINATOR,
+  accessEnabled: true,
+  departmentIds: [],
+};
+const SUPERADMIN: AuthUser = {
+  id: "01999a3e-0000-7000-8000-0000000000ff",
+  role: Role.SUPERADMIN,
+  accessEnabled: true,
+  departmentIds: [],
 };
 
 const CARD_DTO: CreateHourEntryDto = {
@@ -103,6 +134,8 @@ describe("HoursService", () => {
     getRawMany: jest.fn(),
   };
   const entryRepository = { createQueryBuilder: jest.fn() };
+  const people = { findRefsByIds: jest.fn() };
+  const members = { findAccessFacts: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -169,6 +202,14 @@ describe("HoursService", () => {
     dataSource.getRepository.mockImplementation((target: unknown) =>
       target === HourEntry ? entryRepository : undefined,
     );
+    people.findRefsByIds.mockImplementation(async (ids: string[]) => {
+      order.push("find-person");
+      return ids.map((id) => ({ id: id.toLowerCase(), name: "Member" }));
+    });
+    members.findAccessFacts.mockImplementation(async () => {
+      order.push("find-access-facts");
+      return { registrationStatus: MemberRegistrationStatus.APPROVED, departmentIds: [TECH] };
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -176,6 +217,9 @@ describe("HoursService", () => {
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: Clock, useValue: clock },
+        { provide: PeopleService, useValue: people },
+        { provide: MembersService, useValue: members },
+        PermissionPolicy,
       ],
     }).compile();
 
@@ -416,6 +460,172 @@ describe("HoursService", () => {
     });
   });
 
+  describe("logHoursForMember", () => {
+    it("logs on_behalf for a member of the director's department, created by the director", async () => {
+      const response = await service.logHoursForMember(MEMBER.id, CARD_DTO, DIRECTOR);
+
+      expect(order).toEqual([
+        "find-person",
+        "find-access-facts",
+        "insert-entry",
+        "insert-event",
+        "commit",
+        "emit-audit",
+      ]);
+      expect(people.findRefsByIds).toHaveBeenCalledWith([MEMBER.id]);
+      expect(members.findAccessFacts).toHaveBeenCalledWith(MEMBER.id);
+      expect(savedEntries()[0]).toMatchObject({
+        personId: MEMBER.id,
+        createdById: DIRECTOR.id,
+        origin: HourEntryOrigin.ON_BEHALF,
+        status: HourEntryStatus.PENDING,
+        notes: null,
+      });
+      expect(savedEvents()[0]).toMatchObject({
+        actorId: DIRECTOR.id,
+        type: HourEntryEventType.CREATED,
+      });
+      expect(auditEvents()).toHaveLength(1);
+      expect(auditEvents()[0]).toMatchObject({
+        action: AuditableAction.HOUR_ENTRY_CREATED,
+        actorId: DIRECTOR.id,
+        after: { personId: MEMBER.id, origin: HourEntryOrigin.ON_BEHALF },
+      });
+      expect(response).toMatchObject({
+        id: ENTRY_ID,
+        personId: MEMBER.id,
+        createdById: DIRECTOR.id,
+        origin: HourEntryOrigin.ON_BEHALF,
+      });
+    });
+
+    it("throws SELF_ON_BEHALF_NOT_ALLOWED when the id is the actor's, in any letter case, before reading the target", async () => {
+      for (const id of [DIRECTOR.id, DIRECTOR.id.toUpperCase()]) {
+        const failure = await httpFailure(service.logHoursForMember(id, CARD_DTO, DIRECTOR));
+
+        expect(failure.getStatus()).toBe(400);
+        expect(codeOf(failure)).toBe("SELF_ON_BEHALF_NOT_ALLOWED");
+      }
+      expect(people.findRefsByIds).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("throws MEMBER_NOT_FOUND when the person does not exist, before the scope check", async () => {
+      people.findRefsByIds.mockResolvedValue([]);
+
+      for (const actor of [DIRECTOR, DIRECTOR_OF_OTHER_DEPARTMENT]) {
+        const failure = await httpFailure(service.logHoursForMember(MEMBER.id, CARD_DTO, actor));
+
+        expect(failure.getStatus()).toBe(404);
+        expect(codeOf(failure)).toBe("MEMBER_NOT_FOUND");
+      }
+      expect(members.findAccessFacts).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it.each([MemberRegistrationStatus.PENDING, MemberRegistrationStatus.REJECTED, null])(
+      "throws MEMBER_NOT_FOUND when the registration status is %s",
+      async (registrationStatus) => {
+        members.findAccessFacts.mockResolvedValue({ registrationStatus, departmentIds: [] });
+
+        for (const actor of [DIRECTOR, COORDINATOR, SUPERADMIN]) {
+          const failure = await httpFailure(service.logHoursForMember(MEMBER.id, CARD_DTO, actor));
+
+          expect(failure.getStatus()).toBe(404);
+          expect(codeOf(failure)).toBe("MEMBER_NOT_FOUND");
+        }
+        expect(dataSource.transaction).not.toHaveBeenCalled();
+      },
+    );
+
+    it("throws FORBIDDEN_SCOPE to a director of another department and to a director without department, and writes nothing", async () => {
+      for (const actor of [DIRECTOR_OF_OTHER_DEPARTMENT, DIRECTOR_WITHOUT_DEPARTMENT]) {
+        const failure = await httpFailure(service.logHoursForMember(MEMBER.id, CARD_DTO, actor));
+
+        expect(failure.getStatus()).toBe(403);
+        expect(codeOf(failure)).toBe("FORBIDDEN_SCOPE");
+      }
+
+      members.findAccessFacts.mockResolvedValue({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        departmentIds: [],
+      });
+      const memberWithoutDepartment = await httpFailure(
+        service.logHoursForMember(MEMBER.id, CARD_DTO, DIRECTOR),
+      );
+      expect(codeOf(memberWithoutDepartment)).toBe("FORBIDDEN_SCOPE");
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws FORBIDDEN_SCOPE to a member, whose hours.logForOthers is none", async () => {
+      const failure = await httpFailure(service.logHoursForMember(DIRECTOR.id, CARD_DTO, MEMBER));
+
+      expect(codeOf(failure)).toBe("FORBIDDEN_SCOPE");
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("lets the coordinator and the superadmin log for a member of any department, and for one without department", async () => {
+      for (const departmentIds of [[COMMS], []]) {
+        members.findAccessFacts.mockResolvedValue({
+          registrationStatus: MemberRegistrationStatus.APPROVED,
+          departmentIds,
+        });
+
+        for (const actor of [COORDINATOR, SUPERADMIN]) {
+          const response = await service.logHoursForMember(MEMBER.id, CARD_DTO, actor);
+
+          expect(response).toMatchObject({
+            personId: MEMBER.id,
+            createdById: actor.id,
+            origin: HourEntryOrigin.ON_BEHALF,
+          });
+        }
+      }
+      expect(dataSource.transaction).toHaveBeenCalledTimes(4);
+    });
+
+    it("uses the id the database returns, not the one of the URL", async () => {
+      await service.logHoursForMember(MEMBER.id.toUpperCase(), CARD_DTO, DIRECTOR);
+
+      expect(people.findRefsByIds).toHaveBeenCalledWith([MEMBER.id.toUpperCase()]);
+      expect(members.findAccessFacts).toHaveBeenCalledWith(MEMBER.id);
+      expect(savedEntries()[0].personId).toBe(MEMBER.id);
+      expect(auditEvents()[0].after).toMatchObject({ personId: MEMBER.id });
+    });
+
+    it("throws HOUR_ENTRY_DATE_IN_FUTURE after the scope check", async () => {
+      const future = { ...CARD_DTO, date: TOMORROW };
+
+      const outOfScope = await httpFailure(
+        service.logHoursForMember(MEMBER.id, future, DIRECTOR_OF_OTHER_DEPARTMENT),
+      );
+      expect(codeOf(outOfScope)).toBe("FORBIDDEN_SCOPE");
+
+      const inScope = await httpFailure(service.logHoursForMember(MEMBER.id, future, DIRECTOR));
+      expect(codeOf(inScope)).toBe("HOUR_ENTRY_DATE_IN_FUTURE");
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("keeps the notes of the body and does not emit when the transaction fails", async () => {
+      await service.logHoursForMember(
+        MEMBER.id,
+        { ...CARD_DTO, notes: "Feito no sábado." },
+        DIRECTOR,
+      );
+      expect(savedEntries()[0].notes).toBe("Feito no sábado.");
+
+      eventEmitter.emit.mockClear();
+      const failure = new Error("connection lost");
+      manager.save.mockRejectedValueOnce(failure);
+
+      await expect(service.logHoursForMember(MEMBER.id, CARD_DTO, DIRECTOR)).rejects.toBe(failure);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe("listMyEntries / getMySummary", () => {
     it("throws INVALID_PERIOD when from is after to, before querying", async () => {
       const period = { from: "2026-03-31", to: "2026-03-01" };
@@ -646,7 +856,7 @@ describe("HoursService", () => {
     });
 
     it.each([HourEntryStatus.APPROVED, HourEntryStatus.ADJUSTED, HourEntryStatus.REJECTED])(
-      "throws ENTRY_NOT_PENDING for a %s entry and writes nothing",
+      "throws ENTRY_NOT_PENDING for an entry that is %s and writes nothing",
       async (status) => {
         stored = storedEntry({ status, validatedMinutes: 120 });
 

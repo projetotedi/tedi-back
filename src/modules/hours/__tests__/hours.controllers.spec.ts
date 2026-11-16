@@ -7,6 +7,7 @@ import { Role } from "@shared/enums/role.enum";
 import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
+import { MemberHoursController } from "../controllers/member-hours.controller";
 import { MyHoursController } from "../controllers/my-hours.controller";
 import { CreateHourEntryDto } from "../dto/create-hour-entry.dto";
 import { HourEntryResponseDto } from "../dto/hour-entry.response.dto";
@@ -16,6 +17,7 @@ import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import { HoursService } from "../services/hours.service";
 
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
+const MEMBER_ID = "01999a3e-0000-7000-8000-0000000000bb";
 const ACTOR: AuthUser = {
   id: "01999a3e-0000-7000-8000-0000000000aa",
   role: Role.MEMBER,
@@ -183,6 +185,68 @@ describe("hours controllers", () => {
         service.removeMyEntry.mockRejectedValueOnce(failure);
 
         await expect(controller.removeMyHourEntry(ENTRY_ID, ACTOR)).rejects.toBe(failure);
+      });
+    });
+  });
+
+  describe("MemberHoursController", () => {
+    it("protects MemberHoursController.logHoursForMember with hours.logForOthers and no @Roles", () => {
+      const handler = MemberHoursController.prototype.logHoursForMember;
+
+      expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(Permission.HOURS_LOG_FOR_OTHERS);
+      expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+    });
+
+    it("routes logHoursForMember on POST /members/:id/hour-entries", () => {
+      const handler = MemberHoursController.prototype.logHoursForMember;
+
+      expect(Reflect.getMetadata("method", handler)).toBe(RequestMethod.POST);
+      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(":id/hour-entries");
+      expect(Reflect.getMetadata(PATH_METADATA, MemberHoursController)).toBe("members");
+    });
+
+    it("has no route to edit an hour entry either", () => {
+      expect(methodsOf(MemberHoursController)).toEqual([RequestMethod.POST]);
+    });
+
+    it("answers 404 MEMBER_NOT_FOUND to a malformed id, through the pipe of the route", async () => {
+      const pipes = idPipesOf(MemberHoursController, "logHoursForMember");
+      expect(pipes).toHaveLength(1);
+
+      const failure: unknown = await Promise.resolve(
+        pipes[0].transform("not-a-uuid", { type: "param", data: "id" }),
+      ).catch((error: unknown) => error);
+
+      if (!(failure instanceof HttpException)) throw new Error("Expected an HttpException");
+      expect(failure.getStatus()).toBe(404);
+      expect(failure.getResponse()).toEqual({
+        error: "MEMBER_NOT_FOUND",
+        message: "Member not found.",
+      });
+    });
+
+    describe("delegation", () => {
+      const service = { logHoursForMember: jest.fn() };
+      const controller = new MemberHoursController(service as unknown as HoursService);
+
+      beforeEach(() => {
+        jest.clearAllMocks();
+      });
+
+      it("passes the id, the body and the actor to the service", async () => {
+        const entry = { id: ENTRY_ID } as HourEntryResponseDto;
+        service.logHoursForMember.mockResolvedValue(entry);
+
+        await expect(controller.logHoursForMember(MEMBER_ID, BODY, ACTOR)).resolves.toBe(entry);
+
+        expect(service.logHoursForMember).toHaveBeenCalledWith(MEMBER_ID, BODY, ACTOR);
+      });
+
+      it("passes the failure of the service on as it is", async () => {
+        const failure = new HttpException({ error: "FORBIDDEN_SCOPE" }, 403);
+        service.logHoursForMember.mockRejectedValueOnce(failure);
+
+        await expect(controller.logHoursForMember(MEMBER_ID, BODY, ACTOR)).rejects.toBe(failure);
       });
     });
   });

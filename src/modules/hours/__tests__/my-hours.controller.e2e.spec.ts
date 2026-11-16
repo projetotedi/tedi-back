@@ -837,6 +837,25 @@ describe("MyHoursController (e2e)", () => {
       ]);
     });
 
+    it("lets the member remove a pending entry a director logged in her name", async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/members/${member.id}/hour-entries`)
+        .set("Cookie", director.cookie)
+        .send(hourEntryBody())
+        .expect(201);
+      const entry = res.body as HourEntryBody;
+      expect(entry).toMatchObject({ origin: "on_behalf", createdById: director.id });
+
+      await removeEntry(entry.id, director).expect(404);
+      await removeEntry(entry.id, member).expect(204);
+
+      const events = await eventsOf(dataSource, entry.id);
+      expect(events.map((event) => [event.type, event.actor_id])).toEqual([
+        ["created", director.id],
+        ["removed", member.id],
+      ]);
+    });
+
     it("accepts the id of the entry in upper case", async () => {
       const entry = await logEntry(member);
 
