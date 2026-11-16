@@ -68,6 +68,7 @@ const PLAN_OBJECTIVES: Record<(typeof GENERATION_PLAN_TITLES)[number], string | 
 };
 
 type CreateCourseInput = Parameters<CoursesService["create"]>[0];
+type UpdateClassInput = Parameters<ClassesService["update"]>[1];
 
 interface Actor {
   id: string;
@@ -979,6 +980,8 @@ describe("Generation of the lessons of a class (e2e)", () => {
     });
 
     it("an archived course does not block: its classes keep being edited", async () => {
+      // The catalog has no service to archive a course yet (another card), so the row is marked as
+      // its route will.
       await dataSource.query(
         `UPDATE courses SET archived_at = now(), archived_by_id = $2 WHERE id = $1`,
         [courseId, director.id],
@@ -990,7 +993,11 @@ describe("Generation of the lessons of a class (e2e)", () => {
     });
 
     it("a class that is already completed still gets its lessons: only the archive blocks", async () => {
-      await dataSource.query(`UPDATE classes SET status = 'completed' WHERE id = $1`, [classId]);
+      await classesService.update(
+        classId,
+        { status: "completed" } as unknown as UpdateClassInput,
+        director.id,
+      );
 
       const res = await postGenerate(classId, director, generationBody()).expect(201);
 
@@ -1154,7 +1161,7 @@ describe("Generation of the lessons of a class (e2e)", () => {
       await generateSeries();
       // The series of a class that has already got its lessons would also fall outside: the first
       // error is the one answered.
-      await dataSource.query(`UPDATE classes SET end_date = '2026-04-24' WHERE id = $1`, [classId]);
+      await classesService.update(classId, { endDate: "2026-04-24" }, director.id);
 
       const res = await postGenerate(classId, director, generationBody()).expect(409);
 
