@@ -1,15 +1,9 @@
 import { HttpException } from "@nestjs/common";
 
 /**
- * The business errors of the hours, one helper each, so a service and a pipe answer the same thing.
- * The messages are English literals and the stable part is the `error` code: the front translates
- * by it (there is no i18n in the backend).
- */
-
-/**
  * 404 for `/me/hour-entries/:id`: a malformed id, an unknown one, an entry of another person and
  * one already removed all answer the same, so the route never tells that someone else's entry
- * exists.
+ * exists. Shared by the pipe of the id of the route and by the service, so both answer the same.
  */
 export function hourEntryNotFound(): HttpException {
   return new HttpException(
@@ -40,8 +34,9 @@ export function hourEntryDateInFuture(): HttpException {
 
 /**
  * 404 for `/members/:id/hour-entries`: a malformed id, an unknown or deleted person and a person
- * without an approved member registration. The same code and text as the member record of the
- * people module, built here because a module does not import the helpers of another.
+ * without an approved member registration, from the pipe of the id of the route and from the
+ * service alike. The same code and text as the member record of the people module, built here
+ * because a module does not import the helpers of another.
  */
 export function memberNotFound(): HttpException {
   return new HttpException({ error: "MEMBER_NOT_FOUND", message: "Member not found." }, 404);
