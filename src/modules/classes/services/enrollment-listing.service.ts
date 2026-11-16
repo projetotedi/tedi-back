@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { CoursesService, CourseSummary } from "@modules/catalog/services/courses.service";
 import {
-  StudentRef,
+  StudentListEntry,
   StudentsService,
   studentNotFound,
 } from "@modules/people/services/students.service";
@@ -43,7 +43,7 @@ interface CurrentClassRow extends EnrollmentClassRow {
  * Read-only: no transaction, no lock, no event and no log (RNF-13). Never the reason of a change.
  *
  * `classes` never reads the tables of `people`: the students are paged, ordered, searched and aged
- * by `StudentsService.listStudentRefs`, with the ids this module finds in its enrollments. The page
+ * by `StudentsService.listStudentEntries`, with the ids this module finds in its enrollments. The page
  * is then completed with the data of this module in ONE query per page (never one per student).
  * Every `date` column read raw comes out `::text`, so it stays "YYYY-MM-DD" (the driver would make
  * it a Date at midnight of the server, which can be the day before).
@@ -85,7 +85,7 @@ export class EnrollmentListingService {
     if (rows.length === 0) return { data: [], total: 0, page, limit };
 
     const byStudent = new Map(rows.map((row) => [row.studentId, row]));
-    const students = await this.students.listStudentRefs(
+    const students = await this.students.listStudentEntries(
       { onlyIds: [...byStudent.keys()], search: query.search, includeArchived: true },
       { page, limit },
     );
@@ -118,7 +118,7 @@ export class EnrollmentListingService {
       `SELECT student_id AS "studentId" FROM enrollments WHERE class_id = $1 AND deleted_at IS NULL`,
       [schoolClass.id],
     );
-    const students = await this.students.listStudentRefs(
+    const students = await this.students.listStudentEntries(
       {
         excludeIds: enrolled.map((row) => row.studentId),
         search: query.search,
@@ -206,7 +206,7 @@ export class EnrollmentListingService {
       return { data: [], total: 0, page, limit };
     }
 
-    const students = await this.students.listStudentRefs(
+    const students = await this.students.listStudentEntries(
       situation === StudentEnrollmentSituation.ENROLLED
         ? { onlyIds: activeIds, search: query.search, includeArchived: false }
         : { excludeIds: activeIds, search: query.search, includeArchived: false },
@@ -278,7 +278,7 @@ export class EnrollmentListingService {
   /** The enrollment of a student of the page: the page only has the students of these rows. */
   private rowOf(
     byStudent: ReadonlyMap<string, ClassEnrollmentRow>,
-    student: StudentRef,
+    student: StudentListEntry,
   ): ClassEnrollmentRow {
     const row = byStudent.get(student.id);
     if (row === undefined) {

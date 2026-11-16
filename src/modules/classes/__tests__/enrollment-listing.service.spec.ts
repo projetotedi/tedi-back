@@ -10,7 +10,7 @@ import {
 } from "@modules/catalog/services/courses.service";
 import {
   AccessibilityNeed,
-  StudentRef,
+  StudentListEntry,
   StudentsService,
 } from "@modules/people/services/students.service";
 import { AuthUser } from "@shared/decorators/auth-user.type";
@@ -39,7 +39,7 @@ const ACTOR: AuthUser = {
   accessEnabled: true,
 };
 
-function ref(id: string, name: string): StudentRef {
+function ref(id: string, name: string): StudentListEntry {
   return { id, name, age: 68, phone: "43999990000", accessibilityNeed: AccessibilityNeed.VISUAL };
 }
 
@@ -89,7 +89,7 @@ describe("EnrollmentListingService", () => {
 
   const classRepository = { findOne: jest.fn() };
   const dataSource = { query: jest.fn(), getRepository: jest.fn() };
-  const students = { listStudentRefs: jest.fn(), findStudentSummaries: jest.fn() };
+  const students = { listStudentEntries: jest.fn(), findStudentSummaries: jest.fn() };
   const courses = { getCourseSummaries: jest.fn() };
   const policy = { can: jest.fn() };
 
@@ -120,7 +120,7 @@ describe("EnrollmentListingService", () => {
       if (sql.includes("e.student_id = $1")) return state.history;
       return state.liveStudents;
     });
-    students.listStudentRefs.mockResolvedValue({ data: [], total: 0, page: 1, limit: 20 });
+    students.listStudentEntries.mockResolvedValue({ data: [], total: 0, page: 1, limit: 20 });
     students.findStudentSummaries.mockResolvedValue([{ id: ANA, name: "Ana", archivedAt: null }]);
     courses.getCourseSummaries.mockImplementation(async () => state.courses);
     policy.can.mockReturnValue(true);
@@ -160,7 +160,7 @@ describe("EnrollmentListingService", () => {
       );
 
       expect(page).toEqual({ data: [], total: 0, page: 2, limit: 10 });
-      expect(students.listStudentRefs).not.toHaveBeenCalled();
+      expect(students.listStudentEntries).not.toHaveBeenCalled();
       const [sql, parameters] = dataSource.query.mock.calls[0];
       expect(sql).toContain("status_changed_at::text");
       expect(sql).toContain("deleted_at IS NULL");
@@ -172,7 +172,7 @@ describe("EnrollmentListingService", () => {
 
     it("asks people for the students of the enrollments with the search, archived included, and keeps their page and total", async () => {
       state.classRows = [classRow(ANA), classRow(BRUNO, EnrollmentStatus.DROPPED)];
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(BRUNO, "Bruno")],
         total: 2,
         page: 2,
@@ -185,7 +185,7 @@ describe("EnrollmentListingService", () => {
         ACTOR,
       );
 
-      expect(students.listStudentRefs).toHaveBeenCalledWith(
+      expect(students.listStudentEntries).toHaveBeenCalledWith(
         { onlyIds: [ANA, BRUNO], search: "b", includeArchived: true },
         { page: 2, limit: 1 },
       );
@@ -199,7 +199,7 @@ describe("EnrollmentListingService", () => {
 
     it("asks the policy once whether the actor can see students", async () => {
       state.classRows = [classRow(ANA), classRow(BRUNO)];
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(ANA, "Ana"), ref(BRUNO, "Bruno")],
         total: 2,
         page: 1,
@@ -214,7 +214,7 @@ describe("EnrollmentListingService", () => {
 
     it("fills phone and accessibilityNeed only when the actor can see students, and null otherwise", async () => {
       state.classRows = [classRow(ANA)];
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(ANA, "Ana")],
         total: 1,
         page: 1,
@@ -243,7 +243,7 @@ describe("EnrollmentListingService", () => {
 
     it("answers attendanceRate null", async () => {
       state.classRows = [classRow(ANA)];
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(ANA, "Ana")],
         total: 1,
         page: 1,
@@ -266,7 +266,7 @@ describe("EnrollmentListingService", () => {
 
     it("throws when people answers a student that is not in the enrollments, a broken invariant", async () => {
       state.classRows = [classRow(ANA)];
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(BRUNO, "Bruno")],
         total: 1,
         page: 1,
@@ -289,14 +289,14 @@ describe("EnrollmentListingService", () => {
       expect(sql).toContain("deleted_at IS NULL");
       expect(sql).not.toContain("status");
       expect(parameters).toEqual([CLASS_ID]);
-      expect(students.listStudentRefs).toHaveBeenCalledWith(
+      expect(students.listStudentEntries).toHaveBeenCalledWith(
         { excludeIds: [ANA, BRUNO], search: "Car", includeArchived: false },
         { page: 1, limit: 20 },
       );
     });
 
     it("fills currentClasses with one query for the whole page", async () => {
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(ANA, "Ana"), ref(BRUNO, "Bruno")],
         total: 2,
         page: 1,
@@ -335,7 +335,7 @@ describe("EnrollmentListingService", () => {
 
       // An empty page asks nothing about the classes.
       dataSource.query.mockClear();
-      students.listStudentRefs.mockResolvedValue({ data: [], total: 0, page: 1, limit: 20 });
+      students.listStudentEntries.mockResolvedValue({ data: [], total: 0, page: 1, limit: 20 });
       await service.listAvailableStudents(CLASS_ID, {});
       expect(queriesWith("ANY($1::uuid[])")).toHaveLength(0);
     });
@@ -347,7 +347,7 @@ describe("EnrollmentListingService", () => {
 
       expect(failure.getStatus()).toBe(404);
       expect(failure.getResponse()).toMatchObject({ error: "CLASS_NOT_FOUND" });
-      expect(students.listStudentRefs).not.toHaveBeenCalled();
+      expect(students.listStudentEntries).not.toHaveBeenCalled();
     });
   });
 
@@ -443,7 +443,7 @@ describe("EnrollmentListingService", () => {
 
       await service.listStudentsByEnrollment({});
 
-      expect(students.listStudentRefs).toHaveBeenCalledWith(
+      expect(students.listStudentEntries).toHaveBeenCalledWith(
         { onlyIds: [ANA], search: undefined, includeArchived: false },
         { page: 1, limit: 20 },
       );
@@ -451,7 +451,7 @@ describe("EnrollmentListingService", () => {
 
     it("passes the active students as onlyIds for enrolled and as excludeIds for not_enrolled, with or without a class", async () => {
       state.activeStudents = [{ studentId: ANA }, { studentId: BRUNO }];
-      students.listStudentRefs.mockResolvedValue({
+      students.listStudentEntries.mockResolvedValue({
         data: [ref(ANA, "Ana"), ref(BRUNO, "Bruno")],
         total: 2,
         page: 1,
@@ -473,7 +473,7 @@ describe("EnrollmentListingService", () => {
         [EnrollmentStatus.ACTIVE, CLASS_ID],
         [EnrollmentStatus.ACTIVE, null],
       ]);
-      expect(students.listStudentRefs.mock.calls.map((call) => call[0])).toEqual([
+      expect(students.listStudentEntries.mock.calls.map((call) => call[0])).toEqual([
         { onlyIds: [ANA, BRUNO], search: "an", includeArchived: false },
         { excludeIds: [ANA, BRUNO], search: undefined, includeArchived: false },
       ]);
@@ -491,14 +491,14 @@ describe("EnrollmentListingService", () => {
       const page = await service.listStudentsByEnrollment({ classId: CLASS_ID, page: 3 });
 
       expect(page).toEqual({ data: [], total: 0, page: 3, limit: 20 });
-      expect(students.listStudentRefs).not.toHaveBeenCalled();
+      expect(students.listStudentEntries).not.toHaveBeenCalled();
 
       // Nobody enrolled is everybody for not_enrolled: people is asked with nothing to exclude.
       await service.listStudentsByEnrollment({
         classId: CLASS_ID,
         situation: StudentEnrollmentSituation.NOT_ENROLLED,
       });
-      expect(students.listStudentRefs).toHaveBeenCalledWith(
+      expect(students.listStudentEntries).toHaveBeenCalledWith(
         { excludeIds: [], search: undefined, includeArchived: false },
         { page: 1, limit: 20 },
       );

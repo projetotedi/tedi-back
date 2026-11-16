@@ -1,5 +1,5 @@
 import { CourseSummary } from "@modules/catalog/services/courses.service";
-import { StudentRef } from "@modules/people/services/students.service";
+import { StudentListEntry } from "@modules/people/services/students.service";
 import { ClassEnrollmentItemResponseDto } from "../dto/class-enrollment-item.response.dto";
 import { EnrollmentClassRefResponseDto } from "../dto/enrollment-class-ref.response.dto";
 import { EnrollmentResponseDto } from "../dto/enrollment.response.dto";
@@ -74,7 +74,7 @@ export function toEnrollmentResponse(
  */
 export function toClassEnrollmentItem(
   row: ClassEnrollmentRow,
-  student: StudentRef,
+  student: StudentListEntry,
   options: { canSeeStudentContact: boolean },
 ): ClassEnrollmentItemResponseDto {
   return {

@@ -3,7 +3,7 @@ import { StudentResponseDto } from "../dto/student.response.dto";
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
-import type { StudentRef } from "./students.service";
+import type { StudentListEntry } from "./students.service";
 
 /**
  * Builds the API shape of a student from its Person and StudentProfile.
@@ -47,8 +47,8 @@ export function toStudentResponse(
   };
 }
 
-/** One row of `StudentsService.listStudentRefs`, as the query reads it (the birth date as text). */
-export interface StudentRefRow {
+/** One row of `StudentsService.listStudentEntries`, as the query reads it (the birth date as text). */
+export interface StudentListEntryRow {
   id: string;
   name: string;
   birthDate: string | null;
@@ -57,10 +57,10 @@ export interface StudentRefRow {
 }
 
 /**
- * The student of a list for another module (`StudentRef`). Explicit projection, aged against
+ * The student of a list for another module (`StudentListEntry`). Explicit projection, aged against
  * `today` ("YYYY-MM-DD" in America/Sao_Paulo, computed once per page by the caller).
  */
-export function toStudentRef(row: StudentRefRow, today: string): StudentRef {
+export function toStudentListEntry(row: StudentListEntryRow, today: string): StudentListEntry {
   if (row.birthDate === null) {
     // Invariant guard, as in toStudentResponse: create requires the date and update rejects null.
     throw new Error(`Student ${row.id} has no birthDate`);

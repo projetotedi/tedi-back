@@ -24,7 +24,7 @@ const dbConnection = dbUrl
 // 22:30 in São Paulo on 2026-10-01 is already 2026-10-02 in UTC: the age uses the São Paulo day.
 const NOW = new Date("2026-10-02T01:30:00.000Z");
 
-describe("StudentsService.listStudentRefs and findStudentSummaries (e2e)", () => {
+describe("StudentsService.listStudentEntries and findStudentSummaries (e2e)", () => {
   let module: TestingModule;
   let dataSource: DataSource;
   let peopleService: PeopleService;
@@ -94,7 +94,7 @@ describe("StudentsService.listStudentRefs and findStudentSummaries (e2e)", () =>
     const otherAna = await student("Ana Souza", { birthDate: "1960-01-15" });
     await student("Not asked");
 
-    const page = await studentsService.listStudentRefs(
+    const page = await studentsService.listStudentEntries(
       { onlyIds: [maria, ana, otherAna] },
       { page: 1, limit: 20 },
     );
@@ -126,18 +126,20 @@ describe("StudentsService.listStudentRefs and findStudentSummaries (e2e)", () =>
     const removed = await student("Removed");
     await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [removed]);
 
-    const others = await studentsService.listStudentRefs({ excludeIds: [excluded] }, {});
+    const others = await studentsService.listStudentEntries({ excludeIds: [excluded] }, {});
     expect(others.data.map((item) => item.id)).toEqual([kept]);
     expect(others.total).toBe(1);
 
-    const withArchived = await studentsService.listStudentRefs(
+    const withArchived = await studentsService.listStudentEntries(
       { onlyIds: [kept, archived, removed], includeArchived: true },
       {},
     );
     expect(withArchived.data.map((item) => item.name)).toEqual(["Archived", "Kept"]);
 
     // A member (a person without a student profile) is never a student.
-    expect((await studentsService.listStudentRefs({ onlyIds: [coordinatorId] }, {})).total).toBe(0);
+    expect((await studentsService.listStudentEntries({ onlyIds: [coordinatorId] }, {})).total).toBe(
+      0,
+    );
   });
 
   it("searches by name ignoring case and accents, and counts the total of the filter", async () => {
@@ -147,11 +149,17 @@ describe("StudentsService.listStudentRefs and findStudentSummaries (e2e)", () =>
     await student("Carla Josefina");
     await student("Maria");
 
-    const first = await studentsService.listStudentRefs({ search: "JOSE" }, { page: 1, limit: 2 });
+    const first = await studentsService.listStudentEntries(
+      { search: "JOSE" },
+      { page: 1, limit: 2 },
+    );
     expect(first.total).toBe(3);
     expect(first.data.map((item) => item.name)).toEqual(["Ana José", "Bruno Jose"]);
 
-    const second = await studentsService.listStudentRefs({ search: "josé" }, { page: 2, limit: 2 });
+    const second = await studentsService.listStudentEntries(
+      { search: "josé" },
+      { page: 2, limit: 2 },
+    );
     expect(second.data.map((item) => item.name)).toEqual(["Carla Josefina"]);
     expect(second.total).toBe(3);
   });

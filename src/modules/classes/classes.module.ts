@@ -29,7 +29,7 @@ import { EnrollmentsService } from "./services/enrollments.service";
   // PeopleModule has its first consumer in GUS-104 too: PeopleService.findRefsByIds, for who
   // created the class and the students of the preview. GUS-108 (the enrollments) uses
   // StudentsService.findStudentSummaries (the students of an enrollment, FOR SHARE on the profile)
-  // and listStudentRefs (the students of the lists, by ids), CoursesService.findPrerequisiteRefs and
+  // and listStudentEntries (the students of the lists, by ids), CoursesService.findPrerequisiteRefs and
   // getCourseSummaries, and registers EnrollmentCountsService as the reader of the port
   // StudentEnrollmentsRegistry (the archive of a student asks it). PermissionsModule gives the
   // policy that decides whether the list of a class shows the contact of the students.

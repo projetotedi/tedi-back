@@ -1,12 +1,13 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
+import type { StudentListEntry } from "../services/students.service";
 
 /**
  * One student of a list of students: the item of the list of students, defined in GUS-108 for
- * GUS-106 to reuse. It has the shape of `StudentRef` (`StudentsService.listStudentRefs`): who the
- * student is, the age, the phone to reach her and the category of what she needs in class.
+ * GUS-106 to reuse. It implements `StudentListEntry` (`StudentsService.listStudentEntries`): who
+ * the student is, the age, the phone to reach her and the category of what she needs in class.
  */
-export class StudentListItemResponseDto {
+export class StudentListItemResponseDto implements StudentListEntry {
   @ApiProperty({
     type: String,
     format: "uuid",

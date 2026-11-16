@@ -5,7 +5,7 @@ import { DataSource } from "typeorm";
  * one as scenery: the rules of the registration are not what that test exercises. Exported for the
  * e2e of other modules (classes, GUS-108), which reexport it from their own fixture.
  *
- * The birth date defaults to a real date on purpose: `listStudentRefs` refuses a student without
+ * The birth date defaults to a real date on purpose: `listStudentEntries` refuses a student without
  * one (it is required on registration). The accessibility need defaults to `none`, the default of
  * the column. Archived (now, by `archivedById`) when `archivedById` is given.
  */

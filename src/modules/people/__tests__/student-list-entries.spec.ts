@@ -4,8 +4,8 @@ import { DataSource } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { Person } from "../entities/person.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
-import { StudentRefRow } from "../services/student-response.mapper";
-import { STUDENT_REF_FILTER_MAX_IDS, StudentsService } from "../services/students.service";
+import { StudentListEntryRow } from "../services/student-response.mapper";
+import { STUDENT_LIST_FILTER_MAX_IDS, StudentsService } from "../services/students.service";
 
 const STUDENT_ID = "01999a3e-7c1b-7000-8000-000000000001";
 const OTHER_STUDENT_ID = "01999a3e-7c1b-7000-8000-000000000002";
@@ -13,7 +13,7 @@ const OTHER_STUDENT_ID = "01999a3e-7c1b-7000-8000-000000000002";
 // 22:30 in São Paulo on 2026-10-01 is already 2026-10-02 in UTC: the age uses the São Paulo day.
 const NOW = new Date("2026-10-02T01:30:00.000Z");
 
-function row(overrides: Partial<StudentRefRow> = {}): StudentRefRow {
+function row(overrides: Partial<StudentListEntryRow> = {}): StudentListEntryRow {
   return {
     id: STUDENT_ID,
     name: "Maria Silva Santos",
@@ -24,7 +24,7 @@ function row(overrides: Partial<StudentRefRow> = {}): StudentRefRow {
   };
 }
 
-describe("StudentsService.listStudentRefs", () => {
+describe("StudentsService.listStudentEntries", () => {
   let service: StudentsService;
 
   /** A chainable query builder: every method returns it; the page and the count resolve apart. */
@@ -76,7 +76,7 @@ describe("StudentsService.listStudentRefs", () => {
     );
     clock.now.mockReturnValue(NOW);
 
-    // useMocker: the other dependencies of StudentsService play no part in listStudentRefs.
+    // useMocker: the other dependencies of StudentsService play no part in listStudentEntries.
     const moduleRef = await Test.createTestingModule({
       providers: [
         StudentsService,
@@ -90,40 +90,40 @@ describe("StudentsService.listStudentRefs", () => {
   });
 
   it("answers an empty page without querying when onlyIds is empty or has no uuid", async () => {
-    await expect(service.listStudentRefs({ onlyIds: [] }, {})).resolves.toEqual({
+    await expect(service.listStudentEntries({ onlyIds: [] }, {})).resolves.toEqual({
       data: [],
       total: 0,
       page: 1,
       limit: 20,
     });
     await expect(
-      service.listStudentRefs({ onlyIds: ["not-a-uuid"] }, { page: 3, limit: 5 }),
+      service.listStudentEntries({ onlyIds: ["not-a-uuid"] }, { page: 3, limit: 5 }),
     ).resolves.toEqual({ data: [], total: 0, page: 3, limit: 5 });
 
     expect(dataSource.getRepository).not.toHaveBeenCalled();
   });
 
-  it("throws when onlyIds or excludeIds pass STUDENT_REF_FILTER_MAX_IDS", async () => {
-    const tooMany = Array.from({ length: STUDENT_REF_FILTER_MAX_IDS + 1 }, () => STUDENT_ID);
+  it("throws when onlyIds or excludeIds pass STUDENT_LIST_FILTER_MAX_IDS", async () => {
+    const tooMany = Array.from({ length: STUDENT_LIST_FILTER_MAX_IDS + 1 }, () => STUDENT_ID);
 
-    await expect(service.listStudentRefs({ onlyIds: tooMany }, {})).rejects.toThrow(
-      `listStudentRefs takes at most ${STUDENT_REF_FILTER_MAX_IDS} ids`,
+    await expect(service.listStudentEntries({ onlyIds: tooMany }, {})).rejects.toThrow(
+      `listStudentEntries takes at most ${STUDENT_LIST_FILTER_MAX_IDS} ids`,
     );
-    await expect(service.listStudentRefs({ excludeIds: tooMany }, {})).rejects.toThrow(
-      `listStudentRefs takes at most ${STUDENT_REF_FILTER_MAX_IDS} ids`,
+    await expect(service.listStudentEntries({ excludeIds: tooMany }, {})).rejects.toThrow(
+      `listStudentEntries takes at most ${STUDENT_LIST_FILTER_MAX_IDS} ids`,
     );
     expect(dataSource.getRepository).not.toHaveBeenCalled();
 
     // The cap itself is accepted: it fails loudly only past it.
-    const atCap = Array.from({ length: STUDENT_REF_FILTER_MAX_IDS }, () => STUDENT_ID);
-    await expect(service.listStudentRefs({ excludeIds: atCap }, {})).resolves.toMatchObject({
+    const atCap = Array.from({ length: STUDENT_LIST_FILTER_MAX_IDS }, () => STUDENT_ID);
+    await expect(service.listStudentEntries({ excludeIds: atCap }, {})).resolves.toMatchObject({
       total: 0,
     });
   });
 
   it("ignores ids that are not uuids in excludeIds", async () => {
-    await service.listStudentRefs({ excludeIds: ["not-a-uuid", OTHER_STUDENT_ID] }, {});
-    await service.listStudentRefs({ excludeIds: ["not-a-uuid"] }, {});
+    await service.listStudentEntries({ excludeIds: ["not-a-uuid", OTHER_STUDENT_ID] }, {});
+    await service.listStudentEntries({ excludeIds: ["not-a-uuid"] }, {});
 
     const excluded = conditions().filter(([sql]) => sql.includes(":excludeIds"));
     // One array parameter, never one parameter per id; nothing valid left adds no condition.
@@ -133,7 +133,7 @@ describe("StudentsService.listStudentRefs", () => {
   });
 
   it("passes onlyIds as one array parameter and leaves the archived out unless asked", async () => {
-    await service.listStudentRefs({ onlyIds: [STUDENT_ID, "x"] }, {});
+    await service.listStudentEntries({ onlyIds: [STUDENT_ID, "x"] }, {});
 
     expect(conditions()).toEqual([
       ["student_profile.archived_at IS NULL", undefined],
@@ -144,7 +144,7 @@ describe("StudentsService.listStudentRefs", () => {
     expect(builder.addOrderBy).toHaveBeenCalledWith("person.id", "ASC");
 
     builder.andWhere.mockClear();
-    await service.listStudentRefs({ onlyIds: [STUDENT_ID], includeArchived: true }, {});
+    await service.listStudentEntries({ onlyIds: [STUDENT_ID], includeArchived: true }, {});
     expect(conditions().map(([sql]) => sql)).toEqual(["person.id = ANY(:onlyIds::uuid[])"]);
   });
 
@@ -155,7 +155,7 @@ describe("StudentsService.listStudentRefs", () => {
     ]);
     builder.getCount.mockResolvedValue(12);
 
-    const page = await service.listStudentRefs(
+    const page = await service.listStudentEntries(
       { onlyIds: [STUDENT_ID, OTHER_STUDENT_ID], search: "a" },
       { page: 2, limit: 10 },
     );
@@ -185,7 +185,7 @@ describe("StudentsService.listStudentRefs", () => {
     });
     expect(builder.offset).toHaveBeenCalledWith(10);
     expect(builder.limit).toHaveBeenCalledWith(10);
-    expect(conditions().some(([, parameters]) => parameters?.studentRefSearch === "%a%")).toBe(
+    expect(conditions().some(([, parameters]) => parameters?.studentListSearch === "%a%")).toBe(
       true,
     );
   });
@@ -193,7 +193,7 @@ describe("StudentsService.listStudentRefs", () => {
   it("throws when a student has no birth date, a broken invariant of the registration", async () => {
     builder.getRawMany.mockResolvedValue([row({ birthDate: null })]);
 
-    await expect(service.listStudentRefs({ onlyIds: [STUDENT_ID] }, {})).rejects.toThrow(
+    await expect(service.listStudentEntries({ onlyIds: [STUDENT_ID] }, {})).rejects.toThrow(
       `Student ${STUDENT_ID} has no birthDate`,
     );
   });

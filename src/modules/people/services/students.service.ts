@@ -27,7 +27,11 @@ import { AccessibilityNeed } from "../enums/accessibility-need.enum";
 import { auditSnapshot } from "./student-audit";
 import { toStudentDetail } from "./student-detail.mapper";
 import { StudentEnrollmentsRegistry } from "./student-enrollments.registry";
-import { StudentRefRow, toStudentRef, toStudentResponse } from "./student-response.mapper";
+import {
+  StudentListEntryRow,
+  toStudentListEntry,
+  toStudentResponse,
+} from "./student-response.mapper";
 
 /** Fields of the student that live on Person. */
 const PERSON_FIELDS = ["name", "birthDate", "email", "phone"] as const;
@@ -68,11 +72,11 @@ export function studentHasActiveEnrollments(): HttpException {
 }
 
 /**
- * The most ids `listStudentRefs` takes in `onlyIds` or in `excludeIds`. They are the students of
+ * The most ids `listStudentEntries` takes in `onlyIds` or in `excludeIds`. They are the students of
  * the enrollments of a class or of the active enrollments of the school (hundreds today): more
  * than this is a bug or a school far beyond its size, and it fails loudly instead of truncating.
  */
-export const STUDENT_REF_FILTER_MAX_IDS = 10_000;
+export const STUDENT_LIST_FILTER_MAX_IDS = 10_000;
 
 /**
  * What another module needs to know about a student to enroll it (classes, GUS-108): who it is and
@@ -86,9 +90,11 @@ export interface StudentSummary {
 
 /**
  * One student of a list of students, for another module (classes, GUS-108): the item of the list
- * of students that GUS-106 reuses (`StudentListItemResponseDto` has this shape).
+ * of students that GUS-106 reuses (`StudentListItemResponseDto` implements it). Not a "ref" (id and
+ * name): it carries `phone` and `accessibilityNeed`, personal data (RNF-13) that whoever shows it
+ * decides about (the list of a class hides them without students.view).
  */
-export interface StudentRef {
+export interface StudentListEntry {
   id: string;
   name: string;
   age: number;
@@ -96,8 +102,8 @@ export interface StudentRef {
   accessibilityNeed: AccessibilityNeed;
 }
 
-/** Which students `listStudentRefs` lists. Every field narrows the list; none is required. */
-export interface StudentRefFilter {
+/** Which students `listStudentEntries` lists. Every field narrows the list; none is required. */
+export interface StudentListFilter {
   /** Only these students. Empty answers an empty page. */
   onlyIds?: readonly string[];
   /** Every student but these. */
@@ -404,17 +410,17 @@ export class StudentsService {
    *
    * The ids go to Postgres as ONE array parameter (`= ANY(:ids::uuid[])`), never one parameter per
    * id. Ids that are not uuids are skipped; an empty `onlyIds` answers an empty page without
-   * querying. More than STUDENT_REF_FILTER_MAX_IDS ids throws (a 500 that is logged), instead of
+   * querying. More than STUDENT_LIST_FILTER_MAX_IDS ids throws (a 500 that is logged), instead of
    * truncating the filter. The age is computed against one day, today in America/Sao_Paulo.
    */
-  async listStudentRefs(
-    filter: StudentRefFilter,
+  async listStudentEntries(
+    filter: StudentListFilter,
     pagination: PaginationParams,
-  ): Promise<PaginatedResult<StudentRef>> {
+  ): Promise<PaginatedResult<StudentListEntry>> {
     for (const ids of [filter.onlyIds, filter.excludeIds]) {
-      if (ids !== undefined && ids.length > STUDENT_REF_FILTER_MAX_IDS) {
+      if (ids !== undefined && ids.length > STUDENT_LIST_FILTER_MAX_IDS) {
         throw new Error(
-          `listStudentRefs takes at most ${STUDENT_REF_FILTER_MAX_IDS} ids, got ${ids.length}.`,
+          `listStudentEntries takes at most ${STUDENT_LIST_FILTER_MAX_IDS} ids, got ${ids.length}.`,
         );
       }
     }
@@ -443,7 +449,7 @@ export class StudentsService {
     if (excludeIds.length > 0) {
       builder.andWhere("NOT (person.id = ANY(:excludeIds::uuid[]))", { excludeIds });
     }
-    applyTextSearch(builder, ["person.name"], filter.search, "studentRefSearch");
+    applyTextSearch(builder, ["person.name"], filter.search, "studentListSearch");
     builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
 
     const [rows, total] = await Promise.all([
@@ -451,12 +457,12 @@ export class StudentsService {
         .clone()
         .offset((page - 1) * limit)
         .limit(limit)
-        .getRawMany<StudentRefRow>(),
+        .getRawMany<StudentListEntryRow>(),
       builder.clone().getCount(),
     ]);
 
     const today = todayInAppTimeZone(this.clock.now());
-    return { data: rows.map((row) => toStudentRef(row, today)), total, page, limit };
+    return { data: rows.map((row) => toStudentListEntry(row, today)), total, page, limit };
   }
 
   /**
@@ -580,7 +586,7 @@ export class StudentsService {
 }
 
 /**
- * The enum of `StudentRef.accessibilityNeed`, the contract of `listStudentRefs`, re-exported so that
+ * The enum of `StudentListEntry.accessibilityNeed`, the contract of `listStudentEntries`, re-exported so that
  * other modules (classes) import it from the service PeopleModule exports and never from
  * `people/enums/*` (module is a closed box).
  */
