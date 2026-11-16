@@ -5379,6 +5379,114 @@
         },
         "type": "object"
       },
+      "UpdateMemberDto": {
+        "description": "Every field is optional: omit to keep. Null clears address, city, state and volunteerTermUrl; every other field is never null. The access profile (role) and the access are not edited here: see PATCH /access/:id/role and /enabled.",
+        "properties": {
+          "address": {
+            "example": "Rua das Acácias, 120, apto 42",
+            "maxLength": 200,
+            "nullable": true,
+            "type": "string"
+          },
+          "birthDate": {
+            "description": "YYYY-MM-DD, between 1900-01-01 and today (America/Sao_Paulo).",
+            "example": "1999-07-22",
+            "format": "date",
+            "type": "string"
+          },
+          "city": {
+            "example": "São Paulo",
+            "maxLength": 100,
+            "nullable": true,
+            "type": "string"
+          },
+          "className": {
+            "description": "Class (turma) at the university.",
+            "example": "SI-2024-N",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "course": {
+            "example": "Sistemas de Informação",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "cpf": {
+            "description": "Digits only after normalization. Visible only to coordination (RNF-14).",
+            "example": "529.982.247-25",
+            "type": "string"
+          },
+          "departmentId": {
+            "description": "Omit to keep. Never null. A director can only keep the department of the member (403 DEPARTMENT_SCOPE); an unknown id answers 400 DEPARTMENT_NOT_FOUND.",
+            "example": "01999a3e-1111-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "email": {
+            "description": "Personal e-mail. Omit to keep. Never null. Trimmed and lower-cased; unique among people (409 EMAIL_ALREADY_IN_USE).",
+            "example": "ana.torres@example.com",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "institutionalEmail": {
+            "description": "Trimmed and lower-cased.",
+            "example": "ana.torres@example.edu",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "joinedAt": {
+            "description": "YYYY-MM-DD, between 2000-01-01 and today (America/Sao_Paulo).",
+            "example": "2026-10-01",
+            "format": "date",
+            "type": "string"
+          },
+          "mainFunction": {
+            "example": "Monitora de informática",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "name": {
+            "example": "Ana Torres",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Formatting is stripped; stored as 10 to 13 digits (DDD, optional country code).",
+            "example": "(11) 98181-3030",
+            "type": "string"
+          },
+          "ra": {
+            "description": "Trimmed and lower-cased. It is the login (RN-09).",
+            "example": "a2210001",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "semester": {
+            "example": 7,
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "state": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BrazilianState"
+              }
+            ],
+            "description": "Federative unit (UF). Upper-cased.",
+            "example": "SP",
+            "nullable": true
+          },
+          "volunteerTermUrl": {
+            "description": "Link to the volunteer term in Drive (RF-011). HTTPS only.",
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "UpdateStudentDto": {
         "properties": {
           "accessibilityNeed": {
@@ -11222,6 +11330,106 @@
               }
             },
             "description": "MEMBER_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      },
+      "patch": {
+        "operationId": "updateMember",
+        "parameters": [
+          {
+            "description": "Person id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemberDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDetailResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | DEPARTMENT_NOT_FOUND"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN | FORBIDDEN_SCOPE | DEPARTMENT_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "NO_MEMBER_PROFILE | REGISTRATION_NOT_APPROVED | MEMBER_INACTIVE | RA_ALREADY_IN_USE | EMAIL_ALREADY_IN_USE"
           },
           "500": {
             "content": {

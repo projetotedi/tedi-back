@@ -18,6 +18,9 @@ export const MEMBER_TARGET_TYPE = "member";
  * status, exitDate and exitReason enter (GUS-147): exitReason is the "why" of the deactivation,
  * like reviewNote. exitNote never enters: the free note of the exit is stored and nothing else
  * (RNF-13).
+ *
+ * changedFields (GUS-146) names the fields an edit changed, sensitive ones included, never their
+ * values.
  */
 export const MEMBER_AUDIT_FIELDS = [
   "registrationStatus",
@@ -33,6 +36,7 @@ export const MEMBER_AUDIT_FIELDS = [
   "status",
   "exitDate",
   "exitReason",
+  "changedFields",
 ] as const;
 
 /** Picks only the allow-listed fields from the given values. */
