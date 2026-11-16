@@ -3,6 +3,7 @@ import { StudentRef } from "@modules/people/services/students.service";
 import { ClassEnrollmentItemResponseDto } from "../dto/class-enrollment-item.response.dto";
 import { EnrollmentClassRefResponseDto } from "../dto/enrollment-class-ref.response.dto";
 import { EnrollmentResponseDto } from "../dto/enrollment.response.dto";
+import { StudentEnrollmentItemResponseDto } from "../dto/student-enrollment-item.response.dto";
 import {
   CompletedCourseResponseDto,
   StudentEnrollmentsSummaryResponseDto,
@@ -103,48 +104,61 @@ export function toEnrollmentClassRef(row: EnrollmentClassRow): EnrollmentClassRe
 }
 
 /**
- * What the history of a student adds up to (pure): `activeClasses`, the active enrollments;
- * `completedCourses`, one per course with a completed enrollment (RN-16), with the latest
- * `statusChangedAt` of that course as `completedAt` ("YYYY-MM-DD" strings compare as dates), by
- * `completedAt` and then name; and `firstEnrollmentAt`, the earliest `enrolledAt`, or null.
- *
- * Every course of `rows` must be in `coursesById`: the foreign key keeps the course of a class, so a
- * missing one is a broken invariant and throws.
+ * One enrollment of the history of a student, with its class and the course of the class. The
+ * course comes resolved by the caller (`EnrollmentListingService`), which owns the invariant that it
+ * exists.
+ */
+export function toStudentEnrollmentItem(
+  row: StudentEnrollmentRow,
+  course: CourseSummary,
+): StudentEnrollmentItemResponseDto {
+  return {
+    id: row.id,
+    status: row.status,
+    enrolledAt: row.enrolledAt,
+    statusChangedAt: row.statusChangedAt,
+    class: toEnrollmentClassRef(row),
+    course: { id: course.id, name: course.name, category: course.category, status: course.status },
+  };
+}
+
+/**
+ * What the history of a student adds up to (pure), from the items of the history:
+ * `activeClasses`, the active enrollments; `completedCourses`, one per course with a completed
+ * enrollment (RN-16), with the latest `statusChangedAt` of that course as `completedAt`
+ * ("YYYY-MM-DD" strings compare as dates), by `completedAt` and then name; and
+ * `firstEnrollmentAt`, the earliest `enrolledAt`, or null.
  */
 export function summarizeStudentEnrollments(
-  rows: readonly StudentEnrollmentRow[],
-  coursesById: ReadonlyMap<string, CourseSummary>,
+  items: readonly StudentEnrollmentItemResponseDto[],
 ): StudentEnrollmentsSummaryResponseDto {
-  const completedAtByCourse = new Map<string, string>();
-  for (const row of rows) {
-    if (row.status !== EnrollmentStatus.COMPLETED) continue;
-    const latest = completedAtByCourse.get(row.courseId);
-    if (latest === undefined || row.statusChangedAt > latest) {
-      completedAtByCourse.set(row.courseId, row.statusChangedAt);
+  const completedByCourse = new Map<string, CompletedCourseResponseDto>();
+  for (const item of items) {
+    if (item.status !== EnrollmentStatus.COMPLETED) continue;
+    const latest = completedByCourse.get(item.course.id);
+    if (latest === undefined || item.statusChangedAt > latest.completedAt) {
+      completedByCourse.set(item.course.id, {
+        courseId: item.course.id,
+        name: item.course.name,
+        completedAt: item.statusChangedAt,
+      });
     }
   }
 
-  const completedCourses: CompletedCourseResponseDto[] = [...completedAtByCourse].map(
-    ([courseId, completedAt]) => {
-      const course = coursesById.get(courseId);
-      if (course === undefined) throw new Error(`The course ${courseId} of a class is gone.`);
-      return { courseId, name: course.name, completedAt };
-    },
-  );
-  completedCourses.sort(
+  const completedCourses = [...completedByCourse.values()].sort(
     (left, right) =>
       left.completedAt.localeCompare(right.completedAt) || left.name.localeCompare(right.name),
   );
 
   let firstEnrollmentAt: Date | null = null;
-  for (const row of rows) {
-    if (firstEnrollmentAt === null || row.enrolledAt < firstEnrollmentAt) {
-      firstEnrollmentAt = row.enrolledAt;
+  for (const item of items) {
+    if (firstEnrollmentAt === null || item.enrolledAt < firstEnrollmentAt) {
+      firstEnrollmentAt = item.enrolledAt;
     }
   }
 
   return {
-    activeClasses: rows.filter((row) => row.status === EnrollmentStatus.ACTIVE).length,
+    activeClasses: items.filter((item) => item.status === EnrollmentStatus.ACTIVE).length,
     completedCourses,
     firstEnrollmentAt,
   };

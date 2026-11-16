@@ -29,6 +29,7 @@ import {
   summarizeStudentEnrollments,
   toClassEnrollmentItem,
   toEnrollmentClassRef,
+  toStudentEnrollmentItem,
 } from "./enrollment-response.mapper";
 
 /** One active enrollment of a student with its class, for `currentClasses`. */
@@ -175,25 +176,10 @@ export class EnrollmentListingService {
     ]);
     const coursesById = new Map(courses.map((course) => [course.id, course]));
 
-    return {
-      enrollments: rows.map((row) => {
-        const course = this.courseOf(coursesById, row.courseId);
-        return {
-          id: row.id,
-          status: row.status,
-          enrolledAt: row.enrolledAt,
-          statusChangedAt: row.statusChangedAt,
-          class: toEnrollmentClassRef(row),
-          course: {
-            id: course.id,
-            name: course.name,
-            category: course.category,
-            status: course.status,
-          },
-        };
-      }),
-      summary: summarizeStudentEnrollments(rows, coursesById),
-    };
+    const enrollments = rows.map((row) =>
+      toStudentEnrollmentItem(row, this.courseOf(coursesById, row.courseId)),
+    );
+    return { enrollments, summary: summarizeStudentEnrollments(enrollments) };
   }
 
   /**
@@ -301,7 +287,10 @@ export class EnrollmentListingService {
     return row;
   }
 
-  /** The course of a class: the foreign key keeps it, so a missing one is a broken invariant. */
+  /**
+   * The course of a class: the foreign key keeps it, so a missing one is a broken invariant. The one
+   * place of that invariant for the history: the item and the summary are built from what it found.
+   */
   private courseOf(
     coursesById: ReadonlyMap<string, CourseSummary>,
     courseId: string,

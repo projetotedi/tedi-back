@@ -5,10 +5,12 @@ import {
 } from "@modules/catalog/services/courses.service";
 import { Enrollment } from "../entities/enrollment.entity";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
+import { StudentEnrollmentItemResponseDto } from "../dto/student-enrollment-item.response.dto";
 import {
   StudentEnrollmentRow,
   summarizeStudentEnrollments,
   toEnrollmentResponse,
+  toStudentEnrollmentItem,
 } from "../services/enrollment-response.mapper";
 
 const ENROLLMENT_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
@@ -34,8 +36,6 @@ const ACCESS: CourseSummary = {
   category: CourseCategory.BASIC,
   status: CourseStatus.ARCHIVED,
 };
-const COURSES = new Map([BASIC, SMARTPHONES, ACCESS].map((course) => [course.id, course]));
-
 function historyRow(
   id: string,
   status: EnrollmentStatus,
@@ -55,6 +55,20 @@ function historyRow(
     editionId: "01999a3e-7c1b-7000-8000-0000000000e1",
     editionName: "2025.2",
   };
+}
+
+/** One item of the history, with the course resolved, as `EnrollmentListingService` builds it. */
+function historyItem(
+  id: string,
+  status: EnrollmentStatus,
+  course: CourseSummary,
+  statusChangedAt: string,
+  enrolledAt: string,
+): StudentEnrollmentItemResponseDto {
+  return toStudentEnrollmentItem(
+    historyRow(id, status, course, statusChangedAt, enrolledAt),
+    course,
+  );
 }
 
 function buildEnrollment(overrides: Partial<Enrollment> = {}): Enrollment {
@@ -92,47 +106,44 @@ describe("enrollment response mapper", () => {
   });
 
   it("summarizes completedCourses one per course with the latest statusChangedAt, in completedAt and name order", () => {
-    const summary = summarizeStudentEnrollments(
-      [
-        historyRow(
-          "e1",
-          EnrollmentStatus.COMPLETED,
-          BASIC,
-          "2025-06-30",
-          "2025-03-01T13:00:00.000Z",
-        ),
-        // Básica completed again later: the latest date is the one that counts.
-        historyRow(
-          "e2",
-          EnrollmentStatus.COMPLETED,
-          BASIC,
-          "2025-12-12",
-          "2025-08-04T13:00:00.000Z",
-        ),
-        historyRow(
-          "e3",
-          EnrollmentStatus.COMPLETED,
-          SMARTPHONES,
-          "2025-12-12",
-          "2025-08-05T13:00:00.000Z",
-        ),
-        historyRow(
-          "e4",
-          EnrollmentStatus.COMPLETED,
-          ACCESS,
-          "2025-07-01",
-          "2025-03-02T13:00:00.000Z",
-        ),
-        historyRow(
-          "e5",
-          EnrollmentStatus.DROPPED,
-          SMARTPHONES,
-          "2026-04-01",
-          "2026-03-03T13:00:00.000Z",
-        ),
-      ],
-      COURSES,
-    );
+    const summary = summarizeStudentEnrollments([
+      historyItem(
+        "e1",
+        EnrollmentStatus.COMPLETED,
+        BASIC,
+        "2025-06-30",
+        "2025-03-01T13:00:00.000Z",
+      ),
+      // Básica completed again later: the latest date is the one that counts.
+      historyItem(
+        "e2",
+        EnrollmentStatus.COMPLETED,
+        BASIC,
+        "2025-12-12",
+        "2025-08-04T13:00:00.000Z",
+      ),
+      historyItem(
+        "e3",
+        EnrollmentStatus.COMPLETED,
+        SMARTPHONES,
+        "2025-12-12",
+        "2025-08-05T13:00:00.000Z",
+      ),
+      historyItem(
+        "e4",
+        EnrollmentStatus.COMPLETED,
+        ACCESS,
+        "2025-07-01",
+        "2025-03-02T13:00:00.000Z",
+      ),
+      historyItem(
+        "e5",
+        EnrollmentStatus.DROPPED,
+        SMARTPHONES,
+        "2026-04-01",
+        "2026-03-03T13:00:00.000Z",
+      ),
+    ]);
 
     // Same day: by name. An archived course still counts as completed.
     expect(summary.completedCourses).toEqual([
@@ -140,53 +151,67 @@ describe("enrollment response mapper", () => {
       { courseId: BASIC.id, name: "Informática Básica", completedAt: "2025-12-12" },
       { courseId: SMARTPHONES.id, name: "Smartphones", completedAt: "2025-12-12" },
     ]);
-
-    expect(() =>
-      summarizeStudentEnrollments(
-        [
-          historyRow(
-            "e1",
-            EnrollmentStatus.COMPLETED,
-            BASIC,
-            "2025-06-30",
-            "2025-03-01T13:00:00.000Z",
-          ),
-        ],
-        new Map(),
-      ),
-    ).toThrow(`The course ${BASIC.id} of a class is gone.`);
   });
 
   it("counts activeClasses and answers firstEnrollmentAt as the earliest enrolledAt, or null without enrollments", () => {
-    const summary = summarizeStudentEnrollments(
-      [
-        historyRow(
-          "e1",
-          EnrollmentStatus.ACTIVE,
-          SMARTPHONES,
-          "2026-03-03",
-          "2026-03-03T13:00:00.000Z",
-        ),
-        historyRow("e2", EnrollmentStatus.ACTIVE, ACCESS, "2026-03-04", "2026-03-04T13:00:00.000Z"),
-        historyRow(
-          "e3",
-          EnrollmentStatus.COMPLETED,
-          BASIC,
-          "2025-12-12",
-          "2025-08-04T13:00:00.000Z",
-        ),
-        historyRow("e4", EnrollmentStatus.DROPPED, BASIC, "2025-04-01", "2025-03-01T13:00:00.000Z"),
-      ],
-      COURSES,
-    );
+    const summary = summarizeStudentEnrollments([
+      historyItem(
+        "e1",
+        EnrollmentStatus.ACTIVE,
+        SMARTPHONES,
+        "2026-03-03",
+        "2026-03-03T13:00:00.000Z",
+      ),
+      historyItem("e2", EnrollmentStatus.ACTIVE, ACCESS, "2026-03-04", "2026-03-04T13:00:00.000Z"),
+      historyItem(
+        "e3",
+        EnrollmentStatus.COMPLETED,
+        BASIC,
+        "2025-12-12",
+        "2025-08-04T13:00:00.000Z",
+      ),
+      historyItem("e4", EnrollmentStatus.DROPPED, BASIC, "2025-04-01", "2025-03-01T13:00:00.000Z"),
+    ]);
 
     expect(summary.activeClasses).toBe(2);
     expect(summary.firstEnrollmentAt).toEqual(new Date("2025-03-01T13:00:00.000Z"));
 
-    expect(summarizeStudentEnrollments([], COURSES)).toEqual({
+    expect(summarizeStudentEnrollments([])).toEqual({
       activeClasses: 0,
       completedCourses: [],
       firstEnrollmentAt: null,
+    });
+  });
+
+  it("projects the history item with its class, its edition and the course of the class", () => {
+    expect(
+      toStudentEnrollmentItem(
+        historyRow(
+          "e1",
+          EnrollmentStatus.COMPLETED,
+          ACCESS,
+          "2025-07-01",
+          "2025-03-02T13:00:00.000Z",
+        ),
+        ACCESS,
+      ),
+    ).toEqual({
+      id: "e1",
+      status: EnrollmentStatus.COMPLETED,
+      enrolledAt: new Date("2025-03-02T13:00:00.000Z"),
+      statusChangedAt: "2025-07-01",
+      class: {
+        id: "class-of-e1",
+        code: "INFO-A",
+        name: null,
+        edition: { id: "01999a3e-7c1b-7000-8000-0000000000e1", name: "2025.2" },
+      },
+      course: {
+        id: ACCESS.id,
+        name: "Acesso a serviços",
+        category: CourseCategory.BASIC,
+        status: CourseStatus.ARCHIVED,
+      },
     });
   });
 });
