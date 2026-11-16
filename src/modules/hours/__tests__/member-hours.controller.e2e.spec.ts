@@ -65,6 +65,15 @@ interface Actor {
   cookie: string;
 }
 
+interface FieldError {
+  field: string;
+  message: string;
+}
+
+function fieldsOf(body: { details?: FieldError[] }): string[] {
+  return (body.details ?? []).map((detail) => detail.field).sort();
+}
+
 interface HourEntryBody {
   id: string;
   personId: string;
@@ -330,14 +339,21 @@ describe("MemberHoursController (e2e)", () => {
     expect(await countEntries(dataSource)).toBe(0);
   });
 
-  it("answers 400 VALIDATION_FAILED and HOUR_ENTRY_DATE_IN_FUTURE like the route of the member", async () => {
-    const invalid = await logFor(
-      memberTech.id,
-      directorTech,
-      hourEntryBody({ category: "lesson", declaredMinutes: 0 }),
-    ).expect(400);
-    expect(invalid.body.error).toBe("VALIDATION_FAILED");
+  it.each([
+    { case: "the category lesson", overrides: { category: "lesson" }, field: "category" },
+    { case: "0 minutes", overrides: { declaredMinutes: 0 }, field: "declaredMinutes" },
+  ])(
+    "answers 400 VALIDATION_FAILED for $case, like the route of the member",
+    async ({ overrides, field }) => {
+      const res = await logFor(memberTech.id, directorTech, hourEntryBody(overrides)).expect(400);
 
+      expect(res.body.error).toBe("VALIDATION_FAILED");
+      expect(fieldsOf(res.body as { details?: FieldError[] })).toEqual([field]);
+      expect(await countEntries(dataSource)).toBe(0);
+    },
+  );
+
+  it("answers 400 HOUR_ENTRY_DATE_IN_FUTURE like the route of the member", async () => {
     const future = await logFor(
       memberTech.id,
       directorTech,
