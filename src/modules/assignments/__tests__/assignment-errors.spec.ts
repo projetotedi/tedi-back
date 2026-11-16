@@ -3,8 +3,6 @@ import {
   alreadyApplied,
   applicationNotFound,
   applicationNotPending,
-  dateRangeTooLong,
-  invalidDateRange,
   lessonInPast,
   roleFull,
 } from "../services/assignment-errors";
@@ -48,26 +46,6 @@ describe("the errors of the applications (GUS-160)", () => {
       {
         error: "APPLICATION_NOT_PENDING",
         message: "Only a pending application can be approved or declined.",
-      },
-    ],
-    [
-      "invalidDateRange",
-      invalidDateRange,
-      400,
-      {
-        error: "INVALID_DATE_RANGE",
-        message: "to must be on or after from.",
-        details: [{ field: "to", message: "to must be on or after from" }],
-      },
-    ],
-    [
-      "dateRangeTooLong(42)",
-      () => dateRangeTooLong(42),
-      400,
-      {
-        error: "DATE_RANGE_TOO_LONG",
-        message: "The period cannot be longer than 42 days, counting both ends.",
-        details: [{ field: "to", message: "to must be at most 41 days after from" }],
       },
     ],
   ])("%s answers its status and its exact body", (_name, build, status, body) => {

@@ -1,6 +1,6 @@
 import { addCalendarDays, calendarDaysBetween } from "@shared/dates/calendar-date";
+import { dateRangeTooLong, invalidDateRange } from "@shared/dates/date-range-errors";
 import { MY_LESSONS_DEFAULT_DAYS, MY_LESSONS_MAX_DAYS } from "../dto/assignment-limits";
-import { dateRangeTooLong, invalidDateRange } from "./assignment-errors";
 
 /** The period of "Minhas aulas" and of the lessons with an open place, both ends included. */
 export interface MyLessonsPeriod {
@@ -15,6 +15,8 @@ export interface MyLessonsPeriod {
  *   ends counted (`MY_LESSONS_DEFAULT_DAYS`);
  * - 400 INVALID_DATE_RANGE when `to` is before `from`, so a `to` alone before today is one too;
  * - 400 DATE_RANGE_TOO_LONG over `MY_LESSONS_MAX_DAYS` days, both ends counted.
+ * Both errors are the shared ones (`@shared/dates/date-range-errors`): the same body as the list
+ * and the calendar of the lessons.
  * Pure: it reads nothing, so the errors come before any read.
  */
 export function resolveMyLessonsPeriod(

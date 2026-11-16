@@ -18,7 +18,7 @@ src/
 │   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
 │   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
 │   ├── dto/                 api-error.dto.ts, archive.dto.ts (corpo de PATCH .../archive), transforms.ts
-│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn, calendarDaysBetween, addCalendarDays), is-calendar-date.validator.ts, time-of-day.ts (hora HH:mm: isValidTimeOfDay, minutesBetween), is-time-of-day.validator.ts, clock.ts
+│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn, calendarDaysBetween, addCalendarDays), date-range-errors.ts (invalidDateRange, dateRangeTooLong: os erros de período), is-calendar-date.validator.ts, time-of-day.ts (hora HH:mm: isValidTimeOfDay, minutesBetween), is-time-of-day.validator.ts, clock.ts
 │   ├── decorators/          @Roles, @Public, @CurrentUser
 │   ├── permissions/         matriz de permissões, @RequirePermission, PermissionPolicy
 │   ├── enums/               role.enum.ts

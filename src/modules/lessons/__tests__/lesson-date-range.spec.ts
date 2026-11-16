@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { LESSON_CALENDAR_MAX_DAYS } from "../dto/lesson-limits";
-import { assertDateRange, dateRangeTooLong, invalidDateRange } from "../services/lesson-date-range";
+import { assertDateRange } from "../services/lesson-date-range";
 
 function failureOf(work: () => void): HttpException {
   try {
@@ -90,38 +90,5 @@ describe("assertDateRange", () => {
     expect(
       failureOf(() => assertDateRange("2026-03-01", "2026-03-08", 7)).getResponse(),
     ).toMatchObject({ error: "DATE_RANGE_TOO_LONG" });
-  });
-});
-
-describe("invalidDateRange", () => {
-  it("is a 400 INVALID_DATE_RANGE with the end of the period as the field", () => {
-    const failure = invalidDateRange();
-
-    expect(failure.getStatus()).toBe(400);
-    expect(failure.getResponse()).toEqual({
-      error: "INVALID_DATE_RANGE",
-      message: "to must be on or after from.",
-      details: [{ field: "to", message: "to must be on or after from" }],
-    });
-  });
-});
-
-describe("dateRangeTooLong", () => {
-  it("is a 400 DATE_RANGE_TOO_LONG that says the limit, with the end of the period as the field", () => {
-    const failure = dateRangeTooLong(42);
-
-    expect(failure.getStatus()).toBe(400);
-    expect(failure.getResponse()).toEqual({
-      error: "DATE_RANGE_TOO_LONG",
-      message: "The period cannot be longer than 42 days, counting both ends.",
-      details: [{ field: "to", message: "to must be at most 41 days after from" }],
-    });
-  });
-
-  it("repeats the limit it is given", () => {
-    expect(dateRangeTooLong(7).getResponse()).toMatchObject({
-      message: "The period cannot be longer than 7 days, counting both ends.",
-      details: [{ field: "to", message: "to must be at most 6 days after from" }],
-    });
   });
 });
