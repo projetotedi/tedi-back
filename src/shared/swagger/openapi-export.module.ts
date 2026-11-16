@@ -28,6 +28,8 @@ import { CourseClassesController } from "@modules/classes/controllers/course-cla
 import { EditionsController } from "@modules/classes/controllers/editions.controller";
 import { ClassLessonsController } from "@modules/lessons/controllers/class-lessons.controller";
 import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
+import { MemberHoursController } from "@modules/hours/controllers/member-hours.controller";
+import { MyHoursController } from "@modules/hours/controllers/my-hours.controller";
 import { DepartmentsController } from "@modules/people/controllers/departments.controller";
 import { MembersController } from "@modules/people/controllers/members.controller";
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
@@ -47,6 +49,7 @@ import { CourseClassesService } from "@modules/classes/services/course-classes.s
 import { EditionsService } from "@modules/classes/services/editions.service";
 import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
+import { HoursService } from "@modules/hours/services/hours.service";
 import { DepartmentsService } from "@modules/people/services/departments.service";
 import { MembersService } from "@modules/people/services/members.service";
 import { MyProfileService } from "@modules/people/services/my-profile.service";
@@ -74,6 +77,8 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     CourseClassesController,
     LessonsController,
     ClassLessonsController,
+    MyHoursController,
+    MemberHoursController,
   ],
   providers: [
     {
@@ -213,6 +218,17 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: LessonGenerationService,
       useValue: { preview: async () => ({}), generate: async () => ({}) },
+    },
+    {
+      provide: HoursService,
+      useValue: {
+        createEntry: async () => ({}),
+        logMyHours: async () => ({}),
+        logHoursForMember: async () => ({}),
+        listMyEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getMySummary: async () => ({}),
+        removeMyEntry: async () => undefined,
+      },
     },
     {
       provide: ConfigService,
