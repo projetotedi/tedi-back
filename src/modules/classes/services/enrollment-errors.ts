@@ -3,9 +3,12 @@ import { HttpException } from "@nestjs/common";
 /**
  * The business errors of the enrollments (GUS-108), one helper each, so the services and the pipe
  * of the id answer the same thing. The messages are English literals and the stable part is the
- * `error` code: the front translates by it (there is no i18n in the backend). STUDENT_NOT_FOUND and
- * STUDENT_ARCHIVED belong to `people` too, and are built here again because a module does not import
- * the helpers of another.
+ * `error` code: the front translates by it (there is no i18n in the backend).
+ *
+ * The 404 STUDENT_NOT_FOUND of an id in the URL (`/students/:id/enrollments`) is `studentNotFound` of
+ * `people`, imported from the service that PeopleModule exports. What is built here are the errors of
+ * this task that `people` has no helper for: the 400 STUDENT_NOT_FOUND and the 409 STUDENT_ARCHIVED
+ * about ids of the body, with the positions, and the 409 STUDENT_ARCHIVED of a reactivation.
  *
  * The ones about the ids of the BODY carry the positions in `details` (`studentIds.<i>`): the ids
  * are not in the URL (docs/ARCHITECTURE.md section 10.3). STUDENT_ARCHIVED is 409 even so, as the
