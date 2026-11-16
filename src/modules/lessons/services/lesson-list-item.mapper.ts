@@ -2,6 +2,7 @@ import { ClassRef } from "@modules/classes/services/classes.service";
 import { LESSON_CALENDAR_COLOR_COUNT } from "../dto/lesson-limits";
 import { LessonListItemResponseDto } from "../dto/lesson-list-item.response.dto";
 import { Lesson } from "../entities/lesson.entity";
+import { ConfirmedStaff, isBelowExpectedMonitors } from "./lesson-coverage";
 
 /**
  * The color slot of a class in the calendar, from 0 to `LESSON_CALENDAR_COLOR_COUNT - 1`. It comes
@@ -26,11 +27,20 @@ export function calendarColorIndex(creationRank: number): number {
  * page of a lesson is the full one).
  *
  * - `class.name` is the name of the class or, when it has none, its code: the row shows one label;
- * - `teacher` is null and `belowExpectedMonitors` is false for every lesson: there is no allocation
- *   yet (E5, GUS-158 fills them in), and `expectedMonitors` alone says nothing about how many
- *   monitors the lesson has.
+ * - `teacher` is the confirmed teacher of the lesson (E5, GUS-158), with the id and the name and
+ *   nothing else of her, or null when the lesson has none (a pending teacher is not the teacher);
+ * - `belowExpectedMonitors` is the rule of the coverage (`isBelowExpectedMonitors`): fewer
+ *   confirmed monitors than `expectedMonitors`, false for a cancelled lesson and for a lesson that
+ *   does not say how many it expects.
+ *
+ * `staff` is what the caller read for the lesson through the `LessonCoverageRegistry`, in one call
+ * for the whole page; it has no default, so a caller that forgets to ask does not compile.
  */
-export function toLessonListItem(lesson: Lesson, schoolClass: ClassRef): LessonListItemResponseDto {
+export function toLessonListItem(
+  lesson: Lesson,
+  schoolClass: ClassRef,
+  staff: ConfirmedStaff,
+): LessonListItemResponseDto {
   return {
     id: lesson.id,
     class: {
@@ -44,7 +54,7 @@ export function toLessonListItem(lesson: Lesson, schoolClass: ClassRef): LessonL
     endTime: lesson.endTime,
     title: lesson.title,
     status: lesson.status,
-    teacher: null,
-    belowExpectedMonitors: false,
+    teacher: staff.teacher === null ? null : { id: staff.teacher.id, name: staff.teacher.name },
+    belowExpectedMonitors: isBelowExpectedMonitors(lesson, staff),
   };
 }
