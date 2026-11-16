@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
-import { DataSource, QueryFailedError } from "typeorm";
+import { DataSource, EntityManager, QueryFailedError } from "typeorm";
 import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
 import { CoursesService, CourseSummary } from "@modules/catalog/services/courses.service";
 import {
@@ -24,6 +24,8 @@ import { CreateLessonDto } from "../dto/create-lesson.dto";
 import { UpdateLessonDto } from "../dto/update-lesson.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { ConfirmedStaffCount } from "../services/lesson-coverage";
+import { LessonCoverageRegistry } from "../services/lesson-coverage.registry";
 import { LessonCreationService } from "../services/lesson-creation.service";
 import { LessonsService } from "../services/lessons.service";
 
@@ -140,11 +142,14 @@ describe("LessonsService", () => {
     course: CourseSummary | null;
     plan: LessonPlanSummary | null;
     position: number | null;
+    /** What the port of the coverage answers: one entry per lesson that has someone confirmed. */
+    staff: Map<string, ConfirmedStaffCount>;
   };
 
-  const manager = { create: jest.fn(), save: jest.fn(), findOne: jest.fn() };
+  const manager = { create: jest.fn(), save: jest.fn(), findOne: jest.fn(), find: jest.fn() };
   const lessonRepository = { findOne: jest.fn() };
-  const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
+  // `manager` is what a read without a transaction goes through (getLessonSummary).
+  const dataSource = { transaction: jest.fn(), getRepository: jest.fn(), manager };
   const eventEmitter = { emit: jest.fn() };
   // Fixed at NOW. A test that needs to tell two reads of the clock apart makes the next ones LATER.
   const clock = { now: jest.fn() };
@@ -152,6 +157,7 @@ describe("LessonsService", () => {
   const courses = { getCourseSummary: jest.fn() };
   const lessonPlans = { getLessonPlanSummary: jest.fn() };
   const courseLessonPlans = { findPosition: jest.fn() };
+  const coverage = { countConfirmedStaff: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -181,6 +187,7 @@ describe("LessonsService", () => {
       course: buildCourse(),
       plan: buildPlan(),
       position: 1,
+      staff: new Map(),
     };
 
     manager.create.mockImplementation((target: new () => object, data: Record<string, unknown>) =>
@@ -233,6 +240,10 @@ describe("LessonsService", () => {
       order.push("find-position");
       return state.position;
     });
+    coverage.countConfirmedStaff.mockImplementation(async () => {
+      order.push("count-staff");
+      return state.staff;
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -246,6 +257,7 @@ describe("LessonsService", () => {
         { provide: CoursesService, useValue: courses },
         { provide: LessonPlansService, useValue: lessonPlans },
         { provide: CourseLessonPlansService, useValue: courseLessonPlans },
+        { provide: LessonCoverageRegistry, useValue: coverage },
       ],
     }).compile();
 
@@ -286,6 +298,8 @@ describe("LessonsService", () => {
         createdById: ACTOR_ID,
       });
       expect(order).toEqual(["get-class", "insert-lessons", "get-course", "commit", "emit-audit"]);
+      // A lesson that was just created has nobody assigned: the coverage is not asked for.
+      expect(coverage.countConfirmedStaff).not.toHaveBeenCalled();
 
       expect(result).toEqual({
         id: LESSON_ID,
@@ -310,6 +324,11 @@ describe("LessonsService", () => {
         location: null,
         expectedStudents: null,
         expectedMonitors: null,
+        coverage: {
+          teacher: { confirmed: 0, expected: 1 },
+          monitors: { confirmed: 0, expected: null },
+        },
+        belowExpectedMonitors: false,
         subject: null,
         postNotes: null,
         status: LessonStatus.PLANNED,
@@ -868,6 +887,54 @@ describe("LessonsService", () => {
       expect(result.cancelledById).toBe(OTHER_ID);
     });
 
+    it("shows the coverage: the confirmed staff of the lesson against what it expects", async () => {
+      state.lesson = buildLesson({ expectedMonitors: 3 });
+      state.staff = new Map([[LESSON_ID, { teachers: 1, monitors: 2 }]]);
+
+      const result = await service.findById(LESSON_ID);
+
+      expect(result.coverage).toEqual({
+        teacher: { confirmed: 1, expected: 1 },
+        monitors: { confirmed: 2, expected: 3 },
+      });
+      expect(result.belowExpectedMonitors).toBe(true);
+    });
+
+    it("counts the confirmed staff of this lesson only, in one call, without a transaction", async () => {
+      await service.findById(LESSON_ID);
+
+      expect(coverage.countConfirmedStaff).toHaveBeenCalledTimes(1);
+      expect(coverage.countConfirmedStaff).toHaveBeenCalledWith([LESSON_ID], undefined);
+    });
+
+    it("reads a lesson that the counter does not list as a lesson with nobody confirmed", async () => {
+      state.lesson = buildLesson({ expectedMonitors: 2 });
+      state.staff = new Map();
+
+      const result = await service.findById(LESSON_ID);
+
+      expect(result.coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 0, expected: 2 },
+      });
+      expect(result.belowExpectedMonitors).toBe(true);
+    });
+
+    it("is not below the expectation for a cancelled lesson, though it shows its coverage", async () => {
+      state.lesson = buildLesson({
+        expectedMonitors: 2,
+        status: LessonStatus.CANCELLED,
+        cancelReason: "Feriado.",
+        cancelledAt: NOW,
+        cancelledById: OTHER_ID,
+      });
+
+      const result = await service.findById(LESSON_ID);
+
+      expect(result.coverage.monitors).toEqual({ confirmed: 0, expected: 2 });
+      expect(result.belowExpectedMonitors).toBe(false);
+    });
+
     it("takes no transaction, no lock and emits no event", async () => {
       await service.findById(LESSON_ID);
 
@@ -888,6 +955,201 @@ describe("LessonsService", () => {
       state.schoolClass = buildClass();
       state.plan = null;
       await expect(service.findById(LESSON_ID)).rejects.toThrow(/Lesson plan .* was not found/);
+    });
+  });
+
+  describe("getLessonSummary()", () => {
+    const SUMMARY = {
+      id: LESSON_ID,
+      classId: CLASS_ID,
+      title: "Teclado, mouse e janelas",
+      date: "2026-03-10",
+      startTime: "14:00",
+      endTime: "15:30",
+      status: LessonStatus.PLANNED,
+      expectedMonitors: null,
+    };
+
+    it("returns the summary of the lesson: only what another module needs to know", async () => {
+      state.lesson = buildLesson({
+        expectedMonitors: 2,
+        postNotes: "Correu bem.",
+        location: "Sala 1",
+      });
+
+      const summary = await service.getLessonSummary(
+        LESSON_ID,
+        manager as unknown as EntityManager,
+      );
+
+      expect(summary).toEqual({ ...SUMMARY, expectedMonitors: 2 });
+      expect(Object.keys(summary ?? {}).sort()).toEqual([
+        "classId",
+        "date",
+        "endTime",
+        "expectedMonitors",
+        "id",
+        "startTime",
+        "status",
+        "title",
+      ]);
+    });
+
+    it("reads only the columns of the summary, not the free texts of the lesson", async () => {
+      await service.getLessonSummary(LESSON_ID, manager as unknown as EntityManager);
+
+      expect(manager.findOne).toHaveBeenCalledWith(Lesson, {
+        select: {
+          id: true,
+          classId: true,
+          title: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          status: true,
+          expectedMonitors: true,
+        },
+        where: { id: LESSON_ID },
+      });
+    });
+
+    it("returns null for an id that is not a lesson, and reads nothing for one that is not a UUID", async () => {
+      state.lesson = null;
+      await expect(
+        service.getLessonSummary(LESSON_ID, manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+
+      manager.findOne.mockClear();
+      await expect(
+        service.getLessonSummary("not-a-uuid", manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+      await expect(service.getLessonSummary("")).resolves.toBeNull();
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("returns a cancelled lesson too, with its status, for the caller to answer 409", async () => {
+      state.lesson = buildLesson({
+        status: LessonStatus.CANCELLED,
+        cancelReason: "Feriado.",
+        cancelledAt: NOW,
+        cancelledById: OTHER_ID,
+      });
+
+      const summary = await service.getLessonSummary(LESSON_ID);
+
+      expect(summary?.status).toBe(LessonStatus.CANCELLED);
+    });
+
+    it("reads the lesson without a lock unless asked", async () => {
+      await service.getLessonSummary(LESSON_ID, manager as unknown as EntityManager);
+      await service.getLessonSummary(LESSON_ID, manager as unknown as EntityManager, {
+        forShare: false,
+      });
+
+      expect(manager.findOne).not.toHaveBeenCalledWith(
+        Lesson,
+        expect.objectContaining({ lock: expect.anything() }),
+      );
+    });
+
+    it("locks the lesson FOR SHARE when asked", async () => {
+      await service.getLessonSummary(LESSON_ID, manager as unknown as EntityManager, {
+        forShare: true,
+      });
+
+      expect(manager.findOne).toHaveBeenCalledWith(
+        Lesson,
+        expect.objectContaining({ where: { id: LESSON_ID }, lock: { mode: "pessimistic_read" } }),
+      );
+    });
+
+    it("reads through the manager of the data source when it gets none, in no transaction", async () => {
+      const summary = await service.getLessonSummary(LESSON_ID);
+
+      expect(summary?.id).toBe(LESSON_ID);
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("answers with the time as HH:mm and writes nothing nor emits an event", async () => {
+      const summary = await service.getLessonSummary(LESSON_ID);
+
+      expect(summary?.startTime).toBe("14:00");
+      expect(summary?.endTime).toBe("15:30");
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("findLessonSummaries()", () => {
+    const OTHER_LESSON_ID = "01999a3e-7c1b-7000-8000-0000000000f2";
+
+    it("returns the summaries of the lessons in one query", async () => {
+      manager.find.mockResolvedValue([
+        buildLesson(),
+        buildLesson({ id: OTHER_LESSON_ID, title: "Pastas e arquivos", date: "2026-03-17" }),
+      ]);
+
+      const summaries = await service.findLessonSummaries([LESSON_ID, OTHER_LESSON_ID]);
+
+      expect(manager.find).toHaveBeenCalledTimes(1);
+      expect(manager.find).toHaveBeenCalledWith(Lesson, {
+        select: expect.objectContaining({ id: true, status: true, expectedMonitors: true }),
+        where: {
+          id: expect.objectContaining({ _type: "in", _value: [LESSON_ID, OTHER_LESSON_ID] }),
+        },
+      });
+      expect(summaries.map((summary) => summary.id)).toEqual([LESSON_ID, OTHER_LESSON_ID]);
+      expect(summaries[1]).toEqual({
+        id: OTHER_LESSON_ID,
+        classId: CLASS_ID,
+        title: "Pastas e arquivos",
+        date: "2026-03-17",
+        startTime: "14:00",
+        endTime: "15:30",
+        status: LessonStatus.PLANNED,
+        expectedMonitors: null,
+      });
+    });
+
+    it("skips repeated ids and ids that are not UUIDs, and asks for the rest", async () => {
+      manager.find.mockResolvedValue([buildLesson()]);
+
+      await service.findLessonSummaries([LESSON_ID, "not-a-uuid", LESSON_ID, ""]);
+
+      expect(manager.find).toHaveBeenCalledWith(
+        Lesson,
+        expect.objectContaining({
+          where: { id: expect.objectContaining({ _value: [LESSON_ID] }) },
+        }),
+      );
+    });
+
+    it("answers an empty list without querying when there is nothing to ask for", async () => {
+      await expect(service.findLessonSummaries([])).resolves.toEqual([]);
+      await expect(service.findLessonSummaries(["not-a-uuid", ""])).resolves.toEqual([]);
+
+      expect(manager.find).not.toHaveBeenCalled();
+    });
+
+    it("leaves out the ids that are not lessons, and takes no lock", async () => {
+      manager.find.mockResolvedValue([]);
+
+      await expect(service.findLessonSummaries([LESSON_ID])).resolves.toEqual([]);
+
+      expect(manager.find).toHaveBeenCalledWith(
+        Lesson,
+        expect.not.objectContaining({ lock: expect.anything() }),
+      );
+    });
+
+    it("reads through the manager it receives", async () => {
+      const other = { find: jest.fn().mockResolvedValue([buildLesson()]) };
+
+      await service.findLessonSummaries([LESSON_ID], other as unknown as EntityManager);
+
+      expect(other.find).toHaveBeenCalledTimes(1);
+      expect(manager.find).not.toHaveBeenCalled();
     });
   });
 
@@ -959,15 +1221,18 @@ describe("LessonsService", () => {
         lock: { mode: "pessimistic_write" },
       });
       expect(classes.getClassSummary).toHaveBeenCalledWith(CLASS_ID, manager, { forShare: true });
+      // The coverage is counted in the same transaction, after the write.
       expect(order).toEqual([
         "load-lesson",
         "get-class",
         "save-lesson",
         "get-course",
         "get-plan",
+        "count-staff",
         "commit",
         "emit-audit",
       ]);
+      expect(coverage.countConfirmedStaff).toHaveBeenCalledWith([LESSON_ID], manager);
     });
 
     it("edits title, objective, location, head counts, subject, notes and status, and takes updatedAt from the clock", async () => {
@@ -1241,6 +1506,20 @@ describe("LessonsService", () => {
   });
 
   describe("cancel()", () => {
+    it("counts the coverage in the transaction, and a lesson that was just cancelled is never below its expectation", async () => {
+      state.lesson = buildLesson({ expectedMonitors: 2 });
+      state.staff = new Map([[LESSON_ID, { teachers: 1, monitors: 1 }]]);
+
+      const result = await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
+
+      expect(coverage.countConfirmedStaff).toHaveBeenCalledWith([LESSON_ID], manager);
+      expect(result.coverage).toEqual({
+        teacher: { confirmed: 1, expected: 1 },
+        monitors: { confirmed: 1, expected: 2 },
+      });
+      expect(result.belowExpectedMonitors).toBe(false);
+    });
+
     it("throws 404 LESSON_NOT_FOUND when the lesson does not exist", async () => {
       state.lesson = null;
 
@@ -1284,7 +1563,7 @@ describe("LessonsService", () => {
       const result = await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
 
       // The manager of the test has no delete or remove: calling one would throw.
-      expect(Object.keys(manager).sort()).toEqual(["create", "findOne", "save"]);
+      expect(Object.keys(manager).sort()).toEqual(["create", "find", "findOne", "save"]);
       expect(savedLessons()).toHaveLength(1);
       expect(result.id).toBe(LESSON_ID);
       // The schedule and the origin stay as they were.
@@ -1432,6 +1711,21 @@ describe("LessonsService", () => {
 
   describe("reschedule()", () => {
     const body = { date: "2026-03-17", startTime: "14:00", endTime: "15:30" };
+
+    it("counts the coverage in the transaction: the staff goes with the lesson to its new day", async () => {
+      state.lesson = buildLesson({ expectedMonitors: 2 });
+      state.staff = new Map([[LESSON_ID, { teachers: 1, monitors: 2 }]]);
+
+      const result = await service.reschedule(LESSON_ID, body, ACTOR_ID);
+
+      expect(coverage.countConfirmedStaff).toHaveBeenCalledWith([LESSON_ID], manager);
+      expect(result.date).toBe("2026-03-17");
+      expect(result.coverage).toEqual({
+        teacher: { confirmed: 1, expected: 1 },
+        monitors: { confirmed: 2, expected: 2 },
+      });
+      expect(result.belowExpectedMonitors).toBe(false);
+    });
 
     it("throws INVALID_TIME_RANGE before opening the transaction", async () => {
       for (const [startTime, endTime] of [

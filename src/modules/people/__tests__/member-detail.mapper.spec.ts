@@ -4,6 +4,7 @@ import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 import { toMemberDetail } from "../services/member-detail.mapper";
 
 const CREATED_AT = new Date("2026-09-01T12:00:00.000Z");
@@ -27,6 +28,8 @@ const MEMBER_DETAIL_FIELDS = [
   "cpfMasked",
   "department",
   "email",
+  "exitDate",
+  "exitReason",
   "id",
   "institutionalEmail",
   "joinedAt",
@@ -40,6 +43,7 @@ const MEMBER_DETAIL_FIELDS = [
   "role",
   "semester",
   "state",
+  "status",
   "volunteerTermUrl",
 ];
 
@@ -51,6 +55,8 @@ const MEMBER_PROFILE_FIELDS = [
   "cpfMasked",
   "course",
   "department",
+  "exitDate",
+  "exitReason",
   "institutionalEmail",
   "joinedAt",
   "mainFunction",
@@ -104,6 +110,12 @@ function buildProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
     reviewedAt: REVIEWED_AT,
     reviewedById: REVIEWER_ID,
     reviewNote: REVIEW_NOTE,
+    status: MemberStatus.ACTIVE,
+    exitDate: null,
+    exitReason: null,
+    exitNote: null,
+    deactivatedAt: null,
+    deactivatedById: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     deletedAt: null,
@@ -164,6 +176,9 @@ describe("toMemberDetail()", () => {
       joinedAt: "2026-03-01",
       volunteerTermUrl: "https://drive.google.com/file/d/exemplo/view",
       registrationStatus: MemberRegistrationStatus.APPROVED,
+      status: MemberStatus.ACTIVE,
+      exitDate: null,
+      exitReason: null,
       reviewedAt: REVIEWED_AT,
       reviewedBy: { id: REVIEWER_ID, name: "Carla Menezes" },
     });
@@ -202,6 +217,9 @@ describe("toMemberDetail()", () => {
       "reviewedById",
       "submittedAt",
       "personId",
+      "exitNote",
+      "deactivatedAt",
+      "deactivatedById",
       "lastLoginAt",
       "previousLoginAt",
       "createdAt",
@@ -224,7 +242,7 @@ describe("toMemberDetail()", () => {
     }
   });
 
-  it("returns every member field null and registrationStatus null without a member profile", () => {
+  it("returns every member field null, registrationStatus null and status active without a member profile", () => {
     const result = toMemberDetail(
       buildPerson({ role: Role.SUPERADMIN, birthDate: null, phone: null }),
       null,
@@ -236,6 +254,7 @@ describe("toMemberDetail()", () => {
     for (const field of MEMBER_PROFILE_FIELDS) {
       expect(result[field]).toBeNull();
     }
+    expect(result.status).toBe(MemberStatus.ACTIVE);
     // What belongs to the Person stays.
     expect(result).toMatchObject({
       id: PERSON_ID,
@@ -306,6 +325,33 @@ describe("toMemberDetail()", () => {
       // The department suggested at sign-up is shown (it only gives no scope).
       department: { id: DEPARTMENT_ID, name: "Tecnologia" },
     });
+  });
+
+  it("shows the participation of an inactive member: status, exitDate and exitReason, never the note nor who deactivated", () => {
+    const note = "Vai fazer mestrado em outra cidade.";
+    const result = toMemberDetail(
+      buildPerson({ accessEnabled: false }),
+      buildProfile({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+        exitNote: note,
+        deactivatedAt: REVIEWED_AT,
+        deactivatedById: REVIEWER_ID,
+      }),
+      buildDepartment(),
+      null,
+    );
+
+    expect(result).toMatchObject({
+      status: MemberStatus.INACTIVE,
+      exitDate: "2026-09-30",
+      exitReason: "Formou-se.",
+      accessEnabled: false,
+    });
+    expect(Object.keys(result).sort()).toEqual(MEMBER_DETAIL_FIELDS);
+    expect(JSON.stringify(result)).not.toContain(note);
+    expect(JSON.stringify(result)).not.toContain(REVIEWER_ID);
   });
 
   it("keeps a semester of zero instead of turning it into null", () => {

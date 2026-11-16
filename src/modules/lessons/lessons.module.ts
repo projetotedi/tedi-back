@@ -6,13 +6,17 @@ import { Clock } from "@shared/dates/clock";
 import { ClassLessonsController } from "./controllers/class-lessons.controller";
 import { LessonsController } from "./controllers/lessons.controller";
 import { Lesson } from "./entities/lesson.entity";
+import { LessonCoverageRegistry } from "./services/lesson-coverage.registry";
 import { LessonCreationService } from "./services/lesson-creation.service";
 import { LessonGenerationService } from "./services/lesson-generation.service";
+import { LessonListingService } from "./services/lesson-listing.service";
 import { LessonsService } from "./services/lessons.service";
 
 @Module({
   // As docs/ARCHITECTURE.md section 3 draws it (classes <- lessons, catalog <- lessons):
-  // - ClassesModule: the class, its period and whether it is archived (ClassesService.getClassSummary);
+  // - ClassesModule: the class, its period and whether it is archived (ClassesService.getClassSummary),
+  //   and the classes of the list and the calendar, with their course and color slot
+  //   (ClassesService.listClassRefs, GUS-153: the lessons read no table of `classes`);
   // - CatalogModule: the name of the course (CoursesService.getCourseSummary), the lesson plan a
   //   lesson is created from (LessonPlansService.getLessonPlanSummary), the position of that
   //   plan in the sequence of the course (CourseLessonPlansService.findPosition) and, for the
@@ -24,11 +28,24 @@ import { LessonsService } from "./services/lessons.service";
   // ClassLessonsController is the generation of the lessons of a class (GUS-154), which lives at
   // /classes/:id/lessons: the class is the resource there, so it is not in LessonsController.
   controllers: [LessonsController, ClassLessonsController],
-  providers: [LessonsService, LessonGenerationService, LessonCreationService, Clock],
-  // Nobody consumes the lessons yet: the allocation (GUS-158) and the attendance (GUS-166) will say
-  // what they need, and the export is added then. LessonCreationService stays inside on purpose:
-  // LessonsService and LessonGenerationService (GUS-154) both build lessons through it, so a lesson
-  // of the series is born with the same rules as one of POST /lessons.
-  exports: [],
+  providers: [
+    LessonsService,
+    LessonListingService,
+    LessonGenerationService,
+    LessonCreationService,
+    LessonCoverageRegistry,
+    Clock,
+  ],
+  // What the other modules read from the lessons:
+  // - assignments (GUS-158): the lesson an assignment is made for (LessonsService.getLessonSummary
+  //   and findLessonSummaries, with the status of the lesson re-exported) and the port through which
+  //   it plugs in the counter of the confirmed staff (LessonCoverageRegistry), the coverage that
+  //   every answer of this module shows, the list and the calendar included. The arrow stays
+  //   assignments -> lessons: this module never imports the other one.
+  // The attendance (GUS-166) will say what it needs, and the export is added then.
+  // LessonCreationService stays inside on purpose: LessonsService and LessonGenerationService
+  // (GUS-154) both build lessons through it, so a lesson of the series is born with the same rules
+  // as one of POST /lessons.
+  exports: [LessonsService, LessonCoverageRegistry],
 })
 export class LessonsModule {}

@@ -585,6 +585,8 @@ describe("MemberRegistrationsController (e2e)", () => {
       expect(Object.keys(byId.get(pendingId) ?? {}).sort()).toEqual([
         "accessEnabled",
         "department",
+        "exitDate",
+        "exitReason",
         "id",
         "joinedAt",
         "mainFunction",
@@ -592,6 +594,7 @@ describe("MemberRegistrationsController (e2e)", () => {
         "ra",
         "registrationStatus",
         "role",
+        "status",
       ]);
       expectNoPersonalData(response.body);
     });
@@ -674,6 +677,7 @@ describe("MemberRegistrationsController (e2e)", () => {
         "?departmentId=not-a-uuid",
         "?registrationStatus=unknown",
         "?enabled=unknown",
+        "?status=unknown",
       ]) {
         const response = await request(app.getHttpServer())
           .get(`/members${query}`)

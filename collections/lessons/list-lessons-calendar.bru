@@ -1,0 +1,35 @@
+meta {
+  name: list-lessons-calendar
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/lessons/calendar
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  from: 2026-03-01
+  to: 2026-04-11
+  ~search: senhas privacidade
+  ~classId: 01952ef7-0000-7000-8000-000000000003
+  ~courseId: 01952ef7-0000-7000-8000-000000000001
+  ~lessonPlanId: 01952ef7-0000-7000-8000-000000000002
+  ~status: planned
+}
+
+docs {
+  Calendário de aulas (F4.4, RF-043): todas as aulas de um período, de todas as turmas, numa chamada só e sem paginação. Serve a grade do mês (até 42 dias, seis semanas) e a visão da semana.
+  Requer cookie tedi_session e a permissão lessons.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Obrigatórios: ?from e ?to (AAAA-MM-DD; as duas pontas valem). O período tem no máximo 42 dias contando as duas pontas: de 2026-03-01 a 2026-04-11 são 42. Opcionais, os mesmos filtros da lista e com o mesmo significado: ?search, ?classId, ?courseId, ?lessonPlanId e ?status. ?page e ?limit não existem aqui: se vierem, são ignorados.
+  Mesmo item, mesma ordem (date, startTime e id) e mesmas regras de list-lessons para turma arquivada (fora, a menos que ?classId seja ela), busca por todas as palavras e id que não existe (200 com array vazio). As aulas canceladas vêm com status cancelled, para o calendário desenhar com estilo próprio (?status filtra, se preciso). Duas aulas da mesma turma no mesmo horário vêm as duas: o front empilha.
+  Cada item traz class { id, code, name, colorIndex }: colorIndex (de 0 a 7) é estável por turma e não muda com o filtro, com a página nem com o período: o front escolhe a cor da turma por ele. teacher é o professor CONFIRMADO da aula, { id, name }, ou null quando ela não tem (o professor pendente é candidato e não aparece; a aula cancelada mantém o dele). belowExpectedMonitors é true quando a aula tem menos monitores CONFIRMADOS do que expectedMonitors, e false para aula cancelada e para expectedMonitors null: é a regra de coverage em get-lesson. Os dois vêm da alocação (E5, GUS-158), lida uma vez para o período inteiro, e não uma vez por aula.
+  Retorna 200 LessonListItemResponseDto[]: um array simples, sem total, page nem limit.
+  Erros possíveis: 400 VALIDATION_FAILED (?from ou ?to ausente ou fora do formato AAAA-MM-DD, filtro inválido), 400 INVALID_DATE_RANGE (?from depois de ?to; details[].field = "to"), 400 DATE_RANGE_TOO_LONG (mais de 42 dias; details[].field = "to"), 401, 403 FORBIDDEN.
+}

@@ -4,6 +4,7 @@ import { CourseSummary } from "@modules/catalog/services/courses.service";
 import { LessonPlanSummary } from "@modules/catalog/services/lesson-plans.service";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { NO_CONFIRMED_STAFF } from "../services/lesson-coverage";
 import { LessonRefs, toLessonResponse } from "../services/lesson-response.mapper";
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
@@ -66,7 +67,7 @@ function buildRefs(overrides: Partial<LessonRefs> = {}): LessonRefs {
     status: "active",
   } as unknown as CourseSummary;
 
-  return { schoolClass, course, lessonPlan: null, ...overrides };
+  return { schoolClass, course, lessonPlan: null, staff: NO_CONFIRMED_STAFF, ...overrides };
 }
 
 describe("toLessonResponse", () => {
@@ -267,6 +268,75 @@ describe("toLessonResponse", () => {
 
     expect(response.expectedStudents).toBe(0);
     expect(response.expectedMonitors).toBe(0);
+  });
+
+  describe("coverage", () => {
+    it("shows the confirmed staff against what the lesson expects", () => {
+      const response = toLessonResponse(
+        buildLesson({ expectedMonitors: 3 }),
+        buildRefs({ staff: { teachers: 1, monitors: 2 } }),
+      );
+
+      expect(response.coverage).toEqual({
+        teacher: { confirmed: 1, expected: 1 },
+        monitors: { confirmed: 2, expected: 3 },
+      });
+      expect(response.belowExpectedMonitors).toBe(true);
+    });
+
+    it("shows zero confirmed for a lesson without staff and the expectedMonitors it has", () => {
+      const response = toLessonResponse(buildLesson({ expectedMonitors: 2 }), buildRefs());
+
+      expect(response.coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 0, expected: 2 },
+      });
+      expect(response.belowExpectedMonitors).toBe(true);
+    });
+
+    it("answers a null expectation of monitors when the lesson does not say it, and is not below it", () => {
+      const response = toLessonResponse(
+        buildLesson({ expectedMonitors: null }),
+        buildRefs({ staff: { teachers: 0, monitors: 0 } }),
+      );
+
+      expect(response.coverage.monitors).toEqual({ confirmed: 0, expected: null });
+      expect(response.belowExpectedMonitors).toBe(false);
+    });
+
+    it("is not below the expectation when the confirmed monitors reach it or pass it", () => {
+      for (const monitors of [2, 3]) {
+        const response = toLessonResponse(
+          buildLesson({ expectedMonitors: 2 }),
+          buildRefs({ staff: { teachers: 1, monitors } }),
+        );
+
+        expect(response.belowExpectedMonitors).toBe(false);
+      }
+    });
+
+    it("is never below the expectation for a cancelled lesson, though its coverage is shown", () => {
+      const response = toLessonResponse(
+        buildLesson({
+          expectedMonitors: 2,
+          status: LessonStatus.CANCELLED,
+          cancelledAt: new Date("2026-03-09T12:00:00.000Z"),
+        }),
+        buildRefs({ staff: { teachers: 0, monitors: 0 } }),
+      );
+
+      expect(response.coverage.monitors).toEqual({ confirmed: 0, expected: 2 });
+      expect(response.belowExpectedMonitors).toBe(false);
+    });
+
+    it("reads the expectation of an entity that was just inserted, with no expectedMonitors, as null", () => {
+      const bare = Object.assign(buildLesson(), { expectedMonitors: undefined });
+
+      const response = toLessonResponse(bare, buildRefs());
+
+      expect(response.coverage.monitors.expected).toBeNull();
+      expect(response.belowExpectedMonitors).toBe(false);
+    });
   });
 
   it("exposes no column the contract does not name: not deletedAt, not classId, not lessonPlanId", () => {

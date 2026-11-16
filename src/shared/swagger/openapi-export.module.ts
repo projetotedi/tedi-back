@@ -17,6 +17,9 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
+import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
+import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
@@ -38,6 +41,7 @@ import { MembersController } from "@modules/people/controllers/members.controlle
 import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
 import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
+import { AssignmentsService } from "@modules/assignments/services/assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
@@ -51,6 +55,7 @@ import { ClassesService } from "@modules/classes/services/classes.service";
 import { CourseClassesService } from "@modules/classes/services/course-classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
 import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
+import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { HoursService } from "@modules/hours/services/hours.service";
 import { HoursExportService } from "@modules/hours/services/hours-export.service";
@@ -83,6 +88,9 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     CourseClassesController,
     LessonsController,
     ClassLessonsController,
+    LessonAssignmentsController,
+    AssignmentsController,
+    MemberAssignmentsController,
     MyHoursController,
     MemberHoursController,
     MemberHoursViewController,
@@ -138,6 +146,8 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         listRegistrations: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         listMembers: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         getMember: async () => ({}),
+        deactivateMember: async () => ({}),
+        reactivateMember: async () => ({}),
         getRegistration: async () => ({}),
         approve: async () => ({}),
         reject: async () => ({}),
@@ -197,6 +207,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         archive: async () => ({}),
         unarchive: async () => ({}),
         getClassSummary: async () => null,
+        listClassRefs: async () => [],
       },
     },
     {
@@ -215,6 +226,13 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       },
     },
     {
+      provide: LessonListingService,
+      useValue: {
+        list: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listCalendar: async () => [],
+      },
+    },
+    {
       provide: LessonsService,
       useValue: {
         create: async () => ({}),
@@ -227,6 +245,16 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: LessonGenerationService,
       useValue: { preview: async () => ({}), generate: async () => ({}) },
+    },
+    {
+      provide: AssignmentsService,
+      useValue: {
+        create: async () => ({}),
+        listByLesson: async () => [],
+        confirm: async () => ({}),
+        cancel: async () => ({}),
+        listByMember: async () => [],
+      },
     },
     {
       provide: HoursService,

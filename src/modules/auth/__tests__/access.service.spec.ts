@@ -4,6 +4,7 @@ import { DataSource, EntityManager, Repository } from "typeorm";
 import { AccessService } from "../services/access.service";
 import { InvitesService } from "../services/invites.service";
 import { Person } from "@modules/people/entities/person.entity";
+import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import { AUDITABLE_ACTION_EVENT, AuditableAction } from "@shared/events/auditable-action.event";
 import { UpdateAccessRoleDto } from "../dto/update-access-role.dto";
@@ -98,6 +99,7 @@ describe("AccessService", () => {
       eventEmitter,
       invitesService,
       configService,
+      new PeopleService(personRepo as unknown as Repository<Person>),
     );
   });
 

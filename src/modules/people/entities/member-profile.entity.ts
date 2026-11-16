@@ -1,12 +1,18 @@
-import { Column, Entity, ForeignKey, Index } from "typeorm";
+import { Check, Column, Entity, ForeignKey, Index } from "typeorm";
 import { BaseEntity } from "@shared/entities/base.entity";
 import { Role } from "@shared/enums/role.enum";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 
 /**
  * Member data of a Person (RF-004, RF-011) and the registration validation (RN-08).
  * 1:1 with people through the unique person_id (RN-09). Owner of the member fields: there is
- * no E1.b card, later member cards (inactivation, edit) extend this table.
+ * no E1.b card, the member cards extend this table (the inactivation, GUS-147, and the edit).
+ *
+ * `status` is the participation in the project, and the exit columns describe the last exit
+ * (GUS-147); the login stays on Person.accessEnabled. `ck_member_profiles_exit_date` ties
+ * `status` inactive to `exit_date`, so a row is never inactive without the day it left, nor
+ * carries an exit while active (the safety net: the service answers first).
  *
  * name, ra, e-mail (personal), birthDate and phone live on Person. cpf, address and phone are
  * personal data (RNF-13/14): never logged, never in events, cpf only in the coordination detail.
@@ -22,6 +28,10 @@ import { MemberRegistrationStatus } from "../enums/member-registration-status.en
 @ForeignKey("people", ["person_id"], ["id"], { name: "fk_member_profiles_person_id" })
 @ForeignKey("departments", ["department_id"], ["id"], { name: "fk_member_profiles_department_id" })
 @ForeignKey("people", ["reviewed_by_id"], ["id"], { name: "fk_member_profiles_reviewed_by_id" })
+@ForeignKey("people", ["deactivated_by_id"], ["id"], {
+  name: "fk_member_profiles_deactivated_by_id",
+})
+@Check("ck_member_profiles_exit_date", `("status" = 'inactive') = ("exit_date" IS NOT NULL)`)
 export class MemberProfile extends BaseEntity {
   @Column({ name: "person_id", type: "uuid" })
   personId: string;
@@ -115,4 +125,34 @@ export class MemberProfile extends BaseEntity {
   /** Note of the validation. The DTO warns not to register sensitive data in it. */
   @Column({ name: "review_note", type: "varchar", length: 500, nullable: true, default: null })
   reviewNote: string | null;
+
+  /** Participation in the project (RF-011): inactive only after PATCH /members/:id/deactivate. */
+  @Column({
+    name: "status",
+    type: "enum",
+    enum: MemberStatus,
+    enumName: "member_profiles_status_enum",
+    default: MemberStatus.ACTIVE,
+  })
+  status: MemberStatus;
+
+  /** Calendar date "YYYY-MM-DD" the member left; null while active. */
+  @Column({ name: "exit_date", type: "date", nullable: true, default: null })
+  exitDate: string | null;
+
+  /** Why the member left (free text, MEMBER_EXIT_REASON_MAX_LENGTH); null while active. */
+  @Column({ name: "exit_reason", type: "varchar", length: 200, nullable: true, default: null })
+  exitReason: string | null;
+
+  /** Free note of the exit: never returned by the API nor put in an event (RNF-13). */
+  @Column({ name: "exit_note", type: "text", nullable: true, default: null })
+  exitNote: string | null;
+
+  /** When the member was deactivated; null while active. */
+  @Column({ name: "deactivated_at", type: "timestamptz", nullable: true, default: null })
+  deactivatedAt: Date | null;
+
+  /** Who deactivated the member; null while active. */
+  @Column({ name: "deactivated_by_id", type: "uuid", nullable: true, default: null })
+  deactivatedById: string | null;
 }

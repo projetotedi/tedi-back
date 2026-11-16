@@ -36,6 +36,10 @@ export enum AuditableAction {
   MEMBER_REGISTRATION_APPROVED = "MEMBER_REGISTRATION_APPROVED",
   /** Coordination rejected a registration with a mandatory note; access stays closed. */
   MEMBER_REGISTRATION_REJECTED = "MEMBER_REGISTRATION_REJECTED",
+  /** Coordination ended the participation of a member: status inactive, exit date and reason; access disabled in the same transaction. The free note is never in the payload (RNF-13, GUS-147). */
+  MEMBER_DEACTIVATED = "MEMBER_DEACTIVATED",
+  /** An inactive member is active again; the exit is cleared and the access is NOT enabled (PATCH /access/:id/enabled, GUS-147). */
+  MEMBER_REACTIVATED = "MEMBER_REACTIVATED",
   /** Coordination created a department (GUS-91). */
   DEPARTMENT_CREATED = "DEPARTMENT_CREATED",
   LESSON_PLAN_CREATED = "LESSON_PLAN_CREATED",
@@ -68,6 +72,12 @@ export enum AuditableAction {
   LESSON_CANCELLED = "LESSON_CANCELLED",
   /** A lesson moved to another date or time. It is the same lesson: before and after carry the schedule (GUS-151). */
   LESSON_RESCHEDULED = "LESSON_RESCHEDULED",
+  /** A member was assigned to a lesson, as teacher or monitor, pending or already confirmed. Target is the assignment; the note is never in the payload (RNF-13, GUS-158). */
+  LESSON_ASSIGNMENT_CREATED = "LESSON_ASSIGNMENT_CREATED",
+  /** A pending assignment was confirmed: the member is now staff of the lesson. The note is never in the payload (RNF-13, GUS-158). */
+  LESSON_ASSIGNMENT_CONFIRMED = "LESSON_ASSIGNMENT_CONFIRMED",
+  /** A pending or confirmed assignment was cancelled; the row stays. The note is never in the payload (RNF-13, GUS-158). */
+  LESSON_ASSIGNMENT_CANCELLED = "LESSON_ASSIGNMENT_CANCELLED",
   /** An hour entry was logged: by the person, on her behalf or by the attendance (GUS-162). No free text in the payload (RNF-13). */
   HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
   /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */
@@ -87,7 +97,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "hour_entry" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change

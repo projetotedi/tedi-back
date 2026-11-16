@@ -16,13 +16,16 @@ import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 import { DepartmentsService } from "../services/departments.service";
 import {
   MembersService,
   SubmitMemberRegistrationInput,
+  memberInactive,
   memberNotFound,
   memberRegistrationNotFound,
 } from "../services/members.service";
+import { PeopleService, lastCoordinator } from "../services/people.service";
 
 // 22:30 BRT on 2026-10-01 is already 2026-10-02 in UTC.
 const NOW = new Date("2026-10-02T01:30:00.000Z");
@@ -146,6 +149,12 @@ function buildProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
     reviewedAt: null,
     reviewedById: null,
     reviewNote: null,
+    status: MemberStatus.ACTIVE,
+    exitDate: null,
+    exitReason: null,
+    exitNote: null,
+    deactivatedAt: null,
+    deactivatedById: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     deletedAt: null,
@@ -198,10 +207,17 @@ describe("MembersService", () => {
   const profileRepository = { findOne: jest.fn() };
   const personRepository = { findOne: jest.fn() };
   const departmentRepository = { findOne: jest.fn() };
-  const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
+  // `manager` is what a read without a transaction goes through (getMemberSummary).
+  const dataSource = { transaction: jest.fn(), getRepository: jest.fn(), manager };
   const eventEmitter = { emit: jest.fn() };
   const clock = { now: jest.fn() };
   const departments = { exists: jest.fn() };
+  const people = { assertNotLastActiveCoordinator: jest.fn() };
+
+  /** dataSource.transaction(callback) or transaction(isolationLevel, callback), run on `manager`. */
+  function runTransaction(args: unknown[]): unknown {
+    return (args[args.length - 1] as (m: unknown) => unknown)(manager);
+  }
 
   function emittedEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls.map((call) => call[1] as AuditableActionEvent);
@@ -271,9 +287,7 @@ describe("MembersService", () => {
       entity.updatedAt = NOW;
       return entity;
     });
-    dataSource.transaction.mockImplementation(async (callback: (m: unknown) => unknown) =>
-      callback(manager),
-    );
+    dataSource.transaction.mockImplementation(async (...args: unknown[]) => runTransaction(args));
     dataSource.getRepository.mockImplementation((entity: unknown) => {
       if (entity === MemberProfile) return profileRepository;
       if (entity === Person) return personRepository;
@@ -291,6 +305,7 @@ describe("MembersService", () => {
       clock as unknown as Clock,
       departments as unknown as DepartmentsService,
       policy,
+      people as unknown as PeopleService,
     );
   });
 
@@ -602,6 +617,233 @@ describe("MembersService", () => {
     });
   });
 
+  describe("getMemberSummary()", () => {
+    /** The target as the database has it: a person and, maybe, her member profile. */
+    function givenMember(person: Partial<Person>, profile: Partial<MemberProfile> | null): void {
+      state.personById = buildPerson(person);
+      state.profile = profile === null ? null : buildProfile(profile);
+    }
+
+    it("returns null for a student, an unknown id and a malformed id", async () => {
+      // A student: a person with neither an access role nor a member profile.
+      givenMember({ role: null, accessEnabled: true }, null);
+      await expect(
+        service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+
+      // No such person.
+      state.personById = null;
+      await expect(
+        service.getMemberSummary(OTHER_PERSON_ID, manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+
+      // A malformed id never reaches the database (22P02 would be a 500).
+      manager.findOne.mockClear();
+      await expect(
+        service.getMemberSummary("not-a-uuid", manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+      await expect(service.getMemberSummary("")).resolves.toBeNull();
+      expect(manager.findOne).not.toHaveBeenCalled();
+    });
+
+    it("looks for the profile only when the person exists", async () => {
+      state.personById = null;
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager);
+
+      expect(manager.findOne).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
+    });
+
+    it("marks active only with role, access enabled and no profile or an approved and active one", async () => {
+      const approved = { registrationStatus: MemberRegistrationStatus.APPROVED };
+      const cases: Array<[string, Partial<Person>, Partial<MemberProfile> | null, boolean]> = [
+        [
+          "a member with no profile (the seeded admin, a coordinator)",
+          { role: Role.COORDINATOR, accessEnabled: true },
+          null,
+          true,
+        ],
+        ["an approved member", { role: Role.MEMBER, accessEnabled: true }, approved, true],
+        ["an approved director", { role: Role.DIRECTOR, accessEnabled: true }, approved, true],
+        [
+          "a member whose access was disabled",
+          { role: Role.MEMBER, accessEnabled: false },
+          approved,
+          false,
+        ],
+        [
+          "a person with no profile and access disabled",
+          { role: Role.MEMBER, accessEnabled: false },
+          null,
+          false,
+        ],
+        [
+          "a pending registration (no role, no access)",
+          { role: null, accessEnabled: false },
+          { registrationStatus: MemberRegistrationStatus.PENDING },
+          false,
+        ],
+        [
+          "a rejected registration",
+          { role: null, accessEnabled: false },
+          { registrationStatus: MemberRegistrationStatus.REJECTED },
+          false,
+        ],
+        [
+          "a role with a profile that is not approved",
+          { role: Role.MEMBER, accessEnabled: true },
+          { registrationStatus: MemberRegistrationStatus.PENDING },
+          false,
+        ],
+        [
+          "an approved profile whose person has no role",
+          { role: null, accessEnabled: true },
+          approved,
+          false,
+        ],
+        [
+          "an inactivated member (the deactivation disabled the access)",
+          { role: Role.MEMBER, accessEnabled: false },
+          { ...approved, status: MemberStatus.INACTIVE },
+          false,
+        ],
+        [
+          "an inactivated member whose access was enabled again in /access",
+          { role: Role.MEMBER, accessEnabled: true },
+          { ...approved, status: MemberStatus.INACTIVE },
+          false,
+        ],
+        [
+          "a reactivated member with the access enabled",
+          { role: Role.MEMBER, accessEnabled: true },
+          { ...approved, status: MemberStatus.ACTIVE },
+          true,
+        ],
+      ];
+
+      for (const [label, person, profile, active] of cases) {
+        givenMember(person, profile);
+
+        const summary = await service.getMemberSummary(
+          PERSON_ID,
+          manager as unknown as EntityManager,
+        );
+
+        expect({ label, active: summary?.active }).toEqual({ label, active });
+      }
+    });
+
+    it("returns a pending and a rejected registration as members that are not active, not as null", async () => {
+      for (const status of [MemberRegistrationStatus.PENDING, MemberRegistrationStatus.REJECTED]) {
+        givenMember({ role: null, accessEnabled: false }, { registrationStatus: status });
+
+        await expect(
+          service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager),
+        ).resolves.toEqual({
+          id: PERSON_ID,
+          name: "Ana Torres",
+          active: false,
+          departmentIds: [],
+        });
+      }
+    });
+
+    it("returns the id and the name of the person, and nothing else about her", async () => {
+      givenMember(
+        { role: Role.MEMBER, accessEnabled: true },
+        { registrationStatus: MemberRegistrationStatus.APPROVED },
+      );
+
+      const summary = await service.getMemberSummary(
+        PERSON_ID,
+        manager as unknown as EntityManager,
+      );
+
+      expect(summary).toEqual({
+        id: PERSON_ID,
+        name: "Ana Torres",
+        active: true,
+        departmentIds: [DEPARTMENT_ID],
+      });
+      expectNoSensitiveValue(JSON.stringify(summary));
+    });
+
+    it("returns the department of the approved profile only", async () => {
+      const cases: Array<[Partial<MemberProfile> | null, string[]]> = [
+        [{ registrationStatus: MemberRegistrationStatus.APPROVED }, [DEPARTMENT_ID]],
+        [{ registrationStatus: MemberRegistrationStatus.APPROVED, departmentId: null }, []],
+        [{ registrationStatus: MemberRegistrationStatus.PENDING }, []],
+        [{ registrationStatus: MemberRegistrationStatus.REJECTED }, []],
+        [null, []],
+      ];
+
+      for (const [profile, departmentIds] of cases) {
+        givenMember({ role: Role.MEMBER, accessEnabled: true }, profile);
+
+        const summary = await service.getMemberSummary(
+          PERSON_ID,
+          manager as unknown as EntityManager,
+        );
+
+        expect(summary?.departmentIds).toEqual(departmentIds);
+      }
+    });
+
+    it("reads the person without a lock unless asked", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager);
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager, {
+        forShare: false,
+      });
+
+      expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
+      expect(manager.findOne).not.toHaveBeenCalledWith(
+        Person,
+        expect.objectContaining({ lock: expect.anything() }),
+      );
+    });
+
+    it("locks the person FOR SHARE when asked", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager, {
+        forShare: true,
+      });
+
+      expect(manager.findOne).toHaveBeenCalledWith(Person, {
+        where: { id: PERSON_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+      // Only the person is locked: the profile only changes under the lock of the person.
+      expect(manager.findOne).toHaveBeenCalledWith(MemberProfile, {
+        where: { personId: PERSON_ID },
+      });
+    });
+
+    it("reads through the manager of the data source when it gets none", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      const summary = await service.getMemberSummary(PERSON_ID);
+
+      expect(summary?.id).toBe(PERSON_ID);
+      expect(manager.findOne).toHaveBeenCalledWith(Person, { where: { id: PERSON_ID } });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing and emits nothing", async () => {
+      givenMember({ role: Role.MEMBER, accessEnabled: true }, null);
+
+      await service.getMemberSummary(PERSON_ID, manager as unknown as EntityManager, {
+        forShare: true,
+      });
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe("getMember()", () => {
     const FORBIDDEN_SCOPE_BODY = {
       error: "FORBIDDEN_SCOPE",
@@ -878,6 +1120,545 @@ describe("MembersService", () => {
       // The rest of the review is still there.
       expect(detail.reviewedAt).toEqual(NOW);
       expect(detail.registrationStatus).toBe(MemberRegistrationStatus.APPROVED);
+    });
+  });
+
+  describe("deactivateMember()", () => {
+    const DEACTIVATION = {
+      exitDate: "2026-09-30",
+      reason: "Formou-se.",
+      note: "Vai fazer mestrado em outra cidade.",
+    };
+    const NOT_FOUND_BODY = { error: "MEMBER_NOT_FOUND", message: "Member not found." };
+
+    function activeMemberProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
+      return buildProfile({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        joinedAt: "2026-03-01",
+        reviewedById: ACTOR_ID,
+        ...overrides,
+      });
+    }
+
+    beforeEach(() => {
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+      state.profile = activeMemberProfile();
+      answerMemberRecordFromState();
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for a malformed id without opening a transaction", async () => {
+      for (const id of ["not-a-uuid", "", "me", `${PERSON_ID}-x`]) {
+        const failure = await httpFailure(service.deactivateMember(id, DEACTIVATION, COORDINATOR));
+
+        expect(failure.getStatus()).toBe(404);
+        expect(failure.getResponse()).toEqual(NOT_FOUND_BODY);
+      }
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 OWN_ACCOUNT before opening a transaction when the actor targets herself", async () => {
+      const failure = await httpFailure(
+        service.deactivateMember(COORDINATOR.id, DEACTIVATION, COORDINATOR),
+      );
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "OWN_ACCOUNT",
+        message: "Cannot act on your own account.",
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 OWN_ACCOUNT before opening a transaction when the actor sends her own id in upper case", async () => {
+      const ownIdUpperCase = COORDINATOR.id.toUpperCase();
+      expect(ownIdUpperCase).not.toBe(COORDINATOR.id);
+
+      const failure = await httpFailure(
+        service.deactivateMember(ownIdUpperCase, DEACTIVATION, COORDINATOR),
+      );
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "OWN_ACCOUNT",
+        message: "Cannot act on your own account.",
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("locks and reports the target by the lower-case id when the path id comes in upper case", async () => {
+      await service.deactivateMember(PERSON_ID.toUpperCase(), DEACTIVATION, COORDINATOR);
+
+      const locked = manager.findOne.mock.calls
+        .filter((call) => call[1]?.lock?.mode === "pessimistic_write")
+        .map((call) => call[1].where);
+      expect(locked).toEqual([{ id: PERSON_ID }, { personId: PERSON_ID }]);
+      expect(emittedEvents()[0].targetId).toBe(PERSON_ID);
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for an unknown id and for a person without role nor profile", async () => {
+      state.personById = null;
+      const unknown = await httpFailure(
+        service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+      );
+      expect(unknown.getStatus()).toBe(404);
+      expect(unknown.getResponse()).toEqual(NOT_FOUND_BODY);
+
+      state.personById = buildPerson({ role: null, accessEnabled: false });
+      state.profile = null;
+      const notAMember = await httpFailure(
+        service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+      );
+      expect(notAMember.getStatus()).toBe(404);
+      expect(notAMember.getResponse()).toEqual(NOT_FOUND_BODY);
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 NO_MEMBER_PROFILE for a person with role and no member profile", async () => {
+      for (const role of [Role.SUPERADMIN, Role.COORDINATOR]) {
+        state.personById = buildPerson({ role, accessEnabled: true });
+        state.profile = null;
+
+        const failure = await httpFailure(
+          service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "NO_MEMBER_PROFILE",
+          message: "This person has no member profile.",
+        });
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(people.assertNotLastActiveCoordinator).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 REGISTRATION_NOT_APPROVED for a pending and for a rejected registration", async () => {
+      for (const registrationStatus of [
+        MemberRegistrationStatus.PENDING,
+        MemberRegistrationStatus.REJECTED,
+      ]) {
+        state.personById = buildPerson({ role: null, accessEnabled: false });
+        state.profile = buildProfile({ registrationStatus });
+
+        const failure = await httpFailure(
+          service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+        );
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "REGISTRATION_NOT_APPROVED",
+          message: "Only members with an approved registration can be deactivated.",
+        });
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 MEMBER_INACTIVE for a member that is already inactive, without writing", async () => {
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: false });
+      state.profile = activeMemberProfile({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-08-01",
+        exitReason: "Mudou de cidade.",
+      });
+
+      const failure = await httpFailure(
+        service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "MEMBER_INACTIVE",
+        message: "The member is inactive.",
+      });
+      expect(state.profile).toMatchObject({
+        exitDate: "2026-08-01",
+        exitReason: "Mudou de cidade.",
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 400 EXIT_DATE_BEFORE_JOINED_AT pointing at exitDate when the exit is before the join date", async () => {
+      const failure = await httpFailure(
+        service.deactivateMember(
+          PERSON_ID,
+          { ...DEACTIVATION, exitDate: "2026-02-28" },
+          COORDINATOR,
+        ),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toEqual({
+        error: "EXIT_DATE_BEFORE_JOINED_AT",
+        message: "exitDate must be on or after the join date.",
+        details: [{ field: "exitDate", message: "exitDate must be on or after the join date" }],
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("accepts an exit on the join date and any exit when the profile has no join date", async () => {
+      await service.deactivateMember(
+        PERSON_ID,
+        { ...DEACTIVATION, exitDate: "2026-03-01" },
+        COORDINATOR,
+      );
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-03-01",
+      });
+
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+      state.profile = activeMemberProfile({ joinedAt: null });
+      await service.deactivateMember(
+        PERSON_ID,
+        { ...DEACTIVATION, exitDate: "2000-01-01" },
+        COORDINATOR,
+      );
+      expect(state.profile).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2000-01-01",
+      });
+    });
+
+    it("locks Person and then the profile, in a SERIALIZABLE transaction", async () => {
+      await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(dataSource.transaction.mock.calls[0][0]).toBe("SERIALIZABLE");
+      const locked = manager.findOne.mock.calls
+        .filter((call) => call[1]?.lock?.mode === "pessimistic_write")
+        .map((call) => [call[0], call[1].where]);
+      expect(locked).toEqual([
+        [Person, { id: PERSON_ID }],
+        [MemberProfile, { personId: PERSON_ID }],
+      ]);
+      const lastLock = Math.max(...manager.findOne.mock.invocationCallOrder);
+      expect(Math.min(...manager.save.mock.invocationCallOrder)).toBeGreaterThan(lastLock);
+    });
+
+    it("sets status inactive, exit date, reason, note, who and when, and disables the access in the same transaction", async () => {
+      await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(savedOf(MemberProfile)).toHaveLength(1);
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+        exitNote: "Vai fazer mestrado em outra cidade.",
+        deactivatedAt: NOW,
+        deactivatedById: COORDINATOR.id,
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        reviewedById: ACTOR_ID,
+      });
+      expect(savedOf(Person)).toHaveLength(1);
+      expect(savedOf(Person)[0]).toMatchObject({
+        id: PERSON_ID,
+        role: Role.MEMBER,
+        accessEnabled: false,
+      });
+    });
+
+    it("stores a null note when none is sent", async () => {
+      const { note: _omitted, ...withoutNote } = DEACTIVATION;
+
+      await service.deactivateMember(PERSON_ID, withoutNote, COORDINATOR);
+      expect(savedOf(MemberProfile)[0].exitNote).toBeNull();
+
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: true });
+      state.profile = activeMemberProfile();
+      await service.deactivateMember(PERSON_ID, { ...DEACTIVATION, note: null }, COORDINATOR);
+      expect(state.profile).toMatchObject({ status: MemberStatus.INACTIVE, exitNote: null });
+    });
+
+    it("checks LAST_COORDINATOR on the transaction manager for an active coordinator target and propagates the 409 without writing", async () => {
+      state.personById = buildPerson({ role: Role.COORDINATOR, accessEnabled: true });
+      people.assertNotLastActiveCoordinator.mockRejectedValue(lastCoordinator());
+
+      const failure = await httpFailure(
+        service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "LAST_COORDINATOR",
+        message: "Cannot demote or disable the last active coordinator.",
+      });
+      expect(people.assertNotLastActiveCoordinator).toHaveBeenCalledTimes(1);
+      expect(people.assertNotLastActiveCoordinator).toHaveBeenCalledWith(manager);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+
+      people.assertNotLastActiveCoordinator.mockResolvedValue(undefined);
+      await expect(
+        service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR),
+      ).resolves.toMatchObject({ status: MemberStatus.INACTIVE, accessEnabled: false });
+    });
+
+    it("skips LAST_COORDINATOR for a superadmin actor and for a target that is not a coordinator", async () => {
+      state.personById = buildPerson({ role: Role.COORDINATOR, accessEnabled: true });
+      await service.deactivateMember(PERSON_ID, DEACTIVATION, SUPERADMIN);
+
+      for (const role of [Role.MEMBER, Role.DIRECTOR]) {
+        state.personById = buildPerson({ role, accessEnabled: true });
+        state.profile = activeMemberProfile();
+        await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+      }
+
+      expect(people.assertNotLastActiveCoordinator).not.toHaveBeenCalled();
+      expect(savedOf(Person)).toHaveLength(3);
+    });
+
+    it("skips LAST_COORDINATOR for a coordinator target whose access is already disabled, and deactivates her", async () => {
+      state.personById = buildPerson({ role: Role.COORDINATOR, accessEnabled: false });
+      people.assertNotLastActiveCoordinator.mockRejectedValue(lastCoordinator());
+
+      const record = await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+
+      expect(people.assertNotLastActiveCoordinator).not.toHaveBeenCalled();
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+      });
+      expect(savedOf(Person)[0]).toMatchObject({ role: Role.COORDINATOR, accessEnabled: false });
+      expect(record).toMatchObject({ status: MemberStatus.INACTIVE, accessEnabled: false });
+    });
+
+    it("emits MEMBER_DEACTIVATED after the commit with status, access, exitDate and exitReason, never the note", async () => {
+      const order: string[] = [];
+      dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+        const result = await runTransaction(args);
+        order.push("commit");
+        return result;
+      });
+      eventEmitter.emit.mockImplementation(() => order.push("emit"));
+
+      await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+
+      expect(order).toEqual(["commit", "emit"]);
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit.mock.calls[0][0]).toBe(AUDITABLE_ACTION_EVENT);
+      const [event] = emittedEvents();
+      expect(event).toMatchObject({
+        actorId: COORDINATOR.id,
+        action: AuditableAction.MEMBER_DEACTIVATED,
+        targetType: "member",
+        targetId: PERSON_ID,
+        occurredAt: NOW,
+      });
+      expect(event.before).toStrictEqual({ status: MemberStatus.ACTIVE, accessEnabled: true });
+      expect(event.after).toStrictEqual({
+        status: MemberStatus.INACTIVE,
+        accessEnabled: false,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+      });
+      expect(JSON.stringify(event)).not.toContain(DEACTIVATION.note);
+      expectNoSensitiveValue(JSON.stringify(event));
+    });
+
+    it("does not emit when the transaction fails", async () => {
+      manager.save.mockRejectedValueOnce(new Error("could not serialize access"));
+
+      await expect(service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR)).rejects.toThrow(
+        "could not serialize access",
+      );
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("answers the member record with status inactive, exitDate, exitReason and accessEnabled false", async () => {
+      state.reviewer = buildPerson({
+        id: ACTOR_ID,
+        name: "Carla Menezes",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+      });
+
+      const record = await service.deactivateMember(PERSON_ID, DEACTIVATION, COORDINATOR);
+
+      expect(record).toMatchObject({
+        id: PERSON_ID,
+        role: Role.MEMBER,
+        accessEnabled: false,
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+        department: { id: DEPARTMENT_ID, name: "Tecnologia" },
+        reviewedBy: { id: ACTOR_ID, name: "Carla Menezes" },
+      });
+      expect(record).not.toHaveProperty("exitNote");
+      expect(JSON.stringify(record)).not.toContain(DEACTIVATION.note);
+      expect(departmentRepository.findOne).toHaveBeenCalledWith({ where: { id: DEPARTMENT_ID } });
+      expect(personRepository.findOne).toHaveBeenCalledWith({ where: { id: ACTOR_ID } });
+    });
+  });
+
+  describe("reactivateMember()", () => {
+    const NOT_FOUND_BODY = { error: "MEMBER_NOT_FOUND", message: "Member not found." };
+    const NOTE = "Vai fazer mestrado em outra cidade.";
+
+    beforeEach(() => {
+      state.personById = buildPerson({ role: Role.MEMBER, accessEnabled: false });
+      state.profile = buildProfile({
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        joinedAt: "2026-03-01",
+        reviewedById: ACTOR_ID,
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+        exitNote: NOTE,
+        deactivatedAt: NOW,
+        deactivatedById: COORDINATOR.id,
+      });
+      answerMemberRecordFromState();
+    });
+
+    it("throws 404 MEMBER_NOT_FOUND for a malformed or unknown id", async () => {
+      const malformed = await httpFailure(service.reactivateMember("not-a-uuid", COORDINATOR));
+      expect(malformed.getStatus()).toBe(404);
+      expect(malformed.getResponse()).toEqual(NOT_FOUND_BODY);
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+
+      state.personById = null;
+      const unknown = await httpFailure(service.reactivateMember(PERSON_ID, COORDINATOR));
+      expect(unknown.getStatus()).toBe(404);
+      expect(unknown.getResponse()).toEqual(NOT_FOUND_BODY);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 OWN_ACCOUNT before opening a transaction when the actor targets herself", async () => {
+      const failure = await httpFailure(service.reactivateMember(COORDINATOR.id, COORDINATOR));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "OWN_ACCOUNT",
+        message: "Cannot act on your own account.",
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("throws 403 OWN_ACCOUNT before opening a transaction when the actor sends her own id in upper case", async () => {
+      const ownIdUpperCase = COORDINATOR.id.toUpperCase();
+      expect(ownIdUpperCase).not.toBe(COORDINATOR.id);
+
+      const failure = await httpFailure(service.reactivateMember(ownIdUpperCase, COORDINATOR));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "OWN_ACCOUNT",
+        message: "Cannot act on your own account.",
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it("sets status active and clears exit date, reason, note, who and when, without touching the access", async () => {
+      const record = await service.reactivateMember(PERSON_ID, COORDINATOR);
+
+      expect(savedOf(MemberProfile)).toHaveLength(1);
+      expect(savedOf(MemberProfile)[0]).toMatchObject({
+        status: MemberStatus.ACTIVE,
+        exitDate: null,
+        exitReason: null,
+        exitNote: null,
+        deactivatedAt: null,
+        deactivatedById: null,
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+      });
+      expect(savedOf(Person)).toEqual([]);
+      expect(state.personById).toMatchObject({ accessEnabled: false });
+      expect(dataSource.transaction.mock.calls[0]).toHaveLength(1);
+      expect(people.assertNotLastActiveCoordinator).not.toHaveBeenCalled();
+      const locked = manager.findOne.mock.calls
+        .filter((call) => call[1]?.lock?.mode === "pessimistic_write")
+        .map((call) => call[0]);
+      expect(locked).toEqual([Person, MemberProfile]);
+      expect(record).toMatchObject({
+        id: PERSON_ID,
+        status: MemberStatus.ACTIVE,
+        exitDate: null,
+        exitReason: null,
+        accessEnabled: false,
+      });
+    });
+
+    it("answers 200 without writing nor emitting for an active member, a pending registration and a person with role and no profile", async () => {
+      const cases: Array<[Person, MemberProfile | null]> = [
+        [
+          buildPerson({ role: Role.MEMBER, accessEnabled: true }),
+          buildProfile({ registrationStatus: MemberRegistrationStatus.APPROVED }),
+        ],
+        [
+          buildPerson({ role: null, accessEnabled: false }),
+          buildProfile({ registrationStatus: MemberRegistrationStatus.PENDING }),
+        ],
+        [buildPerson({ role: Role.COORDINATOR, accessEnabled: true }), null],
+      ];
+
+      for (const [person, profile] of cases) {
+        state.personById = person;
+        state.profile = profile;
+
+        const record = await service.reactivateMember(PERSON_ID, COORDINATOR);
+
+        expect(record).toMatchObject({
+          id: PERSON_ID,
+          status: MemberStatus.ACTIVE,
+          exitDate: null,
+          exitReason: null,
+          accessEnabled: person.accessEnabled,
+        });
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("emits MEMBER_REACTIVATED after the commit with the exit it cleared", async () => {
+      const order: string[] = [];
+      dataSource.transaction.mockImplementation(async (...args: unknown[]) => {
+        const result = await runTransaction(args);
+        order.push("commit");
+        return result;
+      });
+      eventEmitter.emit.mockImplementation(() => order.push("emit"));
+
+      await service.reactivateMember(PERSON_ID, COORDINATOR);
+
+      expect(order).toEqual(["commit", "emit"]);
+      const [event] = emittedEvents();
+      expect(event).toMatchObject({
+        actorId: COORDINATOR.id,
+        action: AuditableAction.MEMBER_REACTIVATED,
+        targetType: "member",
+        targetId: PERSON_ID,
+        occurredAt: NOW,
+      });
+      expect(event.before).toStrictEqual({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+      });
+      expect(event.after).toStrictEqual({
+        status: MemberStatus.ACTIVE,
+        exitDate: null,
+        exitReason: null,
+      });
+      expect(JSON.stringify(event)).not.toContain(NOTE);
+    });
+
+    it("does not emit when the transaction fails", async () => {
+      manager.save.mockRejectedValueOnce(new Error("connection lost"));
+
+      await expect(service.reactivateMember(PERSON_ID, COORDINATOR)).rejects.toThrow(
+        "connection lost",
+      );
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 
@@ -1265,6 +2046,18 @@ describe("MembersService", () => {
       expect(error.getResponse()).toEqual({
         error: "MEMBER_NOT_FOUND",
         message: "Member not found.",
+      });
+    });
+  });
+
+  describe("memberInactive()", () => {
+    it("builds the 409 MEMBER_INACTIVE shared by the member writes", () => {
+      const error = memberInactive();
+
+      expect(error.getStatus()).toBe(409);
+      expect(error.getResponse()).toEqual({
+        error: "MEMBER_INACTIVE",
+        message: "The member is inactive.",
       });
     });
   });
