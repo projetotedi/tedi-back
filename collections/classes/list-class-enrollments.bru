@@ -29,7 +29,7 @@ docs {
   Lista as matrículas da turma, em todas as situações por padrão, pela ordem do nome do aluno (depois o id da pessoa): a ordem de uma lista de turma ou de chamada.
   Requer cookie tedi_session e a permissão classes.view (@RequirePermission; todos os perfis).
   Query: page (>= 1, padrão 1), limit (1 a 100, padrão 20), search (parte do nome do aluno, sem diferenciar maiúsculas nem acentos, até 100 caracteres) e status (active, dropped ou completed; um valor só).
-  Cada item: { id, student { id, name, age, phone, accessibilityNeed }, status, enrolledAt, statusChangedAt, attendanceRate }. phone e accessibilityNeed só saem para quem pode ver alunos (students.view); para os outros, null. attendanceRate é sempre null até a chamada de alunos (GUS-166). O motivo da mudança de situação nunca aparece aqui.
+  Cada item: { id, student { id, name, age, phone, accessibilityNeed }, status, enrolledAt, statusChangedAt, attendanceRate }. phone e accessibilityNeed só saem para quem pode ver alunos (students.view); para os outros, null. attendanceRate é a frequência da matrícula (F6.3, GUS-166): presenças sobre as chamadas registradas dela em aulas não canceladas, de 0 a 1 com duas casas (0.75 = 75%); a falta justificada conta como falta, e a aula cancelada depois da chamada sai da conta. null quando a matrícula ainda não tem chamada registrada. O motivo da mudança de situação nunca aparece aqui.
   O total de ?status=active sem search é o enrollmentsTotal da ficha da turma (get-class). Turma arquivada responde 200; aluno arquivado com matrícula antiga continua na lista (histórico).
   Retorna 200 { data, total, page, limit }.
   Erros possíveis: 400 VALIDATION_FAILED, 401, 404 CLASS_NOT_FOUND (id inexistente ou mal formado).

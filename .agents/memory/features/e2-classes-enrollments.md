@@ -3,7 +3,7 @@ feature: E2 Turmas e matrículas
 epico: E2 Turmas e matrículas
 modulo: classes (back; o front entra na GUS-133)
 status: GUS-101 implementada no back em 2026-10-27; GUS-102 (vínculo curso x turma) implementada no back em 2026-11-11; GUS-104 (detalhe da turma) implementada no back em 2026-11-15; GUS-108 (matrícula) implementada no back em 2026-11-16; GUS-103, 133, 134, 136, 138, 151, 166 e 170 destravadas
-cards: GUS-101 (back), GUS-102 (back), GUS-104 (back), GUS-108 (back, matrícula). Dependentes: GUS-103 (listagem), GUS-138 (front da matrícula), GUS-166 (chamada de alunos), GUS-133, GUS-134 e GUS-136 (front), GUS-151 (aulas), GUS-170
+cards: GUS-101 (back), GUS-102 (back), GUS-104 (back), GUS-108 (back, matrícula). Dependentes: GUS-103 (listagem), GUS-138 (front da matrícula), GUS-166 (chamada de alunos, entregue na GUS-166: §18.1 da ARCHITECTURE), GUS-133, GUS-134 e GUS-136 (front), GUS-151 (aulas), GUS-170
 atualizado: 2026-11-16
 ---
 
