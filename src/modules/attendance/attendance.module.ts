@@ -14,6 +14,7 @@ import { StudentAttendanceController } from "./controllers/student-attendance.co
 import { AttendanceCorrection } from "./entities/attendance-correction.entity";
 import { MemberAttendance } from "./entities/member-attendance.entity";
 import { StudentAttendance } from "./entities/student-attendance.entity";
+import { EnrollmentAttendanceReaderService } from "./services/enrollment-attendance-reader.service";
 import { MemberAttendanceHistoryService } from "./services/member-attendance-history.service";
 import { MemberAttendanceService } from "./services/member-attendance.service";
 import { StudentAttendanceRecordsService } from "./services/student-attendance-records.service";
@@ -28,7 +29,8 @@ import { StudentRollCallService } from "./services/student-roll-call.service";
   //   SHARE inside the transaction) and the lessons of the history of a member (findLessonSummaries);
   //   and the port of the roll call of the students (LessonRollCallRegistry, GUS-166);
   // - ClassesModule (GUS-166): the class of the lesson of a roll call, FOR SHARE and archived or not
-  //   (ClassesService.getClassSummary), and who the roll call is made of (EnrollmentRosterService);
+  //   (ClassesService.getClassSummary), who the roll call is made of (EnrollmentRosterService) and the
+  //   port of the attendance of the enrollments (EnrollmentAttendanceRegistry);
   // - AssignmentsModule: the confirmed assignments of a lesson, the targets of the attendance of the
   //   members, its confirmed teacher, and the allocated staff of the roll call of the students
   //   (ConfirmedStaffService.findConfirmedAssignments, FOR SHARE);
@@ -57,8 +59,10 @@ import { StudentRollCallService } from "./services/student-roll-call.service";
     LessonStudentAttendanceController,
     StudentAttendanceController,
   ],
-  // StudentRollCallCounterService plugs itself in the port of the lessons (LessonRollCallRegistry)
-  // in onModuleInit, so every answer of the lessons counts the roll call through it.
+  // Two providers plug themselves in a port in onModuleInit: StudentRollCallCounterService in the one
+  // of the lessons (LessonRollCallRegistry: every answer of a lesson counts the roll call through it)
+  // and EnrollmentAttendanceReaderService in the one of the classes (EnrollmentAttendanceRegistry:
+  // the attendance rate of the enrollments, and the removal of one with attendance).
   providers: [
     MemberAttendanceService,
     MemberAttendanceHistoryService,
@@ -66,6 +70,7 @@ import { StudentRollCallService } from "./services/student-roll-call.service";
     StudentAttendanceRecordsService,
     StudentRollCallGuard,
     StudentRollCallCounterService,
+    EnrollmentAttendanceReaderService,
     Clock,
   ],
   // Nobody imports the attendance: what the others read of it goes through their ports.
