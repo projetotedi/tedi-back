@@ -15,8 +15,8 @@ import { MigrationInterface, QueryRunner } from "typeorm";
  *   of the service (the student profile), not of the foreign key.
  * - `down()` has no IF EXISTS: a broken revert must fail loudly in CI.
  */
-export class CreateEnrollments1795000000600 implements MigrationInterface {
-  name = "CreateEnrollments1795000000600";
+export class CreateEnrollments1795000000800 implements MigrationInterface {
+  name = "CreateEnrollments1795000000800";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
