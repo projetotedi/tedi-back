@@ -8,7 +8,9 @@ import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { LessonMemberAttendanceController } from "./controllers/lesson-member-attendance.controller";
 import { MemberAttendanceController } from "./controllers/member-attendance.controller";
+import { AttendanceCorrection } from "./entities/attendance-correction.entity";
 import { MemberAttendance } from "./entities/member-attendance.entity";
+import { StudentAttendance } from "./entities/student-attendance.entity";
 import { MemberAttendanceHistoryService } from "./services/member-attendance-history.service";
 import { MemberAttendanceService } from "./services/member-attendance.service";
 
@@ -27,7 +29,7 @@ import { MemberAttendanceService } from "./services/member-attendance.service";
   // Neither AuthModule nor ClassesModule: the guard is global, and the class of a lesson comes in its
   // summary.
   imports: [
-    TypeOrmModule.forFeature([MemberAttendance]),
+    TypeOrmModule.forFeature([MemberAttendance, StudentAttendance, AttendanceCorrection]),
     LessonsModule,
     AssignmentsModule,
     HoursModule,
