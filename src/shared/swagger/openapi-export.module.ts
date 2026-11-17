@@ -59,6 +59,7 @@ import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
 import { CourseDetailService } from "@modules/catalog/services/course-detail.service";
 import { CourseListService } from "@modules/catalog/services/course-list.service";
+import { LessonPlanListService } from "@modules/catalog/services/lesson-plan-list.service";
 import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlanUsageService } from "@modules/catalog/services/lesson-plan-usage.service";
@@ -237,6 +238,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: CourseListService,
       useValue: { list: async () => ({}) },
+    },
+    {
+      provide: LessonPlanListService,
+      useValue: { list: async () => ({}), listContents: async () => [] },
     },
     {
       provide: ClassesService,
