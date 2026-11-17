@@ -14,8 +14,8 @@ import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import {
   rollCallTargetOf,
   studentRollCallLockKey,
-  StudentRollCallGuard,
-} from "../services/student-roll-call.guard";
+  StudentRollCallAccess,
+} from "../services/student-roll-call-access";
 
 const LESSON: LessonSummary = {
   id: "01999a3e-7c1b-7000-8000-0000000000f1",
@@ -40,8 +40,8 @@ const STAFF = [
 
 const MEMBER: AuthUser = { id: MONITOR_ID, role: Role.MEMBER, accessEnabled: true };
 
-describe("StudentRollCallGuard", () => {
-  let guard: StudentRollCallGuard;
+describe("StudentRollCallAccess", () => {
+  let access: StudentRollCallAccess;
   let order: string[];
 
   const manager = { query: jest.fn() };
@@ -65,18 +65,18 @@ describe("StudentRollCallGuard", () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
-        StudentRollCallGuard,
+        StudentRollCallAccess,
         { provide: ClassesService, useValue: classes },
         { provide: ConfirmedStaffService, useValue: confirmedStaff },
         { provide: PermissionPolicy, useValue: policy },
       ],
     }).compile();
 
-    guard = moduleRef.get(StudentRollCallGuard);
+    access = moduleRef.get(StudentRollCallAccess);
   });
 
   it("locks the class FOR SHARE, answers 409 CLASS_ARCHIVED, then takes the advisory lock attendance.students:<lesson>", async () => {
-    await guard.lockClassAndRollCall(manager as never, LESSON);
+    await access.lockClassAndRollCall(manager as never, LESSON);
 
     expect(classes.getClassSummary).toHaveBeenCalledWith(LESSON.classId, manager, {
       forShare: true,
@@ -89,7 +89,7 @@ describe("StudentRollCallGuard", () => {
 
     classes.getClassSummary.mockResolvedValue({ id: LESSON.classId, archivedAt: new Date() });
     manager.query.mockClear();
-    const failure = await guard.lockClassAndRollCall(manager as never, LESSON).catch((e) => e);
+    const failure = await access.lockClassAndRollCall(manager as never, LESSON).catch((e) => e);
     expect(failure).toBeInstanceOf(HttpException);
     expect(failure.getStatus()).toBe(409);
     expect(failure.getResponse()).toEqual({
@@ -102,7 +102,7 @@ describe("StudentRollCallGuard", () => {
   it("throws when the class of a lesson is missing", async () => {
     classes.getClassSummary.mockResolvedValue(null);
 
-    await expect(guard.lockClassAndRollCall(manager as never, LESSON)).rejects.toThrow(
+    await expect(access.lockClassAndRollCall(manager as never, LESSON)).rejects.toThrow(
       "the foreign key requires it",
     );
     expect(manager.query).not.toHaveBeenCalled();
@@ -125,7 +125,7 @@ describe("StudentRollCallGuard", () => {
       lessonMonitorIds: [MONITOR_ID, OTHER_MONITOR_ID],
     };
 
-    await guard.assertCanTake(MEMBER, LESSON.id, manager as never);
+    await access.assertCanTake(MEMBER, LESSON.id, manager as never);
     expect(confirmedStaff.findConfirmedAssignments).toHaveBeenCalledWith(LESSON.id, manager, {
       forShare: true,
     });
@@ -137,7 +137,7 @@ describe("StudentRollCallGuard", () => {
 
     confirmedStaff.findConfirmedAssignments.mockClear();
     policy.can.mockReturnValue(false);
-    await expect(guard.canTake(MEMBER, LESSON.id)).resolves.toBe(false);
+    await expect(access.canTake(MEMBER, LESSON.id)).resolves.toBe(false);
     expect(confirmedStaff.findConfirmedAssignments).toHaveBeenCalledWith(LESSON.id);
     expect(policy.can).toHaveBeenCalledWith(MEMBER, Permission.ATTENDANCE_TAKE_STUDENTS, target);
   });

@@ -27,7 +27,7 @@ import {
 } from "./attendance-errors";
 import { correctedAuditOf, justifiedAuditOf } from "./student-attendance-audit";
 import { toStudentAttendanceResponse } from "./student-attendance-response.mapper";
-import { StudentRollCallGuard } from "./student-roll-call.guard";
+import { StudentRollCallAccess } from "./student-roll-call-access";
 
 /** What a write of one attendance did: the id to read back, and its audit event when it changed. */
 interface RecordOutcome {
@@ -55,7 +55,7 @@ export class StudentAttendanceRecordsService {
     private readonly clock: Clock,
     private readonly lessons: LessonsService,
     private readonly people: PeopleService,
-    private readonly guard: StudentRollCallGuard,
+    private readonly access: StudentRollCallAccess,
   ) {}
 
   /**
@@ -82,7 +82,7 @@ export class StudentAttendanceRecordsService {
 
     const outcome = await this.dataSource.transaction(async (manager): Promise<RecordOutcome> => {
       const { id, lesson } = await this.lockRollCallOf(manager, requestedId);
-      await this.guard.assertCanTake(actor, lesson.id, manager);
+      await this.access.assertCanTake(actor, lesson.id, manager);
       const row = await this.lockRow(manager, id);
       if (row.status !== StudentAttendanceStatus.ABSENT) throw studentAttendanceNotAbsent();
 
@@ -174,7 +174,7 @@ export class StudentAttendanceRecordsService {
   /**
    * The attendance and the roll call of its lesson, locked: a plain read of the attendance (404 when
    * it is not there), its lesson FOR SHARE (409 LESSON_CANCELLED), then the class FOR SHARE and the
-   * advisory lock of the roll call through the guard. The foreign key requires the lesson: a missing
+   * advisory lock of the roll call through `StudentRollCallAccess`. The foreign key requires the lesson: a missing
    * one throws.
    */
   private async lockRollCallOf(
@@ -191,7 +191,7 @@ export class StudentAttendanceRecordsService {
       );
     }
     if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
-    await this.guard.lockClassAndRollCall(manager, lesson);
+    await this.access.lockClassAndRollCall(manager, lesson);
 
     return { id: peek.id, lesson };
   }

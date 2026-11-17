@@ -31,7 +31,7 @@ import {
 } from "./attendance-errors";
 import { signedAuditOf } from "./student-attendance-audit";
 import { compareRollCallItems, toStudentRollCallItem } from "./student-attendance-response.mapper";
-import { StudentRollCallGuard } from "./student-roll-call.guard";
+import { StudentRollCallAccess } from "./student-roll-call-access";
 
 /** An entry of the body, with the id in lower case: the pipe of the DTO accepts upper case. */
 interface RequestedEntry {
@@ -78,7 +78,7 @@ function correctionsByRowOf(
  *
  * Who is in the roll call comes from `EnrollmentRosterService` (the enrollments the lesson expects:
  * made before it ended and in force on its day; plus the ones already signed in it); the lesson from `LessonsService`, the
- * class and the confirmed staff through the `StudentRollCallGuard`, and the names from
+ * class and the confirmed staff through the `StudentRollCallAccess`, and the names from
  * `PeopleService`: this module touches no table of another one. The batch runs in one transaction,
  * with one `now` from the Clock, and its audit events go out after the commit, only for what was
  * written. Students generate no hours and the roll call never marks the lesson `done` (S17).
@@ -92,7 +92,7 @@ export class StudentRollCallService {
     private readonly lessons: LessonsService,
     private readonly roster: EnrollmentRosterService,
     private readonly people: PeopleService,
-    private readonly guard: StudentRollCallGuard,
+    private readonly access: StudentRollCallAccess,
   ) {}
 
   /**
@@ -109,7 +109,7 @@ export class StudentRollCallService {
     const lesson = await this.lessons.getLessonSummary(requestedLessonId);
     if (lesson === null) throw lessonNotFound();
 
-    const canSeeNotes = await this.guard.canTake(actor, lesson.id);
+    const canSeeNotes = await this.access.canTake(actor, lesson.id);
     return this.readRollCall(lesson, canSeeNotes);
   }
 
@@ -156,8 +156,8 @@ export class StudentRollCallService {
       if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
       if (lesson.date > todayInAppTimeZone(now)) throw lessonInFuture();
 
-      await this.guard.lockClassAndRollCall(manager, lesson);
-      await this.guard.assertCanTake(actor, lesson.id, manager);
+      await this.access.lockClassAndRollCall(manager, lesson);
+      await this.access.assertCanTake(actor, lesson.id, manager);
 
       const firsts = await this.firstSignaturesOf(manager, lesson, requested);
       // No write before this line: the batch is all or none.

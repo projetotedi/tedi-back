@@ -33,7 +33,7 @@ import { AttendanceCorrection } from "../entities/attendance-correction.entity";
 import { StudentAttendance } from "../entities/student-attendance.entity";
 import { AbsenceJustificationReason } from "../enums/absence-justification-reason.enum";
 import { StudentAttendanceStatus } from "../enums/student-attendance-status.enum";
-import { StudentRollCallGuard } from "../services/student-roll-call.guard";
+import { StudentRollCallAccess } from "../services/student-roll-call-access";
 import { StudentRollCallService } from "../services/student-roll-call.service";
 
 /** 22:30 of 2026-03-10 in America/Sao_Paulo, when the UTC date is already 2026-03-11. */
@@ -258,8 +258,8 @@ describe("StudentRollCallService", () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         StudentRollCallService,
-        // The real guard and the real policy: the locks and the scope are what is under test.
-        StudentRollCallGuard,
+        // The real access and the real policy: the locks and the scope are what is under test.
+        StudentRollCallAccess,
         PermissionPolicy,
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },

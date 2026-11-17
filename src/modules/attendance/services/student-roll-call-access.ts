@@ -55,7 +55,7 @@ export function rollCallTargetOf(staff: readonly ConfirmedAssignment[]): {
  * 18.1 (S3), and who takes the roll call of a lesson (S6).
  */
 @Injectable()
-export class StudentRollCallGuard {
+export class StudentRollCallAccess {
   constructor(
     private readonly classes: ClassesService,
     private readonly confirmedStaff: ConfirmedStaffService,

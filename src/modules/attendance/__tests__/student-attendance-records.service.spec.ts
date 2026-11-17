@@ -29,7 +29,7 @@ import { StudentAttendance } from "../entities/student-attendance.entity";
 import { AbsenceJustificationReason } from "../enums/absence-justification-reason.enum";
 import { StudentAttendanceStatus } from "../enums/student-attendance-status.enum";
 import { StudentAttendanceRecordsService } from "../services/student-attendance-records.service";
-import { StudentRollCallGuard } from "../services/student-roll-call.guard";
+import { StudentRollCallAccess } from "../services/student-roll-call-access";
 
 const NOW = new Date("2026-03-10T18:00:00.000Z");
 const SIGNED_AT = new Date("2026-03-10T14:05:00.000Z");
@@ -225,7 +225,7 @@ describe("StudentAttendanceRecordsService", () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         StudentAttendanceRecordsService,
-        StudentRollCallGuard,
+        StudentRollCallAccess,
         { provide: PermissionPolicy, useValue: policy },
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },

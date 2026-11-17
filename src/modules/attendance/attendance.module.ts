@@ -19,7 +19,7 @@ import { MemberAttendanceHistoryService } from "./services/member-attendance-his
 import { MemberAttendanceService } from "./services/member-attendance.service";
 import { StudentAttendanceRecordsService } from "./services/student-attendance-records.service";
 import { StudentRollCallCounterService } from "./services/student-roll-call-counter.service";
-import { StudentRollCallGuard } from "./services/student-roll-call.guard";
+import { StudentRollCallAccess } from "./services/student-roll-call-access";
 import { StudentRollCallService } from "./services/student-roll-call.service";
 
 @Module({
@@ -68,7 +68,7 @@ import { StudentRollCallService } from "./services/student-roll-call.service";
     MemberAttendanceHistoryService,
     StudentRollCallService,
     StudentAttendanceRecordsService,
-    StudentRollCallGuard,
+    StudentRollCallAccess,
     StudentRollCallCounterService,
     EnrollmentAttendanceReaderService,
     Clock,
