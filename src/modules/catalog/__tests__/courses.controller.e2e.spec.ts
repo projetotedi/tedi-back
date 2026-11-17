@@ -268,12 +268,36 @@ describe("CoursesController (e2e)", () => {
       .send(body);
   }
 
-  /** The archive route is GUS-116: until it exists, a course is archived straight in the table. */
+  /**
+   * Archives a course straight in the table, without the route and so without an event: for the
+   * tests of the other routes. The route itself (GUS-116) is tested through `patchArchive`.
+   */
   async function archiveCourse(id: string): Promise<void> {
     await dataSource.query(
       `UPDATE courses SET archived_at = now(), archived_by_id = $2 WHERE id = $1`,
       [id, coordinator.id],
     );
+  }
+
+  function patchArchive(id: string, actor: Actor, body: Record<string, unknown> = {}) {
+    return request(app.getHttpServer())
+      .patch(`/courses/${id}/archive`)
+      .set("Cookie", actor.cookie)
+      .send(body);
+  }
+
+  function patchUnarchive(id: string, actor: Actor) {
+    return request(app.getHttpServer())
+      .patch(`/courses/${id}/unarchive`)
+      .set("Cookie", actor.cookie);
+  }
+
+  async function storedArchive(id: string): Promise<Record<string, unknown>> {
+    const rows: Array<Record<string, unknown>> = await dataSource.query(
+      `SELECT archived_at, archived_by_id, archive_reason FROM courses WHERE id = $1`,
+      [id],
+    );
+    return rows[0];
   }
 
   function collectEvents(): AuditableActionEvent[] {
@@ -1864,6 +1888,266 @@ describe("CoursesController (e2e)", () => {
       const stored = await storedPrerequisiteIds(d.id);
       expect([[y.id, z.id].sort(), [z.id]]).toContainEqual(stored);
       expect(await countRows("course_prerequisites")).toBe(stored.length);
+    });
+  });
+
+  describe("PATCH /courses/:id/archive (archiveCourse)", () => {
+    it("CT1: archives 'Informática Básica (2023)' with a reason and answers 200 with status archived", async () => {
+      const course = await createCourse({ ...BASIC, name: "Informática Básica (2023)" });
+
+      const res = await patchArchive(course.id, coordinator, {
+        reason: "Substituído pela versão 2026.",
+      }).expect(200);
+
+      expect(res.body).toMatchObject({
+        id: course.id,
+        name: "Informática Básica (2023)",
+        status: "archived",
+        archivedById: coordinator.id,
+        archiveReason: "Substituído pela versão 2026.",
+      });
+      expect(res.body.archivedAt).toEqual(expect.any(String));
+      expect(res.body.updatedAt).toBe(res.body.archivedAt);
+
+      const stored = await storedArchive(course.id);
+      expect(stored.archived_at).toBeInstanceOf(Date);
+      expect(stored.archived_by_id).toBe(coordinator.id);
+      expect(stored.archive_reason).toBe("Substituído pela versão 2026.");
+      expect((await detailOf(course.id)).status).toBe("archived");
+    });
+
+    it("answers the prerequisites of the archived course", async () => {
+      const basic = await createCourse(BASIC);
+      const intermediate = await createCourse({ ...INTERMEDIATE, prerequisiteIds: [basic.id] });
+
+      const res = await patchArchive(intermediate.id, director).expect(200);
+
+      expect(res.body.prerequisites).toEqual([{ id: basic.id, name: BASIC.name }]);
+    });
+
+    it("accepts no body, an empty body and a blank reason, storing the reason as null", async () => {
+      const first = await createCourse(BASIC);
+      const second = await createCourse(INTERMEDIATE);
+      const third = await createCourse({ ...BASIC, name: "Informática Básica (2023)" });
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${first.id}/archive`)
+        .set("Cookie", director.cookie)
+        .expect(200);
+      await patchArchive(second.id, director, {}).expect(200);
+      const blank = await patchArchive(third.id, director, { reason: "   " }).expect(200);
+
+      expect(blank.body.archiveReason).toBeNull();
+      for (const id of [first.id, second.id, third.id]) {
+        expect(await storedArchive(id)).toMatchObject({ archive_reason: null });
+      }
+    });
+
+    it("trims the reason", async () => {
+      const course = await createCourse(BASIC);
+
+      const res = await patchArchive(course.id, director, { reason: "  Conteúdo revisado.  " });
+
+      expect(res.body.archiveReason).toBe("Conteúdo revisado.");
+    });
+
+    it("returns 400 VALIDATION_FAILED with field reason for a reason over 500 characters or not a string, and archives nothing", async () => {
+      const course = await createCourse(BASIC);
+
+      for (const reason of ["x".repeat(501), 42]) {
+        const res = await patchArchive(course.id, director, { reason }).expect(400);
+        expect(res.body.error).toBe("VALIDATION_FAILED");
+        expect(fieldsOf(res.body)).toEqual(["reason"]);
+      }
+      expect((await storedArchive(course.id)).archived_at).toBeNull();
+    });
+
+    it("CT3: archiving again answers 200 and keeps the first archive (no-op, ARCHITECTURE 10.3)", async () => {
+      const course = await createCourse(BASIC);
+      const first = await patchArchive(course.id, director, { reason: "Primeiro." }).expect(200);
+      const events = collectEvents();
+
+      const again = await patchArchive(course.id, coordinator, { reason: "Segundo." }).expect(200);
+
+      expect(again.body).toMatchObject({
+        status: "archived",
+        archivedAt: first.body.archivedAt,
+        archivedById: director.id,
+        archiveReason: "Primeiro.",
+        updatedAt: first.body.updatedAt,
+      });
+      expect(events).toHaveLength(0);
+    });
+
+    it("makes the course read-only: editing it or its sequence answers 409 COURSE_ARCHIVED", async () => {
+      const course = await createCourse(BASIC);
+      const [plan] = await createPlans(60);
+      await patchArchive(course.id, director).expect(200);
+
+      const edit = await patchCourse(course.id, director, { category: "advanced" }).expect(409);
+      expect(edit.body.error).toBe("COURSE_ARCHIVED");
+
+      const sequence = await request(app.getHttpServer())
+        .put(`/courses/${course.id}/lesson-plans`)
+        .set("Cookie", director.cookie)
+        .send({ lessonPlanIds: [plan.id] })
+        .expect(409);
+      expect(sequence.body.error).toBe("COURSE_ARCHIVED");
+    });
+
+    it("refuses the archived course as a new prerequisite", async () => {
+      const basic = await createCourse(BASIC);
+      await patchArchive(basic.id, director).expect(200);
+
+      const res = await postCourse(director, {
+        ...INTERMEDIATE,
+        prerequisiteIds: [basic.id],
+      }).expect(400);
+
+      expect(res.body.error).toBe("PREREQUISITE_ARCHIVED");
+    });
+
+    it("finds the course by an id in upper case", async () => {
+      const course = await createCourse(BASIC);
+
+      const res = await patchArchive(course.id.toUpperCase(), director).expect(200);
+
+      expect(res.body.id).toBe(course.id);
+    });
+
+    it("returns 404 COURSE_NOT_FOUND for an unknown and a malformed id", async () => {
+      for (const id of [UNKNOWN_ID, "not-a-uuid"]) {
+        const res = await patchArchive(id, director).expect(404);
+        expect(res.body.error).toBe("COURSE_NOT_FOUND");
+      }
+    });
+
+    it("returns 200 for a director and a coordinator", async () => {
+      const first = await createCourse(BASIC);
+      const second = await createCourse(INTERMEDIATE);
+
+      await patchArchive(first.id, director).expect(200);
+      await patchArchive(second.id, coordinator).expect(200);
+    });
+
+    it("returns 403 FORBIDDEN for a member and archives nothing", async () => {
+      const course = await createCourse(BASIC);
+      const events = collectEvents();
+
+      const res = await patchArchive(course.id, member, { reason: "Teste." }).expect(403);
+
+      expect(res.body.error).toBe("FORBIDDEN");
+      expect((await storedArchive(course.id)).archived_at).toBeNull();
+      expect(events).toHaveLength(0);
+    });
+
+    it("returns 401 without a session cookie", async () => {
+      const course = await createCourse(BASIC);
+
+      await request(app.getHttpServer()).patch(`/courses/${course.id}/archive`).expect(401);
+    });
+
+    it("emits COURSE_ARCHIVED with the reason", async () => {
+      const course = await createCourse(BASIC);
+      const events = collectEvents();
+
+      const res = await patchArchive(course.id, coordinator, {
+        reason: "Conteúdo revisado.",
+      }).expect(200);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        actorId: coordinator.id,
+        action: AuditableAction.COURSE_ARCHIVED,
+        targetType: "course",
+        targetId: course.id,
+        before: { archivedAt: null },
+        after: { archiveReason: "Conteúdo revisado." },
+      });
+      expect((events[0].after as { archivedAt: Date }).archivedAt.toISOString()).toBe(
+        res.body.archivedAt,
+      );
+    });
+  });
+
+  describe("PATCH /courses/:id/unarchive (unarchiveCourse)", () => {
+    it("CT4: reactivating an archived course answers 200 with status active and clears the archive", async () => {
+      const course = await createCourse(BASIC);
+      const archived = await patchArchive(course.id, director, { reason: "Pausado." }).expect(200);
+
+      const res = await patchUnarchive(course.id, coordinator).expect(200);
+
+      expect(res.body).toMatchObject({
+        id: course.id,
+        status: "active",
+        archivedAt: null,
+        archivedById: null,
+        archiveReason: null,
+      });
+      expect(new Date(res.body.updatedAt).getTime()).toBeGreaterThanOrEqual(
+        new Date(archived.body.updatedAt).getTime(),
+      );
+      expect(await storedArchive(course.id)).toEqual({
+        archived_at: null,
+        archived_by_id: null,
+        archive_reason: null,
+      });
+      expect((await detailOf(course.id)).status).toBe("active");
+
+      // Active again, it can be edited.
+      await patchCourse(course.id, director, { category: "advanced" }).expect(200);
+    });
+
+    it("is a no-op for an active course: answers 200 and emits nothing", async () => {
+      const course = await createCourse(BASIC);
+      const events = collectEvents();
+
+      const res = await patchUnarchive(course.id, director).expect(200);
+
+      expect(res.body).toMatchObject({ status: "active", updatedAt: course.updatedAt });
+      expect(events).toHaveLength(0);
+    });
+
+    it("returns 404 COURSE_NOT_FOUND for an unknown and a malformed id", async () => {
+      for (const id of [UNKNOWN_ID, "not-a-uuid"]) {
+        const res = await patchUnarchive(id, director).expect(404);
+        expect(res.body.error).toBe("COURSE_NOT_FOUND");
+      }
+    });
+
+    it("returns 403 FORBIDDEN for a member and keeps the course archived", async () => {
+      const course = await createCourse(BASIC);
+      await patchArchive(course.id, director).expect(200);
+
+      const res = await patchUnarchive(course.id, member).expect(403);
+
+      expect(res.body.error).toBe("FORBIDDEN");
+      expect((await storedArchive(course.id)).archived_at).toBeInstanceOf(Date);
+    });
+
+    it("returns 401 without a session cookie", async () => {
+      const course = await createCourse(BASIC);
+
+      await request(app.getHttpServer()).patch(`/courses/${course.id}/unarchive`).expect(401);
+    });
+
+    it("emits COURSE_UNARCHIVED with the archive it had", async () => {
+      const course = await createCourse(BASIC);
+      await patchArchive(course.id, director, { reason: "Pausado." }).expect(200);
+      const events = collectEvents();
+
+      await patchUnarchive(course.id, coordinator).expect(200);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        actorId: coordinator.id,
+        action: AuditableAction.COURSE_UNARCHIVED,
+        targetType: "course",
+        targetId: course.id,
+        before: { archivedById: director.id, archiveReason: "Pausado." },
+        after: { archivedAt: null },
+      });
+      expect((events[0].before as { archivedAt: unknown }).archivedAt).toBeInstanceOf(Date);
     });
   });
 
