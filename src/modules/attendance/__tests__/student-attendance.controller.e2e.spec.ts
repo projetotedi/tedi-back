@@ -571,6 +571,36 @@ describe("student attendance routes (e2e)", () => {
       expect(await countRows()).toBe(0);
     });
 
+    it("a reactivated enrollment is not expected in the lessons before its reactivation", async () => {
+      // Enrolled on 2026-03-03, dropped, and active again "from 2026-03-12": the status it has now
+      // only holds from that day on.
+      const back = await enroll("Voltou depois", { statusChangedAt: "2026-03-12" });
+      const afterReactivation = await createLesson({ date: "2026-03-12" });
+      const idsOf = (body: unknown) =>
+        (body as RollCallItemBody[]).map((item) => item.enrollment.id);
+
+      const before = await getRollCall(coordinator).expect(200);
+      expect(idsOf(before.body)).not.toContain(back.enrollmentId);
+      const refused = await putRollCall(coordinator, [
+        { enrollmentId: back.enrollmentId, status: "absent" },
+      ]).expect(400);
+      expect(refused.body.error).toBe("ENROLLMENT_NOT_IN_ROLL_CALL");
+      expect(await countRows()).toBe(0);
+
+      const after = await getRollCall(coordinator, afterReactivation).expect(200);
+      expect(idsOf(after.body)).toContain(back.enrollmentId);
+
+      // A signature made in the lesson keeps the enrollment in that roll call.
+      await insertStudentAttendance(dataSource, {
+        lessonId,
+        enrollmentId: back.enrollmentId,
+        status: "present",
+        signedById: monitor.id,
+      });
+      const signed = await getRollCall(coordinator).expect(200);
+      expect(idsOf(signed.body)).toContain(back.enrollmentId);
+    });
+
     it("signs a student who dropped after the day of the lesson, and leaves out of the roll call the lessons from the drop on", async () => {
       const leaving = await enroll("Saiu depois", {
         status: EnrollmentStatus.DROPPED,

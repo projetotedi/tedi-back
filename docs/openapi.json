@@ -4404,7 +4404,7 @@
             "type": "integer"
           },
           "total": {
-            "description": "The students of the roll call of the lesson: the enrollments of the class the lesson expects on its day (enrolled on or before it, and active, or dropped or completed only after it), plus the ones with an attendance signed in the lesson whatever their status today. 0 without the attendance module.",
+            "description": "The students of the roll call of the lesson: the enrollments of the class the lesson expects (made before the lesson ended, and active from its day or before, or dropped or completed only after its day), plus the ones with an attendance signed in the lesson whatever their status today. 0 without the attendance module.",
             "example": 12,
             "type": "integer"
           }
@@ -7053,7 +7053,7 @@
         "type": "object"
       },
       "StudentRollCallItemResponseDto": {
-        "description": "A student of the roll call of the lesson: an enrollment the class expects on the day of the lesson, or one already signed in it, with its status as of today, the student and the attendance.",
+        "description": "A student of the roll call of the lesson: an enrollment the lesson expects (made before it ended and in force on its day), or one already signed in it, with its status as of today, the student and the attendance.",
         "properties": {
           "attendance": {
             "allOf": [
@@ -14074,7 +14074,7 @@
                 }
               }
             },
-            "description": "The roll call of the lesson, by the name of the student: the enrollments the class expects on the day of the lesson, plus the ones already signed in it, with the status of each enrollment and the attendance (null while not signed). Not paginated."
+            "description": "The roll call of the lesson, by the name of the student: the enrollments the lesson expects (made before it ended, and active from its day or before, or dropped or completed only after it), plus the ones already signed in it, with the status of each enrollment and the attendance (null while not signed). Not paginated."
           },
           "400": {
             "content": {

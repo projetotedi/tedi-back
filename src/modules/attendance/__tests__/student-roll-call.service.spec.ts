@@ -64,6 +64,9 @@ const LESSON: LessonSummary = {
   expectedMonitors: 1,
 };
 
+/** The lesson as the roster takes it: its class, its day and its end, nothing else of it. */
+const ROSTER_SLOT = { classId: LESSON.classId, date: LESSON.date, endTime: LESSON.endTime };
+
 const STAFF: ConfirmedAssignment[] = [
   {
     id: "01999a3e-7c1b-7000-8000-0000000000a1",
@@ -231,7 +234,7 @@ describe("StudentRollCallService", () => {
       return state.signed;
     });
     roster.findRoster.mockImplementation(
-      async (_classId: string, _date: string, _options: unknown, transaction?: unknown) => {
+      async (_slot: unknown, _options: unknown, transaction?: unknown) => {
         order.push(transaction === undefined ? "reread-roster" : "read-roster");
         return state.roster;
       },
@@ -289,7 +292,7 @@ describe("StudentRollCallService", () => {
 
       const list = await service.list(LESSON.id.toUpperCase(), COORDINATOR);
 
-      expect(roster.findRoster).toHaveBeenCalledWith(LESSON.classId, LESSON.date, {
+      expect(roster.findRoster).toHaveBeenCalledWith(ROSTER_SLOT, {
         includeIds: [CARLA_ENROLLMENT.id],
       });
       expect(attendanceRepository.find).toHaveBeenCalledWith({ where: { lessonId: LESSON.id } });
@@ -488,12 +491,7 @@ describe("StudentRollCallService", () => {
       expect(manager.find).toHaveBeenCalledWith(StudentAttendance, {
         where: { lessonId: LESSON.id },
       });
-      expect(roster.findRoster).toHaveBeenCalledWith(
-        LESSON.classId,
-        LESSON.date,
-        { includeIds: [] },
-        manager,
-      );
+      expect(roster.findRoster).toHaveBeenCalledWith(ROSTER_SLOT, { includeIds: [] }, manager);
     });
 
     it("answers 404 LESSON_NOT_FOUND, 409 LESSON_CANCELLED and 409 LESSON_IN_FUTURE in that order, and signs a lesson of today", async () => {
@@ -649,8 +647,7 @@ describe("StudentRollCallService", () => {
       expect(manager.save).toHaveBeenCalledTimes(1);
       expect(manager.save.mock.calls[0][0]).toBe(StudentAttendance);
       expect(roster.findRoster).toHaveBeenCalledWith(
-        LESSON.classId,
-        LESSON.date,
+        ROSTER_SLOT,
         { includeIds: [CARLA_ENROLLMENT.id] },
         manager,
       );

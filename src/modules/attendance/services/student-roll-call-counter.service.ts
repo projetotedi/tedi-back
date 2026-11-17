@@ -31,8 +31,8 @@ export class StudentRollCallCounterService implements LessonRollCallCounter, OnM
 
   /**
    * The numbers of the roll call of each lesson in TWO queries however many lessons are asked: the
-   * enrollments each class expects on each day (`EnrollmentRosterService.findRosterIds`, once per
-   * pair) and the signatures of the lessons; folded by `rollCallCountsOf`. A lesson whose id is not a
+   * enrollments each lesson expects (`EnrollmentRosterService.findRosterIds`, once per class, day
+   * and end) and the signatures of the lessons; folded by `rollCallCountsOf`. A lesson whose id is not a
    * UUID is skipped (Postgres would answer 22P02), and with nothing left it answers an empty map
    * without touching the database. Pass the `manager` of a transaction to count inside it; it takes
    * no lock and writes nothing.
@@ -45,7 +45,11 @@ export class StudentRollCallCounterService implements LessonRollCallCounter, OnM
     if (asked.length === 0) return new Map();
 
     const expected = await this.roster.findRosterIds(
-      asked.map((lesson) => ({ classId: lesson.classId, date: lesson.date })),
+      asked.map((lesson) => ({
+        classId: lesson.classId,
+        date: lesson.date,
+        endTime: lesson.endTime,
+      })),
       manager,
     );
     const signed: SignedRollCall[] = await (manager ?? this.dataSource.manager).query(

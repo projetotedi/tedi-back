@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { isUUID } from "class-validator";
 import { DataSource, EntityManager } from "typeorm";
 import { APP_TIME_ZONE, isValidCalendarDate } from "@shared/dates/calendar-date";
+import { isValidTimeOfDay } from "@shared/dates/time-of-day";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 
 /** An enrollment of the roll call of a lesson, with its status as of today. */
@@ -13,63 +14,79 @@ export interface RosterEnrollment {
   statusChangedAt: string;
 }
 
-/** A class on a day ("YYYY-MM-DD"): what the lessons of that class on that day expect. */
+/**
+ * A lesson as the roll call sees it: its class, its day ("YYYY-MM-DD") and the time it ends
+ * ("HH:mm", in America/Sao_Paulo). Two lessons of the same class, day and end expect the same
+ * enrollments.
+ */
 export interface RosterSlot {
   classId: string;
   date: string;
+  endTime: string;
 }
 
 /** One enrollment a slot expects. */
 export interface RosterSlotEnrollment {
   classId: string;
   date: string;
+  endTime: string;
   enrollmentId: string;
 }
 
 /**
- * The predicate "expected at the lesson of the class on `day`" of the enrollment `e`, the ONE place
- * of the rule (GUS-166, S2): not removed, enrolled on or before that day in `zone`, and either
- * active or dropped/completed only after that day. `statusChangedAt` is "from when" (M4), so on
- * that very day the student is already out. `day` and `zone` are SQL expressions (a parameter or a
- * column), never values.
+ * The predicate "expected at the lesson of the class on `day`, ending at `endTime`" of the
+ * enrollment `e`, the ONE place of the rule (GUS-166, S2):
+ * - not removed;
+ * - enrolled before the lesson ended (the instant, in `zone`): an enrollment made later that same
+ *   day does not reopen a roll call that was already closed;
+ * - and in the status it has now on that day: `statusChangedAt` is "from when" the status holds
+ *   (M4, a day), so an active enrollment is expected from that day on (a reactivation does not reach
+ *   back into the lessons before it), and a dropped or completed one only before that day.
+ * The enrollment of the POST records `statusChangedAt` = its own day, so an enrollment that never
+ * changed is expected from the day it was made. `day`, `endTime` and `zone` are SQL expressions (a
+ * parameter or a column), never values.
  */
-function expectedOnDay(day: string, zone: string): string {
+function expectedAt(day: string, endTime: string, zone: string): string {
   return `e.deleted_at IS NULL
-          AND (e.enrolled_at AT TIME ZONE ${zone})::date <= ${day}
-          AND (e.status = 'active' OR ${day} < e.status_changed_at)`;
+          AND e.enrolled_at < ((${day} + ${endTime}) AT TIME ZONE ${zone})
+          AND ((e.status = 'active' AND ${day} >= e.status_changed_at)
+               OR (e.status <> 'active' AND ${day} < e.status_changed_at))`;
 }
 
 /**
  * Who the roll call of a lesson is made of, for the attendance (GUS-166, docs/ARCHITECTURE.md section
- * 18.1): the enrollments the class expects on the day of the lesson, read by the rule of
- * `expectedOnDay`, which lives only here.
+ * 18.1): the enrollments the class expects at the lesson, read by the rule of `expectedAt`, which
+ * lives only here.
  *
  * Neither read takes a lock. Whoever needs the answer to hold until the end of a transaction locks
  * the class FOR SHARE first (`ClassesService.getClassSummary` with `forShare`): every write of an
  * enrollment locks its class FOR UPDATE before touching it, so while the class is held no enrollment
  * of it changes. Every `date` read raw comes out `::text`, so it stays "YYYY-MM-DD" (M10: the driver
- * would make it a Date at midnight of the server, which can be the day before).
+ * would make it a Date at midnight of the server, which can be the day before), and every `time`
+ * comes out "HH:mm".
  */
 @Injectable()
 export class EnrollmentRosterService {
   constructor(private readonly dataSource: DataSource) {}
 
   /**
-   * The enrollments of the roll call of a lesson of the class `classId` on `date`: the ones the day
-   * expects, plus the ones in `includeIds` (the enrollments with an attendance signed in the lesson),
-   * whatever their status today and removed or not, so a signature always finds its enrollment. By
-   * student, then by id. A `classId` that is not a UUID answers [] without querying; a `date` that
-   * is not a calendar day is a broken invariant (it comes from a lesson) and throws.
+   * The enrollments of the roll call of a lesson (`slot`: its class, day and end): the ones the
+   * lesson expects, plus the ones in `includeIds` (the enrollments with an attendance signed in the
+   * lesson), whatever their status today and removed or not, so a signature always finds its
+   * enrollment. By student, then by id. A `classId` that is not a UUID answers [] without querying;
+   * a `date` or an `endTime` that is not valid is a broken invariant (they come from a lesson) and
+   * throws.
    */
   async findRoster(
-    classId: string,
-    date: string,
+    slot: RosterSlot,
     options: { includeIds?: readonly string[] } = {},
     manager?: EntityManager,
   ): Promise<RosterEnrollment[]> {
-    if (!isUUID(classId)) return [];
-    if (!isValidCalendarDate(date)) {
-      throw new Error(`The day of a roll call must be a calendar date, got "${date}".`);
+    if (!isUUID(slot.classId)) return [];
+    if (!isValidCalendarDate(slot.date) || !isValidTimeOfDay(slot.endTime)) {
+      throw new Error(
+        `The lesson of a roll call must have a calendar date and an end time, got "${slot.date}" and "${slot.endTime}".`,
+      );
     }
     const includeIds = [
       ...new Set(
@@ -82,17 +99,17 @@ export class EnrollmentRosterService {
               e.status_changed_at::text AS "statusChangedAt"
          FROM enrollments e
         WHERE e.class_id = $1
-          AND ((${expectedOnDay("$2::date", "$3::text")}) OR e.id = ANY($4::uuid[]))
+          AND ((${expectedAt("$2::date", "$3::time", "$4::text")}) OR e.id = ANY($5::uuid[]))
         ORDER BY e.student_id, e.id`,
-      [classId, date, APP_TIME_ZONE, includeIds],
+      [slot.classId, slot.date, slot.endTime, APP_TIME_ZONE, includeIds],
     );
   }
 
   /**
    * The ids of the enrollments each slot expects, in ONE query for every slot (the roll calls of a
    * page of lessons). Only the expected ones: the signed ones are the caller's. A slot whose class is
-   * not a UUID or whose day is not a calendar date is skipped, and a repeated pair is asked once;
-   * with nothing to ask it answers [] without querying.
+   * not a UUID, or whose day or end is not valid, is skipped, and a repeated slot is asked once; with
+   * nothing to ask it answers [] without querying.
    */
   async findRosterIds(
     slots: readonly RosterSlot[],
@@ -100,19 +117,35 @@ export class EnrollmentRosterService {
   ): Promise<RosterSlotEnrollment[]> {
     const unique = new Map<string, RosterSlot>();
     for (const slot of slots) {
-      if (!isUUID(slot.classId) || !isValidCalendarDate(slot.date)) continue;
+      if (
+        !isUUID(slot.classId) ||
+        !isValidCalendarDate(slot.date) ||
+        !isValidTimeOfDay(slot.endTime)
+      ) {
+        continue;
+      }
       const classId = slot.classId.toLowerCase();
-      unique.set(`${classId}|${slot.date}`, { classId, date: slot.date });
+      unique.set(`${classId}|${slot.date}|${slot.endTime}`, {
+        classId,
+        date: slot.date,
+        endTime: slot.endTime,
+      });
     }
     if (unique.size === 0) return [];
 
     const asked = [...unique.values()];
     return (manager ?? this.dataSource.manager).query(
-      `SELECT s.class_id AS "classId", s.day::text AS "date", e.id AS "enrollmentId"
-         FROM unnest($1::uuid[], $2::date[]) AS s(class_id, day)
+      `SELECT s.class_id AS "classId", s.day::text AS "date",
+              to_char(s.end_time, 'HH24:MI') AS "endTime", e.id AS "enrollmentId"
+         FROM unnest($1::uuid[], $2::date[], $3::time[]) AS s(class_id, day, end_time)
          JOIN enrollments e ON e.class_id = s.class_id
-          AND ${expectedOnDay("s.day", "$3::text")}`,
-      [asked.map((slot) => slot.classId), asked.map((slot) => slot.date), APP_TIME_ZONE],
+          AND ${expectedAt("s.day", "s.end_time", "$4::text")}`,
+      [
+        asked.map((slot) => slot.classId),
+        asked.map((slot) => slot.date),
+        asked.map((slot) => slot.endTime),
+        APP_TIME_ZONE,
+      ],
     );
   }
 }

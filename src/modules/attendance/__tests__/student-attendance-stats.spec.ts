@@ -98,14 +98,14 @@ describe("rateOf", () => {
 });
 
 describe("rollCallCountsOf", () => {
-  const lesson1 = { id: LESSON_1, classId: CLASS_A, date: "2026-03-10" };
+  const lesson1 = { id: LESSON_1, classId: CLASS_A, date: "2026-03-10", endTime: "11:00" };
 
   it("counts total as the expected enrollments plus the signed ones outside them, and signed as the signatures of the lesson", () => {
     const counts = rollCallCountsOf(
       [lesson1],
       [
-        { classId: CLASS_A, date: "2026-03-10", enrollmentId: ANA },
-        { classId: CLASS_A, date: "2026-03-10", enrollmentId: BRUNO },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: ANA },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: BRUNO },
       ],
       [
         { lessonId: LESSON_1, enrollmentId: ANA },
@@ -121,8 +121,8 @@ describe("rollCallCountsOf", () => {
     const counts = rollCallCountsOf(
       [lesson1],
       [
-        { classId: CLASS_A, date: "2026-03-10", enrollmentId: ANA },
-        { classId: CLASS_A, date: "2026-03-10", enrollmentId: BRUNO },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: ANA },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: BRUNO },
       ],
       [
         { lessonId: LESSON_1, enrollmentId: ANA },
@@ -135,18 +135,18 @@ describe("rollCallCountsOf", () => {
     expect(count?.signed).toBeLessThan(count?.total ?? 0);
   });
 
-  it("shares the expected enrollments of two lessons of the same class on the same day", () => {
+  it("shares the expected enrollments of two lessons of the same class on the same day that end at the same time", () => {
     const counts = rollCallCountsOf(
       [
         lesson1,
-        { id: LESSON_2, classId: CLASS_A, date: "2026-03-10" },
-        { id: LESSON_3, classId: CLASS_B, date: "2026-03-10" },
+        { id: LESSON_2, classId: CLASS_A, date: "2026-03-10", endTime: "11:00" },
+        { id: LESSON_3, classId: CLASS_B, date: "2026-03-10", endTime: "11:00" },
         lesson1,
       ],
       [
-        { classId: CLASS_A, date: "2026-03-10", enrollmentId: ANA },
-        { classId: CLASS_A, date: "2026-03-10", enrollmentId: BRUNO },
-        { classId: CLASS_B, date: "2026-03-10", enrollmentId: CARLA },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: ANA },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: BRUNO },
+        { classId: CLASS_B, date: "2026-03-10", endTime: "11:00", enrollmentId: CARLA },
       ],
       [{ lessonId: LESSON_2, enrollmentId: BRUNO }],
     );
@@ -162,11 +162,31 @@ describe("rollCallCountsOf", () => {
 
   it("leaves out a lesson with total 0", () => {
     const counts = rollCallCountsOf(
-      [lesson1, { id: LESSON_2, classId: CLASS_A, date: "2026-03-17" }],
-      [{ classId: CLASS_A, date: "2026-03-10", enrollmentId: ANA }],
+      [lesson1, { id: LESSON_2, classId: CLASS_A, date: "2026-03-17", endTime: "11:00" }],
+      [{ classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: ANA }],
       [],
     );
 
     expect([...counts.keys()]).toEqual([LESSON_1]);
+  });
+
+  it("keeps apart two lessons of the same class on the same day that end at different times", () => {
+    // Bruno enrolled at 12:00: after the lesson of the morning, before the one of the afternoon.
+    const counts = rollCallCountsOf(
+      [lesson1, { id: LESSON_2, classId: CLASS_A, date: "2026-03-10", endTime: "17:00" }],
+      [
+        { classId: CLASS_A, date: "2026-03-10", endTime: "11:00", enrollmentId: ANA },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "17:00", enrollmentId: ANA },
+        { classId: CLASS_A, date: "2026-03-10", endTime: "17:00", enrollmentId: BRUNO },
+      ],
+      [{ lessonId: LESSON_1, enrollmentId: ANA }],
+    );
+
+    expect(counts).toEqual(
+      new Map([
+        [LESSON_1, { total: 1, signed: 1 }],
+        [LESSON_2, { total: 2, signed: 0 }],
+      ]),
+    );
   });
 });

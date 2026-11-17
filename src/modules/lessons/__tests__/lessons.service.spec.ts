@@ -2261,7 +2261,7 @@ describe("LessonsService", () => {
 
       expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
       expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
-        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10" }],
+        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10", endTime: "15:30" }],
         manager,
       );
       // NOW is the morning of 2026-03-09: the lesson of the 10th has not happened yet.
@@ -2276,7 +2276,7 @@ describe("LessonsService", () => {
 
       // A plain read asks without a manager.
       expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
-        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10" }],
+        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10", endTime: "15:30" }],
         undefined,
       );
       expect(result.attendance).toEqual({ students: { total: 3, signed: 2 }, pending: true });
@@ -2309,7 +2309,7 @@ describe("LessonsService", () => {
       );
 
       expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
-        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10" }],
+        [{ id: LESSON_ID, classId: CLASS_ID, date: "2026-03-10", endTime: "15:30" }],
         manager,
       );
       // A lesson created after its end, in a class with students, is born pending.

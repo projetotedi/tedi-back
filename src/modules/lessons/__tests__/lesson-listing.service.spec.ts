@@ -611,7 +611,7 @@ describe("LessonListingService", () => {
     });
 
     describe("the roll call of the page (GUS-166)", () => {
-      it("asks the roll call registry ONCE per page with id, classId and date of every lesson, and nothing for an empty page", async () => {
+      it("asks the roll call registry ONCE per page with id, classId, date and endTime of every lesson, and nothing for an empty page", async () => {
         state.lessons = [
           buildLesson({ id: lessonId(1), date: "2026-03-09" }),
           buildLesson({ id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-10" }),
@@ -626,8 +626,8 @@ describe("LessonListingService", () => {
         expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
         // A plain read: no manager.
         expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith([
-          { id: lessonId(1), classId: CLASS_A_ID, date: "2026-03-09" },
-          { id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-10" },
+          { id: lessonId(1), classId: CLASS_A_ID, date: "2026-03-09", endTime: "15:30" },
+          { id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-10", endTime: "15:30" },
         ]);
 
         rollCalls.countStudentRollCalls.mockClear();
@@ -945,6 +945,7 @@ describe("LessonListingService", () => {
           id: lessonId(1),
           classId: CLASS_A_ID,
           date: "2026-03-09",
+          endTime: "15:30",
         });
         expect(items.filter((item) => item.attendancePending).map((item) => item.id)).toEqual([
           lessonId(2),

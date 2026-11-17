@@ -4,6 +4,7 @@ import { DataSource, EntityManager, In } from "typeorm";
 import {
   EnrollmentRosterService,
   RosterEnrollment,
+  RosterSlot,
 } from "@modules/classes/services/enrollment-roster.service";
 import {
   LessonsService,
@@ -38,6 +39,11 @@ interface RequestedEntry {
   status: StudentAttendanceStatus;
 }
 
+/** The lesson as the roster takes it: its class, its day and its end. */
+function rosterSlotOf(lesson: LessonSummary): RosterSlot {
+  return { classId: lesson.classId, date: lesson.date, endTime: lesson.endTime };
+}
+
 /** The position of an entry of the body, as the field of `details`. */
 function fieldOf(index: number): string {
   return `entries.${index}.enrollmentId`;
@@ -70,8 +76,8 @@ function correctionsByRowOf(
  * The roll call of the students of a lesson (F6.1, GUS-166, docs/ARCHITECTURE.md section 18.1): who
  * the lesson expects, their attendance, and the batch that signs it.
  *
- * Who is in the roll call comes from `EnrollmentRosterService` (the enrollments the class expects on
- * the day of the lesson, plus the ones already signed in it); the lesson from `LessonsService`, the
+ * Who is in the roll call comes from `EnrollmentRosterService` (the enrollments the lesson expects:
+ * made before it ended and in force on its day; plus the ones already signed in it); the lesson from `LessonsService`, the
  * class and the confirmed staff through the `StudentRollCallGuard`, and the names from
  * `PeopleService`: this module touches no table of another one. The batch runs in one transaction,
  * with one `now` from the Clock, and its audit events go out after the commit, only for what was
@@ -197,8 +203,7 @@ export class StudentRollCallService {
   ): Promise<RequestedEntry[]> {
     const signed = await manager.find(StudentAttendance, { where: { lessonId: lesson.id } });
     const roster = await this.roster.findRoster(
-      lesson.classId,
-      lesson.date,
+      rosterSlotOf(lesson),
       { includeIds: signed.map((row) => row.enrollmentId) },
       manager,
     );
@@ -239,7 +244,7 @@ export class StudentRollCallService {
     const rows = await this.dataSource
       .getRepository(StudentAttendance)
       .find({ where: { lessonId: lesson.id } });
-    const roster = await this.roster.findRoster(lesson.classId, lesson.date, {
+    const roster = await this.roster.findRoster(rosterSlotOf(lesson), {
       includeIds: rows.map((row) => row.enrollmentId),
     });
     const corrections = await this.findCorrections(rows.map((row) => row.id));

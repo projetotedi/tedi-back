@@ -17,8 +17,9 @@ export interface RecordedAttendance {
 
 const NOBODY: ReadonlySet<string> = new Set();
 
-function slotKey(classId: string, date: string): string {
-  return `${classId}|${date}`;
+/** The key of a lesson as the roster sees it: its class, its day and its end. */
+function slotKey(slot: { classId: string; date: string; endTime: string }): string {
+  return `${slot.classId}|${slot.date}|${slot.endTime}`;
 }
 
 /** Adds `value` to the set of `key`, creating it on the first one. */
@@ -30,12 +31,12 @@ function addTo(sets: Map<string, Set<string>>, key: string, value: string): void
 
 /**
  * The numbers of the roll call of each lesson (pure, GUS-166, S2 and S12): `total` is the union of
- * the enrollments its class expects on its day (`expected`, by class and day) and the ones signed in
- * it, and `signed` the signed ones. Since `signed` is a subset of the union, `signed < total` holds
+ * the enrollments its class expects at it (`expected`, by class, day and end of the lesson) and the
+ * ones signed in it, and `signed` the signed ones. Since `signed` is a subset of the union, `signed < total` holds
  * exactly when an expected enrollment has no signature: a signature of a student who dropped
  * afterwards never "completes" the roll call in the place of an expected one.
  *
- * Two lessons of the same class on the same day share the expected enrollments. A lesson whose
+ * Two lessons of the same class, day and end share the expected enrollments. A lesson whose
  * total is 0 is left out of the map (the reader takes `NO_STUDENT_ROLL_CALL`), and a repeated lesson
  * counts once. Indexed by maps: the work is linear in the rows.
  */
@@ -45,8 +46,7 @@ export function rollCallCountsOf(
   signed: readonly SignedRollCall[],
 ): Map<string, StudentRollCallCount> {
   const expectedBySlot = new Map<string, Set<string>>();
-  for (const row of expected)
-    addTo(expectedBySlot, slotKey(row.classId, row.date), row.enrollmentId);
+  for (const row of expected) addTo(expectedBySlot, slotKey(row), row.enrollmentId);
   const signedByLesson = new Map<string, Set<string>>();
   for (const row of signed) addTo(signedByLesson, row.lessonId, row.enrollmentId);
 
@@ -54,7 +54,7 @@ export function rollCallCountsOf(
   for (const lesson of lessons) {
     if (counts.has(lesson.id)) continue;
 
-    const expectedIds = expectedBySlot.get(slotKey(lesson.classId, lesson.date)) ?? NOBODY;
+    const expectedIds = expectedBySlot.get(slotKey(lesson)) ?? NOBODY;
     const signedIds = signedByLesson.get(lesson.id) ?? NOBODY;
     let signedOutside = 0;
     for (const enrollmentId of signedIds) {

@@ -27,8 +27,8 @@ const LESSON_ID_PARAM = { name: "id", format: "uuid", description: "Id of the le
 const LESSON_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "LESSON_NOT_FOUND" };
 
 /**
- * The roll call of the students of a lesson (F6.1, GUS-166): the enrollments the class expects on
- * the day of the lesson, and whether each student was there.
+ * The roll call of the students of a lesson (F6.1, GUS-166): the enrollments the lesson expects
+ * (made before it ended and in force on its day), and whether each student was there.
  *
  * Reading needs lessons.view (every profile), as the attendance of the members; the justification
  * and the reasons of the corrections (they may be health data) go out only to whoever takes the roll
@@ -51,7 +51,7 @@ export class LessonStudentAttendanceController {
     type: StudentRollCallItemResponseDto,
     isArray: true,
     description:
-      "The roll call of the lesson, by the name of the student: the enrollments the class expects on the day of the lesson, plus the ones already signed in it, with the status of each enrollment and the attendance (null while not signed). Not paginated.",
+      "The roll call of the lesson, by the name of the student: the enrollments the lesson expects (made before it ended, and active from its day or before, or dropped or completed only after it), plus the ones already signed in it, with the status of each enrollment and the attendance (null while not signed). Not paginated.",
   })
   @ApiNotFoundResponse(LESSON_NOT_FOUND_RESPONSE)
   listStudentAttendance(

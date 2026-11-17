@@ -6,7 +6,7 @@ import { LessonStatus } from "../enums/lesson-status.enum";
 
 /**
  * The roll call of the students of a lesson, counted (GUS-166, docs/ARCHITECTURE.md section 18.1):
- * `total` is every enrollment the lesson expects on its day plus every one signed in it, and
+ * `total` is every enrollment the lesson expects plus every one signed in it, and
  * `signed` the ones signed, so `signed` is never above `total`.
  */
 export interface StudentRollCallCount {
@@ -23,11 +23,15 @@ export const NO_STUDENT_ROLL_CALL: Readonly<StudentRollCallCount> = Object.freez
   signed: 0,
 });
 
-/** What the counter needs to know of a lesson: which one, its class and its day ("YYYY-MM-DD"). */
+/**
+ * What the counter needs to know of a lesson: which one, its class, its day ("YYYY-MM-DD") and when
+ * it ends ("HH:mm"): an enrollment made after the end of the lesson is not expected at it.
+ */
 export interface RollCallLesson {
   id: string;
   classId: string;
   date: string;
+  endTime: string;
 }
 
 /**
@@ -49,8 +53,10 @@ export interface LessonRollCallCounter {
 }
 
 /** The lesson as the counter takes it: the entity never leaves this module. */
-export function rollCallLessonOf(lesson: Pick<Lesson, "id" | "classId" | "date">): RollCallLesson {
-  return { id: lesson.id, classId: lesson.classId, date: lesson.date };
+export function rollCallLessonOf(
+  lesson: Pick<Lesson, "id" | "classId" | "date" | "endTime">,
+): RollCallLesson {
+  return { id: lesson.id, classId: lesson.classId, date: lesson.date, endTime: lesson.endTime };
 }
 
 /**

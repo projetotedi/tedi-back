@@ -381,10 +381,10 @@ describe("LessonGenerationService", () => {
       expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
       expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith(
         [
-          { id: "lesson-1", classId: CLASS_ID, date: "2026-04-07" },
-          { id: "lesson-2", classId: CLASS_ID, date: "2026-04-14" },
-          { id: "lesson-3", classId: CLASS_ID, date: "2026-04-21" },
-          { id: "lesson-4", classId: CLASS_ID, date: "2026-04-28" },
+          { id: "lesson-1", classId: CLASS_ID, date: "2026-04-07", endTime: "11:00" },
+          { id: "lesson-2", classId: CLASS_ID, date: "2026-04-14", endTime: "11:00" },
+          { id: "lesson-3", classId: CLASS_ID, date: "2026-04-21", endTime: "11:00" },
+          { id: "lesson-4", classId: CLASS_ID, date: "2026-04-28", endTime: "11:00" },
         ],
         manager,
       );

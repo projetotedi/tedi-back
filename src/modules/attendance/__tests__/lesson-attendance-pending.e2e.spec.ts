@@ -307,6 +307,47 @@ describe("lesson attendance pending (e2e)", () => {
     expect(await attendanceOf()).toEqual({ students: { total: 3, signed: 3 }, pending: false });
   });
 
+  it("an enrollment made after the lesson ended on the same day does not make it pending", async () => {
+    await sign(lessonId, [
+      [ana, "present"],
+      [bruno, "absent"],
+    ]);
+    expect(await attendanceOf()).toEqual({ students: { total: 2, signed: 2 }, pending: false });
+
+    // 15:00 in São Paulo: the lesson of 09:00 to 11:00 had ended, and its roll call was closed.
+    const late = await enroll("Carla Tardia", { enrolledAt: new Date("2026-03-10T18:00:00.000Z") });
+    expect(await attendanceOf()).toEqual({ students: { total: 2, signed: 2 }, pending: false });
+    const refused = await request(app.getHttpServer())
+      .put(`/lessons/${lessonId}/attendance/students`)
+      .set("Cookie", coordinator.cookie)
+      .send({ entries: [{ enrollmentId: late.enrollmentId, status: "absent" }] })
+      .expect(400);
+    expect(refused.body.error).toBe("ENROLLMENT_NOT_IN_ROLL_CALL");
+
+    // 10:00 in São Paulo, while the lesson was under way: expected at it.
+    await enroll("Diego Durante", { enrolledAt: new Date("2026-03-10T13:00:00.000Z") });
+    expect(await attendanceOf()).toEqual({ students: { total: 3, signed: 2 }, pending: true });
+  });
+
+  it("a reactivation does not make the lessons before it pending", async () => {
+    await sign(lessonId, [
+      [ana, "present"],
+      [bruno, "present"],
+    ]);
+
+    // Enrolled on 2026-03-03 and active again "from 2026-03-12": out of the lesson of 2026-03-10.
+    await enroll("Diego Rocha", { statusChangedAt: "2026-03-12" });
+    expect(await attendanceOf()).toEqual({ students: { total: 2, signed: 2 }, pending: false });
+
+    // The lesson of the day of the reactivation expects it.
+    now = new Date("2026-03-12T23:00:00.000Z");
+    const afterReactivation = await createLesson({ date: "2026-03-12" });
+    expect(await attendanceOf(afterReactivation)).toEqual({
+      students: { total: 3, signed: 0 },
+      pending: true,
+    });
+  });
+
   it("is not pending for a cancelled lesson, a lesson of today before its endTime, a lesson after today and a lesson without students", async () => {
     const cancelled = await createLesson({ date: "2026-03-09" });
     await lessonsService.cancel(cancelled, { reason: "Feriado." }, coordinator.id);

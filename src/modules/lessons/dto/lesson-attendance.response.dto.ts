@@ -6,7 +6,7 @@ export class LessonStudentAttendanceCountDto {
     type: "integer",
     example: 12,
     description:
-      "The students of the roll call of the lesson: the enrollments of the class the lesson expects on its day (enrolled on or before it, and active, or dropped or completed only after it), plus the ones with an attendance signed in the lesson whatever their status today. 0 without the attendance module.",
+      "The students of the roll call of the lesson: the enrollments of the class the lesson expects (made before the lesson ended, and active from its day or before, or dropped or completed only after its day), plus the ones with an attendance signed in the lesson whatever their status today. 0 without the attendance module.",
   })
   total!: number;
 

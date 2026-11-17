@@ -6,7 +6,7 @@ import { StudentAttendanceResponseDto } from "./student-attendance.response.dto"
 /** One student of the roll call of a lesson: the item of `GET` and `PUT /lessons/:id/attendance/students`. */
 @ApiSchema({
   description:
-    "A student of the roll call of the lesson: an enrollment the class expects on the day of the lesson, or one already signed in it, with its status as of today, the student and the attendance.",
+    "A student of the roll call of the lesson: an enrollment the lesson expects (made before it ended and in force on its day), or one already signed in it, with its status as of today, the student and the attendance.",
 })
 export class StudentRollCallItemResponseDto {
   @ApiProperty({ type: () => RollCallEnrollmentResponseDto })

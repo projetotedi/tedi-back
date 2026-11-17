@@ -23,8 +23,8 @@ describe("StudentRollCallCounterService", () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     roster.findRosterIds.mockResolvedValue([
-      { classId: CLASS_ID, date: "2026-03-10", enrollmentId: ANA },
-      { classId: CLASS_ID, date: "2026-03-10", enrollmentId: BRUNO },
+      { classId: CLASS_ID, date: "2026-03-10", endTime: "11:00", enrollmentId: ANA },
+      { classId: CLASS_ID, date: "2026-03-10", endTime: "11:00", enrollmentId: BRUNO },
     ]);
     transaction.query.mockResolvedValue([{ lessonId: LESSON_1, enrollmentId: ANA }]);
     plainManager.query.mockResolvedValue([]);
@@ -50,25 +50,31 @@ describe("StudentRollCallCounterService", () => {
   it("answers an empty map without querying for no lesson", async () => {
     await expect(counter.countStudentRollCalls([])).resolves.toEqual(new Map());
     await expect(
-      counter.countStudentRollCalls([{ id: "not-a-uuid", classId: CLASS_ID, date: "2026-03-10" }]),
+      counter.countStudentRollCalls([
+        { id: "not-a-uuid", classId: CLASS_ID, date: "2026-03-10", endTime: "11:00" },
+      ]),
     ).resolves.toEqual(new Map());
 
     expect(roster.findRosterIds).not.toHaveBeenCalled();
     expect(plainManager.query).not.toHaveBeenCalled();
   });
 
-  it("reads the roster once for every class and day and the signatures once, with the manager it is given and without a lock", async () => {
+  it("reads the roster once for every class, day and end and the signatures once, with the manager it is given and without a lock", async () => {
     const lessons = [
-      { id: LESSON_1, classId: CLASS_ID, date: "2026-03-10" },
-      { id: LESSON_2, classId: CLASS_ID, date: "2026-03-10" },
-      { id: LESSON_1, classId: CLASS_ID, date: "2026-03-10" },
+      { id: LESSON_1, classId: CLASS_ID, date: "2026-03-10", endTime: "11:00" },
+      { id: LESSON_2, classId: CLASS_ID, date: "2026-03-10", endTime: "11:00" },
+      { id: LESSON_1, classId: CLASS_ID, date: "2026-03-10", endTime: "11:00" },
     ];
 
     const counts = await counter.countStudentRollCalls(lessons, transaction as never);
 
     expect(roster.findRosterIds).toHaveBeenCalledTimes(1);
     expect(roster.findRosterIds).toHaveBeenCalledWith(
-      lessons.map((lesson) => ({ classId: lesson.classId, date: lesson.date })),
+      lessons.map((lesson) => ({
+        classId: lesson.classId,
+        date: lesson.date,
+        endTime: lesson.endTime,
+      })),
       transaction,
     );
     expect(transaction.query).toHaveBeenCalledTimes(1);

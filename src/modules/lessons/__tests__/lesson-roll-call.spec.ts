@@ -82,18 +82,21 @@ describe("toLessonAttendance", () => {
 });
 
 describe("rollCallLessonOf", () => {
-  it("hands over only the id, the class and the day of the lesson", () => {
+  it("hands over only the id, the class, the day and the end of the lesson", () => {
     const lesson = {
       id: "01999a3e-7c1b-7000-8000-0000000000f1",
       classId: "01999a3e-7c1b-7000-8000-0000000000c1",
       date: "2026-03-10",
+      endTime: "11:00",
       title: "Not handed over",
+      startTime: "09:00",
     };
 
     expect(rollCallLessonOf(lesson)).toEqual({
       id: lesson.id,
       classId: lesson.classId,
       date: "2026-03-10",
+      endTime: "11:00",
     });
   });
 });
@@ -104,6 +107,7 @@ describe("LessonRollCallRegistry", () => {
       id: "01999a3e-7c1b-7000-8000-0000000000f1",
       classId: "01999a3e-7c1b-7000-8000-0000000000c1",
       date: "2026-03-10",
+      endTime: "11:00",
     },
   ];
 

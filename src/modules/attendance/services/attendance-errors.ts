@@ -107,8 +107,8 @@ export function duplicateEnrollment(fields: readonly string[]): HttpException {
 
 /**
  * 400: enrollments of the body that are not in the roll call of THIS lesson (another class, removed,
- * enrolled after the day of the lesson, dropped or completed before it, or unknown), at the
- * positions `fields`.
+ * enrolled after the lesson ended, not in force on its day: dropped or completed before it, or
+ * reactivated only after it, or unknown), at the positions `fields`.
  */
 export function enrollmentNotInRollCall(fields: readonly string[]): HttpException {
   return new HttpException(
