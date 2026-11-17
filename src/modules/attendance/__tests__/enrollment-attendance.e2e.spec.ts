@@ -359,6 +359,7 @@ describe("enrollment attendance (e2e)", () => {
 
     const refused = await removeEnrollment(ana.enrollmentId).expect(409);
     expect(refused.body).toEqual({
+      statusCode: 409,
       error: "ENROLLMENT_NOT_REMOVABLE",
       message: "An enrollment with attendance cannot be removed; change its status instead.",
     });

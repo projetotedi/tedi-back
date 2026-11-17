@@ -640,6 +640,7 @@ describe("student attendance routes (e2e)", () => {
         { enrollmentId: ana.enrollmentId, status: "absent" },
       ]).expect(409);
       expect(conflict.body).toEqual({
+        statusCode: 409,
         error: "STUDENT_ATTENDANCE_ALREADY_SIGNED",
         message:
           "One or more attendances are already signed with another status; use the correction.",
@@ -703,6 +704,7 @@ describe("student attendance routes (e2e)", () => {
         { enrollmentId: bruno.enrollmentId, status: "present" },
       ]).expect(409);
       expect(archived.body).toEqual({
+        statusCode: 409,
         error: "CLASS_ARCHIVED",
         message: "Archived classes are read-only.",
       });
@@ -715,6 +717,7 @@ describe("student attendance routes (e2e)", () => {
         { enrollmentId: ana.enrollmentId.toUpperCase(), status: "absent" },
       ]).expect(400);
       expect(duplicate.body).toEqual({
+        statusCode: 400,
         error: "DUPLICATE_ENROLLMENT",
         message: "The same enrollment appears more than once.",
         details: [
@@ -993,6 +996,7 @@ describe("student attendance routes (e2e)", () => {
       });
       const notAbsent = await justify(monitor, presence, { reason: "health" }).expect(409);
       expect(notAbsent.body).toEqual({
+        statusCode: 409,
         error: "STUDENT_ATTENDANCE_NOT_ABSENT",
         message: "Only an absence can be justified.",
       });
@@ -1164,6 +1168,7 @@ describe("student attendance routes (e2e)", () => {
         reason: "Nada muda.",
       }).expect(400);
       expect(unchanged.body).toEqual({
+        statusCode: 400,
         error: "STUDENT_ATTENDANCE_STATUS_UNCHANGED",
         message: "The attendance already has this status.",
         details: [{ field: "status", message: "must differ from the current status" }],
