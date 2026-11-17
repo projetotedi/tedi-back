@@ -1,0 +1,30 @@
+meta {
+  name: list-student-attendance
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/lessons/:id/attendance/students
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Chamada de alunos de uma aula (F6.1, GUS-166). O :id é o id da aula.
+  Requer cookie tedi_session e a permissão lessons.view (@RequirePermission; todos os perfis), a mesma de ler a aula e a presença dos membros.
+  Lista quem está na chamada da aula: as matrículas que a turma espera no dia da aula (matrícula não removida, feita até o dia da aula no fuso America/Sao_Paulo, e ativa ou com desistência/conclusão só depois desse dia, porque statusChangedAt vale "a partir de") mais as matrículas que já têm presença assinada na aula, qualquer que seja a situação delas hoje. Ordem: nome do aluno (pt-BR, sem diferença de caixa e acento), depois o id do aluno, depois o id da matrícula; pessoa removida por último.
+  Cada item traz enrollment (id, status e statusChangedAt da matrícula), student (só id e nome: nada de telefone, acessibilidade ou idade) e attendance: null enquanto não assinada; assinada, traz o id da presença (o que os PATCH recebem), status (present ou absent), signedBy e signedAt (a primeira assinatura; correção não muda), justified, justification (reason, note, justifiedBy, justifiedAt) e corrections (o histórico, da mais antiga para a mais nova: fromStatus, toStatus, reason, correctedBy, correctedAt).
+  A justificativa e o motivo de cada correção podem ter dado de saúde: saem só para quem faz a chamada daquela aula (professor ou monitor confirmado nela, diretoria e coordenação); para os outros, justification vem null e corrections[].reason vem null, mas justified continua dizendo se a falta foi justificada.
+  Aula cancelada, futura ou de turma arquivada é lida do mesmo jeito. Sem paginação.
+  Leitura simples: sem transação, sem trava e sem evento.
+  Erros possíveis: 401, 404 LESSON_NOT_FOUND (id inexistente ou mal formado).
+}

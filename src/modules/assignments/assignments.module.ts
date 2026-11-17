@@ -54,8 +54,9 @@ import { MyAssignmentsService } from "./services/my-assignments.service";
     ConfirmedStaffService,
     Clock,
   ],
-  // The attendance (GUS-168) reads the confirmed assignments of a lesson (ConfirmedStaffService);
-  // the student roll call (GUS-166) will add what it needs.
+  // The attendance reads the confirmed assignments of a lesson (ConfirmedStaffService): the members
+  // whose attendance is signed (GUS-168), and the confirmed teacher and monitors who take the roll
+  // call of the students, the scope `allocated` of attendance.takeStudents (GUS-166).
   exports: [ConfirmedStaffService],
 })
 export class AssignmentsModule {}

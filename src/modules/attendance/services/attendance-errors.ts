@@ -4,11 +4,12 @@ import { HttpException } from "@nestjs/common";
  * The business errors of the attendance, one helper each, so a service and a pipe answer the same
  * thing. The messages are English literals and the stable part is the `error` code: the front
  * translates by it (there is no i18n in the backend). The codes owned by another module
- * (LESSON_NOT_FOUND, LESSON_CANCELLED, MEMBER_NOT_FOUND) are built here again, because a module does
- * not import the helpers of another.
+ * (LESSON_NOT_FOUND, LESSON_CANCELLED, MEMBER_NOT_FOUND, CLASS_ARCHIVED) are built here again,
+ * because a module does not import the helpers of another.
  *
- * The ones about the ids of the BODY are 400 and carry the positions in `details`
- * (`entries.<i>.assignmentId`): the ids are not in the URL (docs/ARCHITECTURE.md section 10.3).
+ * The ones about the ids of the BODY carry the positions in `details` (`entries.<i>.assignmentId`
+ * of the members, `entries.<i>.enrollmentId` of the students): the ids are not in the URL
+ * (docs/ARCHITECTURE.md section 10.3).
  */
 
 interface FieldError {
@@ -21,7 +22,7 @@ function detailsOf(fields: readonly string[], message: string): { details?: Fiel
   return fields.length === 0 ? {} : { details: fields.map((field) => ({ field, message })) };
 }
 
-/** 404 for `/lessons/:id/attendance/members`, shared by the pipe of the id of the route and by the service. */
+/** 404 for `/lessons/:id/attendance/*`, shared by the pipe of the id of the route and by the services. */
 export function lessonNotFound(): HttpException {
   return new HttpException({ error: "LESSON_NOT_FOUND", message: "Lesson not found." }, 404);
 }
@@ -89,5 +90,58 @@ export function attendanceCorrectionForbidden(): HttpException {
       message: "Only coordination and directors correct a signed attendance.",
     },
     403,
+  );
+}
+
+/** 400: the same enrollment more than once in the body, in any letter case, at the positions `fields`. */
+export function duplicateEnrollment(fields: readonly string[]): HttpException {
+  return new HttpException(
+    {
+      error: "DUPLICATE_ENROLLMENT",
+      message: "The same enrollment appears more than once.",
+      ...detailsOf(fields, "enrollment appears more than once"),
+    },
+    400,
+  );
+}
+
+/**
+ * 400: enrollments of the body that are not in the roll call of THIS lesson (another class, removed,
+ * enrolled after the day of the lesson, dropped or completed before it, or unknown), at the
+ * positions `fields`.
+ */
+export function enrollmentNotInRollCall(fields: readonly string[]): HttpException {
+  return new HttpException(
+    {
+      error: "ENROLLMENT_NOT_IN_ROLL_CALL",
+      message: "One or more enrollments are not in the roll call of this lesson.",
+      ...detailsOf(fields, "enrollment is not in the roll call of this lesson"),
+    },
+    400,
+  );
+}
+
+/**
+ * 409: enrollments of the body whose attendance in the lesson is already signed with the OTHER
+ * status, at the positions `fields`. The roll call does not correct: the correction has its own
+ * route, with a reason and a history.
+ */
+export function studentAttendanceAlreadySigned(fields: readonly string[]): HttpException {
+  return new HttpException(
+    {
+      error: "STUDENT_ATTENDANCE_ALREADY_SIGNED",
+      message:
+        "One or more attendances are already signed with another status; use the correction.",
+      ...detailsOf(fields, "attendance already signed with another status"),
+    },
+    409,
+  );
+}
+
+/** 409: archived classes are read-only (RN-27), their roll calls included. */
+export function classArchived(): HttpException {
+  return new HttpException(
+    { error: "CLASS_ARCHIVED", message: "Archived classes are read-only." },
+    409,
   );
 }
