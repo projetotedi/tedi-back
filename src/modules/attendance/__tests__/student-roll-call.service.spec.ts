@@ -333,6 +333,35 @@ describe("StudentRollCallService", () => {
       });
     });
 
+    it("hands each signature its own corrections, in the order they were read", async () => {
+      state.signed = [signedRow(ANA_ENROLLMENT, PRESENT), signedRow(BRUNO_ENROLLMENT, ABSENT)];
+      const correctionOf = (id: string, rowId: string, reason: string) =>
+        Object.assign(new AttendanceCorrection(), {
+          id,
+          studentAttendanceId: rowId,
+          fromStatus: ABSENT,
+          toStatus: PRESENT,
+          reason,
+          correctedById: COORDINATOR.id,
+          createdAt: EARLIER,
+        });
+      state.corrections = [
+        correctionOf("01999a3e-7c1b-7000-8000-000000000c01", state.signed[0].id, "Primeira."),
+        correctionOf("01999a3e-7c1b-7000-8000-000000000c02", state.signed[1].id, "Do Bruno."),
+        correctionOf("01999a3e-7c1b-7000-8000-000000000c03", state.signed[0].id, "Segunda."),
+      ];
+
+      const [ana, bruno] = await service.list(LESSON.id, COORDINATOR);
+
+      expect(ana.attendance?.corrections.map((correction) => correction.reason)).toEqual([
+        "Primeira.",
+        "Segunda.",
+      ]);
+      expect(bruno.attendance?.corrections.map((correction) => correction.reason)).toEqual([
+        "Do Bruno.",
+      ]);
+    });
+
     it("does not query the corrections of a lesson without signatures", async () => {
       await service.list(LESSON.id, COORDINATOR);
 

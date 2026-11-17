@@ -130,6 +130,10 @@ describe("EnrollmentRosterService", () => {
       expect(sql).toContain("(e.enrolled_at AT TIME ZONE $3::text)::date <= s.day");
       expect(sql).toContain("e.status = 'active' OR s.day < e.status_changed_at");
       expect(sql).not.toMatch(/\bFOR\s+(UPDATE|SHARE|NO KEY|KEY)\b/i);
+
+      // Without a manager, a plain read.
+      await service.findRosterIds([{ classId: CLASS_ID, date: "2026-03-10" }]);
+      expect(plainManager.query).toHaveBeenCalledTimes(1);
     });
   });
 });
