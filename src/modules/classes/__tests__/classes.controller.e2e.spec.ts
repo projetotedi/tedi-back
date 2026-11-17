@@ -580,6 +580,30 @@ describe("ClassesController (e2e)", () => {
       expect(await countRows("classes")).toBe(2);
     });
 
+    it("GUS-116: a course archived through PATCH /courses/:id/archive takes no new class, keeps the classes it had and takes them again once reactivated", async () => {
+      const first = await createClass();
+      const before = await storedClass(first.id);
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}/archive`)
+        .set("Cookie", coordinator.cookie)
+        .send({ reason: "Substituído pela versão 2026." })
+        .expect(200);
+
+      const refused = await postClass(director, body({ code: "INFO-B" })).expect(409);
+      expect(refused.body.error).toBe("COURSE_ARCHIVED");
+      expect(await countRows("classes")).toBe(1);
+
+      // The class that was there before is left exactly as it was.
+      expect(await storedClass(first.id)).toEqual(before);
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}/unarchive`)
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      await postClass(director, body({ code: "INFO-B" })).expect(201);
+    });
+
     it("answers COURSE_NOT_FOUND, then COURSE_ARCHIVED, before CLASS_CODE_TAKEN", async () => {
       await createClass();
 

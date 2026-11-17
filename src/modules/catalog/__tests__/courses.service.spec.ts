@@ -1429,6 +1429,153 @@ describe("CoursesService", () => {
     });
   });
 
+  describe("archive()", () => {
+    it("fills the three archive columns and updatedAt, saves and answers status archived", async () => {
+      const response = await service.archive(
+        COURSE_ID,
+        { reason: "Substituído pela versão 2026." },
+        ACTOR_ID,
+      );
+
+      expect(response.status).toBe(CourseStatus.ARCHIVED);
+      expect(response.archivedAt).toEqual(NOW);
+      expect(response.archivedById).toBe(ACTOR_ID);
+      expect(response.archiveReason).toBe("Substituído pela versão 2026.");
+      expect(response.updatedAt).toEqual(NOW);
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(order).toEqual(["load-course", "save-course", "load-links", "commit", "emit"]);
+    });
+
+    it("locks the course FOR UPDATE, so a class being created in it waits or sees it archived", async () => {
+      await service.archive(COURSE_ID, {}, ACTOR_ID);
+
+      expect(manager.findOne).toHaveBeenCalledWith(Course, {
+        where: { id: COURSE_ID },
+        lock: { mode: "pessimistic_write" },
+      });
+    });
+
+    it("stores a null reason when the body has none", async () => {
+      const response = await service.archive(COURSE_ID, undefined, ACTOR_ID);
+
+      expect(response.archiveReason).toBeNull();
+      expect(response.status).toBe(CourseStatus.ARCHIVED);
+    });
+
+    it("answers the prerequisites of the course", async () => {
+      state.links = [buildLink(BASIC_ID)];
+
+      const response = await service.archive(COURSE_ID, {}, ACTOR_ID);
+
+      expect(response.prerequisites).toEqual([{ id: BASIC_ID, name: "Informática Básica" }]);
+    });
+
+    it("emits COURSE_ARCHIVED after the commit, with the reason", async () => {
+      await service.archive(COURSE_ID, { reason: "Conteúdo revisado." }, ACTOR_ID);
+
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit.mock.calls[0][0]).toBe(AUDITABLE_ACTION_EVENT);
+      expect(emittedEvents()[0]).toMatchObject({
+        actorId: ACTOR_ID,
+        action: AuditableAction.COURSE_ARCHIVED,
+        targetType: "course",
+        targetId: COURSE_ID,
+        before: { archivedAt: null },
+        after: { archivedAt: NOW, archiveReason: "Conteúdo revisado." },
+        occurredAt: NOW,
+      });
+    });
+
+    it("is a no-op for a course already archived: keeps the first archive, writes and emits nothing", async () => {
+      const firstArchive = new Date("2026-09-15T10:00:00.000Z");
+      state.course = buildCourse({
+        archive: { archivedAt: firstArchive, archivedById: BASIC_ID, archiveReason: "Primeiro." },
+      });
+
+      const response = await service.archive(COURSE_ID, { reason: "Segundo." }, ACTOR_ID);
+
+      expect(response.status).toBe(CourseStatus.ARCHIVED);
+      expect(response.archivedAt).toEqual(firstArchive);
+      expect(response.archivedById).toBe(BASIC_ID);
+      expect(response.archiveReason).toBe("Primeiro.");
+      expect(response.updatedAt).toEqual(CREATED_AT);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 COURSE_NOT_FOUND for an unknown course and emits nothing", async () => {
+      state.course = null;
+
+      const error = await httpFailure(service.archive(UNKNOWN_ID, {}, ACTOR_ID));
+
+      expect(error.getStatus()).toBe(404);
+      expect(error.getResponse()).toMatchObject({ error: "COURSE_NOT_FOUND" });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("unarchive()", () => {
+    const ARCHIVED_AT = new Date("2026-09-15T10:00:00.000Z");
+
+    beforeEach(() => {
+      state.course = buildCourse({
+        archive: { archivedAt: ARCHIVED_AT, archivedById: ACTOR_ID, archiveReason: "Pausado." },
+      });
+    });
+
+    it("clears the three archive columns, takes updatedAt from the clock and answers status active", async () => {
+      const response = await service.unarchive(COURSE_ID, ACTOR_ID);
+
+      expect(response.status).toBe(CourseStatus.ACTIVE);
+      expect(response.archivedAt).toBeNull();
+      expect(response.archivedById).toBeNull();
+      expect(response.archiveReason).toBeNull();
+      expect(response.updatedAt).toEqual(NOW);
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(manager.findOne).toHaveBeenCalledWith(Course, {
+        where: { id: COURSE_ID },
+        lock: { mode: "pessimistic_write" },
+      });
+    });
+
+    it("emits COURSE_UNARCHIVED after the commit, with the archive it had", async () => {
+      await service.unarchive(COURSE_ID, ACTOR_ID);
+
+      expect(order.indexOf("commit")).toBeLessThan(order.indexOf("emit"));
+      expect(emittedEvents()).toHaveLength(1);
+      expect(emittedEvents()[0]).toMatchObject({
+        actorId: ACTOR_ID,
+        action: AuditableAction.COURSE_UNARCHIVED,
+        targetType: "course",
+        targetId: COURSE_ID,
+        before: { archivedAt: ARCHIVED_AT, archivedById: ACTOR_ID, archiveReason: "Pausado." },
+        after: { archivedAt: null },
+      });
+    });
+
+    it("is a no-op for an active course: writes and emits nothing", async () => {
+      state.course = buildCourse();
+
+      const response = await service.unarchive(COURSE_ID, ACTOR_ID);
+
+      expect(response.status).toBe(CourseStatus.ACTIVE);
+      expect(response.updatedAt).toEqual(CREATED_AT);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 COURSE_NOT_FOUND for an unknown course", async () => {
+      state.course = null;
+
+      const error = await httpFailure(service.unarchive(UNKNOWN_ID, ACTOR_ID));
+
+      expect(error.getStatus()).toBe(404);
+      expect(error.getResponse()).toMatchObject({ error: "COURSE_NOT_FOUND" });
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
   describe("toCourseResponse()", () => {
     it("answers status active for a new course and archived when archivedAt is set", () => {
       expect(toCourseResponse(buildCourse(), []).status).toBe(CourseStatus.ACTIVE);
