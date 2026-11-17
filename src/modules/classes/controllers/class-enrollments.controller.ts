@@ -81,7 +81,8 @@ export class ClassEnrollmentsController {
   /**
    * The enrollments of the class, every status unless `status` is asked, by the name of the
    * student, paginated and searchable. `phone` and `accessibilityNeed` are null for whoever cannot
-   * see students (students.view). `attendanceRate` is null until the roll call (GUS-166).
+   * see students (students.view). `attendanceRate` is the attendance rate of the enrollment
+   * (GUS-166): presences over the roll calls recorded, null without any.
    */
   @Get(":id/enrollments")
   @RequirePermission(Permission.CLASSES_VIEW)

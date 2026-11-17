@@ -3,6 +3,7 @@ import { HttpException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { DataSource, In } from "typeorm";
 import { ClassRef, ClassesService } from "@modules/classes/services/classes.service";
+import { Clock } from "@shared/dates/clock";
 import { LessonsCalendarQueryDto } from "../dto/calendar-query.dto";
 import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
 import { Lesson } from "../entities/lesson.entity";
@@ -10,6 +11,8 @@ import { LessonStatus } from "../enums/lesson-status.enum";
 import { ConfirmedStaff } from "../services/lesson-coverage";
 import { LessonCoverageRegistry } from "../services/lesson-coverage.registry";
 import { LessonListingService } from "../services/lesson-listing.service";
+import { StudentRollCallCount } from "../services/lesson-roll-call";
+import { LessonRollCallRegistry } from "../services/lesson-roll-call.registry";
 
 const ACTOR_ID = "01999a3e-0000-7000-8000-0000000000aa";
 const CLASS_A_ID = "01999a3e-7c1b-7000-8000-0000000000a1";
@@ -18,6 +21,8 @@ const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000001";
 const PLAN_ID = "01999a3e-7c1b-7000-8000-000000000011";
 const TEACHER = { id: "01999a3e-0000-7000-8000-0000000000b1", name: "Ana Torres" };
 const OTHER_TEACHER = { id: "01999a3e-0000-7000-8000-0000000000b2", name: "Bruno Lima" };
+/** 15:30 of 2026-03-10 in America/Sao_Paulo: a lesson of 14:00 to 15:30 that day has just ended. */
+const NOW = new Date("2026-03-10T18:30:00.000Z");
 
 function lessonId(n: number): string {
   return `01999a3e-7c1b-7000-8000-${String(n).padStart(12, "0")}`;
@@ -121,6 +126,8 @@ describe("LessonListingService", () => {
   const dataSource = { getRepository: jest.fn() };
   const classes = { listClassRefs: jest.fn() };
   const coverage = { findConfirmedStaff: jest.fn() };
+  const rollCalls = { countStudentRollCalls: jest.fn() };
+  const clock = { now: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -132,6 +139,9 @@ describe("LessonListingService", () => {
     classes.listClassRefs.mockResolvedValue([buildClassRef()]);
     // No counter registered, or nobody confirmed: the registry answers an empty map.
     coverage.findConfirmedStaff.mockResolvedValue(new Map());
+    // No counter registered, or nobody in any roll call: no lesson is pending.
+    rollCalls.countStudentRollCalls.mockResolvedValue(new Map());
+    clock.now.mockReturnValue(NOW);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -139,6 +149,8 @@ describe("LessonListingService", () => {
         { provide: DataSource, useValue: dataSource },
         { provide: ClassesService, useValue: classes },
         { provide: LessonCoverageRegistry, useValue: coverage },
+        { provide: LessonRollCallRegistry, useValue: rollCalls },
+        { provide: Clock, useValue: clock },
       ],
     }).compile();
 
@@ -407,6 +419,7 @@ describe("LessonListingService", () => {
             status: LessonStatus.PLANNED,
             teacher: null,
             belowExpectedMonitors: false,
+            attendancePending: false,
           },
           {
             id: "01999a3e-7c1b-7000-8000-0000000000f2",
@@ -418,6 +431,7 @@ describe("LessonListingService", () => {
             status: LessonStatus.CANCELLED,
             teacher: null,
             belowExpectedMonitors: false,
+            attendancePending: false,
           },
         ]);
       });
@@ -591,6 +605,83 @@ describe("LessonListingService", () => {
 
       it("fails the page when the registry fails, instead of answering rows with made-up staff", async () => {
         coverage.findConfirmedStaff.mockRejectedValue(new Error("boom"));
+
+        await expect(service.list(listQuery())).rejects.toThrow("boom");
+      });
+    });
+
+    describe("the roll call of the page (GUS-166)", () => {
+      it("asks the roll call registry ONCE per page with id, classId, date and endTime of every lesson, and nothing for an empty page", async () => {
+        state.lessons = [
+          buildLesson({ id: lessonId(1), date: "2026-03-09" }),
+          buildLesson({ id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-10" }),
+        ];
+        classes.listClassRefs.mockResolvedValue([
+          buildClassRef(),
+          buildClassRef({ id: CLASS_B_ID, code: "SEG-B", name: null }),
+        ]);
+
+        await service.list(listQuery());
+
+        expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
+        // A plain read: no manager.
+        expect(rollCalls.countStudentRollCalls).toHaveBeenCalledWith([
+          { id: lessonId(1), classId: CLASS_A_ID, date: "2026-03-09", endTime: "15:30" },
+          { id: lessonId(2), classId: CLASS_B_ID, date: "2026-03-10", endTime: "15:30" },
+        ]);
+
+        rollCalls.countStudentRollCalls.mockClear();
+        state.lessons = [];
+        await service.list(listQuery());
+        expect(rollCalls.countStudentRollCalls).not.toHaveBeenCalled();
+      });
+
+      it("marks attendancePending lesson by lesson against one instant of the clock", async () => {
+        state.lessons = [
+          // Ended and incomplete: pending.
+          buildLesson({ id: lessonId(1), date: "2026-03-09" }),
+          // Ended and complete.
+          buildLesson({ id: lessonId(2), date: "2026-03-09" }),
+          // Ends at 15:30, which is now: pending.
+          buildLesson({ id: lessonId(3), date: "2026-03-10" }),
+          // Ends after now.
+          buildLesson({ id: lessonId(4), date: "2026-03-10", endTime: "15:31" }),
+          // Cancelled.
+          buildLesson({
+            id: lessonId(5),
+            date: "2026-03-09",
+            status: LessonStatus.CANCELLED,
+            cancelledAt: new Date("2026-03-08T12:00:00.000Z"),
+            cancelledById: ACTOR_ID,
+          }),
+          // Nobody in its roll call: left out of the map.
+          buildLesson({ id: lessonId(6), date: "2026-03-09" }),
+        ];
+        rollCalls.countStudentRollCalls.mockResolvedValue(
+          new Map<string, StudentRollCallCount>([
+            [lessonId(1), { total: 3, signed: 2 }],
+            [lessonId(2), { total: 3, signed: 3 }],
+            [lessonId(3), { total: 3, signed: 0 }],
+            [lessonId(4), { total: 3, signed: 0 }],
+            [lessonId(5), { total: 3, signed: 0 }],
+          ]),
+        );
+
+        const page = await service.list(listQuery());
+
+        expect(page.data.map((item) => [item.id, item.attendancePending])).toEqual([
+          [lessonId(1), true],
+          [lessonId(2), false],
+          [lessonId(3), true],
+          [lessonId(4), false],
+          [lessonId(5), false],
+          [lessonId(6), false],
+        ]);
+        expect(clock.now).toHaveBeenCalledTimes(1);
+      });
+
+      it("fails the page when the roll call registry fails", async () => {
+        rollCalls.countStudentRollCalls.mockRejectedValue(new Error("boom"));
 
         await expect(service.list(listQuery())).rejects.toThrow("boom");
       });
@@ -834,6 +925,40 @@ describe("LessonListingService", () => {
         coverage.findConfirmedStaff.mockRejectedValue(new Error("boom"));
 
         await expect(service.listCalendar(calendarQuery())).rejects.toThrow("boom");
+      });
+    });
+
+    describe("the roll call of the period (GUS-166)", () => {
+      it("asks the roll call registry once per period in the calendar", async () => {
+        state.lessons = Array.from({ length: 250 }, (_, index) =>
+          buildLesson({ id: lessonId(index + 1), date: "2026-03-09" }),
+        );
+        rollCalls.countStudentRollCalls.mockResolvedValue(
+          new Map<string, StudentRollCallCount>([[lessonId(2), { total: 4, signed: 1 }]]),
+        );
+
+        const items = await service.listCalendar(calendarQuery());
+
+        expect(rollCalls.countStudentRollCalls).toHaveBeenCalledTimes(1);
+        expect(rollCalls.countStudentRollCalls.mock.calls[0][0]).toHaveLength(250);
+        expect(rollCalls.countStudentRollCalls.mock.calls[0][0][0]).toEqual({
+          id: lessonId(1),
+          classId: CLASS_A_ID,
+          date: "2026-03-09",
+          endTime: "15:30",
+        });
+        expect(items.filter((item) => item.attendancePending).map((item) => item.id)).toEqual([
+          lessonId(2),
+        ]);
+        expect(clock.now).toHaveBeenCalledTimes(1);
+      });
+
+      it("does not ask the roll call registry for a period with no lesson", async () => {
+        state.lessons = [];
+
+        await service.listCalendar(calendarQuery());
+
+        expect(rollCalls.countStudentRollCalls).not.toHaveBeenCalled();
       });
     });
   });

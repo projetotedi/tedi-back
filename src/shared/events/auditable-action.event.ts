@@ -112,6 +112,12 @@ export enum AuditableAction {
   MEMBER_ATTENDANCE_CONFIRMED = "MEMBER_ATTENDANCE_CONFIRMED",
   /** A signed attendance changed status (present to absent or back), with who signed it before and after; there is no reason (GUS-168). */
   MEMBER_ATTENDANCE_CORRECTED = "MEMBER_ATTENDANCE_CORRECTED",
+  /** The attendance of a student at a lesson was signed for the first time, present or absent; after carries ids, status and instant only (GUS-166). */
+  STUDENT_ATTENDANCE_SIGNED = "STUDENT_ATTENDANCE_SIGNED",
+  /** An absence of a student was justified, or its justification replaced; changedFields names the fields that changed, never their values: the reason and the note may be health data (RNF-13, GUS-166). */
+  STUDENT_ABSENCE_JUSTIFIED = "STUDENT_ABSENCE_JUSTIFIED",
+  /** A signed attendance of a student changed status through a correction; carries the statuses, whether it is justified and the id of the correction, never its reason (RNF-13, GUS-166). */
+  STUDENT_ATTENDANCE_CORRECTED = "STUDENT_ATTENDANCE_CORRECTED",
 }
 
 /**
@@ -121,7 +127,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | "member_attendance" | "enrollment" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | "member_attendance" | "enrollment" | "student_attendance" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change

@@ -484,6 +484,8 @@ describe("Enrollment listings (e2e)", () => {
             category: "intermediate",
             status: "active",
           },
+          // Without the attendance module no roll call is recorded (GUS-166).
+          attendanceRate: null,
         },
         {
           id: scenery.completed,
@@ -497,6 +499,7 @@ describe("Enrollment listings (e2e)", () => {
             edition: { id: edition2025, name: "2025.2" },
           },
           course: { id: basic, name: "Informática Básica", category: "basic", status: "active" },
+          attendanceRate: null,
         },
       ]);
       expect(res.body.summary.firstEnrollmentAt).toBe("2025-08-04T13:00:00.000Z");

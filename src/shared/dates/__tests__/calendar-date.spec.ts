@@ -3,6 +3,7 @@ import {
   ageOn,
   calendarDaysBetween,
   isValidCalendarDate,
+  timeOfDayInAppTimeZone,
   todayInAppTimeZone,
 } from "../calendar-date";
 
@@ -32,6 +33,55 @@ describe("calendar-date", () => {
     // 22:30 BRT on 2026-10-01 is already 2026-10-02 in UTC.
     expect(todayInAppTimeZone(new Date("2026-10-02T01:30:00Z"))).toBe("2026-10-01");
     expect(todayInAppTimeZone(new Date("2026-10-01T15:00:00Z"))).toBe("2026-10-01");
+  });
+
+  it("answers the time of day in America/Sao_Paulo as HH:mm, from the instant it is given", () => {
+    expect(timeOfDayInAppTimeZone(new Date("2026-03-10T14:00:00Z"))).toBe("11:00");
+    expect(timeOfDayInAppTimeZone(new Date("2026-03-10T13:59:59Z"))).toBe("10:59");
+    // 22:30 BRT on 2026-10-01 is already 2026-10-02 in UTC.
+    expect(timeOfDayInAppTimeZone(new Date("2026-10-02T01:30:00Z"))).toBe("22:30");
+  });
+
+  it("answers 00:05 right after midnight in São Paulo, never 24:05", () => {
+    expect(timeOfDayInAppTimeZone(new Date("2026-03-10T03:05:00Z"))).toBe("00:05");
+  });
+
+  describe("when Intl answers something else", () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    function intlAnswers(parts: Intl.DateTimeFormatPart[]): void {
+      jest.spyOn(Intl.DateTimeFormat.prototype, "formatToParts").mockReturnValue(parts);
+    }
+
+    it("throws when Intl does not answer the hour", () => {
+      intlAnswers([{ type: "minute", value: "05" }]);
+
+      expect(() => timeOfDayInAppTimeZone(new Date("2026-03-10T14:05:00Z"))).toThrow(
+        "Intl did not answer the hour of 2026-03-10T14:05:00.000Z in America/Sao_Paulo.",
+      );
+    });
+
+    it("throws when Intl does not answer the minute", () => {
+      intlAnswers([{ type: "hour", value: "11" }]);
+
+      expect(() => timeOfDayInAppTimeZone(new Date("2026-03-10T14:05:00Z"))).toThrow(
+        "Intl did not answer the minute",
+      );
+    });
+
+    it("throws when Intl answers a time that is not HH:mm, such as 24:05", () => {
+      intlAnswers([
+        { type: "hour", value: "24" },
+        { type: "literal", value: ":" },
+        { type: "minute", value: "05" },
+      ]);
+
+      expect(() => timeOfDayInAppTimeZone(new Date("2026-03-10T03:05:00Z"))).toThrow(
+        'Intl answered "24:05"',
+      );
+    });
   });
 
   it("accepts real calendar dates and rejects 2023-02-30, 1958-4-12, 12/04/1958 and datetimes", () => {

@@ -18,8 +18,10 @@ import { ClassListService } from "./services/class-list.service";
 import { ClassesService } from "./services/classes.service";
 import { CourseClassesService } from "./services/course-classes.service";
 import { EditionsService } from "./services/editions.service";
+import { EnrollmentAttendanceRegistry } from "./services/enrollment-attendance.registry";
 import { EnrollmentCountsService } from "./services/enrollment-counts.service";
 import { EnrollmentListingService } from "./services/enrollment-listing.service";
+import { EnrollmentRosterService } from "./services/enrollment-roster.service";
 import { EnrollmentsService } from "./services/enrollments.service";
 
 @Module({
@@ -63,13 +65,18 @@ import { EnrollmentsService } from "./services/enrollments.service";
     EnrollmentCountsService,
     EnrollmentsService,
     EnrollmentListingService,
+    EnrollmentRosterService,
+    EnrollmentAttendanceRegistry,
     Clock,
   ],
   // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151) and
   // the classes of its list and calendar (code, course, color slot) through
   // ClassesService.listClassRefs (GUS-153).
-  // The enrollments (GUS-108) export nothing new: what the roll call of the students reads is
-  // added by GUS-166, with its consumer.
-  exports: [ClassesService],
+  // attendance (GUS-166): the class of a lesson FOR SHARE (ClassesService.getClassSummary), who the
+  // roll call of a lesson is made of (EnrollmentRosterService) and the port where it plugs in the
+  // reader of the attendance of the enrollments (EnrollmentAttendanceRegistry: the attendance rate
+  // of the list and of the history, and "has attendance" before a removal). The arrow stays
+  // attendance -> classes.
+  exports: [ClassesService, EnrollmentRosterService, EnrollmentAttendanceRegistry],
 })
 export class ClassesModule {}

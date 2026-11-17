@@ -67,7 +67,14 @@ function buildRefs(overrides: Partial<LessonRefs> = {}): LessonRefs {
     status: "active",
   } as unknown as CourseSummary;
 
-  return { schoolClass, course, lessonPlan: null, staff: NO_CONFIRMED_STAFF, ...overrides };
+  return {
+    schoolClass,
+    course,
+    lessonPlan: null,
+    staff: NO_CONFIRMED_STAFF,
+    attendance: { students: { total: 0, signed: 0 }, pending: false },
+    ...overrides,
+  };
 }
 
 describe("toLessonResponse", () => {
@@ -337,6 +344,14 @@ describe("toLessonResponse", () => {
       expect(response.coverage.monitors.expected).toBeNull();
       expect(response.belowExpectedMonitors).toBe(false);
     });
+  });
+
+  it("copies attendance from the refs", () => {
+    const attendance = { students: { total: 12, signed: 9 }, pending: true };
+
+    const response = toLessonResponse(buildLesson(), buildRefs({ attendance }));
+
+    expect(response.attendance).toEqual({ students: { total: 12, signed: 9 }, pending: true });
   });
 
   it("exposes no column the contract does not name: not deletedAt, not classId, not lessonPlanId", () => {

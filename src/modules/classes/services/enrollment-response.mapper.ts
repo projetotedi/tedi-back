@@ -68,14 +68,14 @@ export function toEnrollmentResponse(
  * (students.view) and has no default on purpose: whoever calls decides, every time, whether the phone
  * and the accessibility need of the student go out (RNF-13); without it they are null.
  *
- * `attendanceRate` is null until the roll call of the students (GUS-166), which plugs its reader
- * here and in `EnrollmentListingService.listClassEnrollments` (one call per page). The contract
- * (`number | null`) does not change.
+ * `attendanceRate` is the attendance rate of the enrollment (GUS-166, section 18.1, S14), which the
+ * caller read through the `EnrollmentAttendanceRegistry` in one call per page: presences over the
+ * roll calls recorded in lessons not cancelled, null without any. It has no default either.
  */
 export function toClassEnrollmentItem(
   row: ClassEnrollmentRow,
   student: StudentListEntry,
-  options: { canSeeStudentContact: boolean },
+  options: { canSeeStudentContact: boolean; attendanceRate: number | null },
 ): ClassEnrollmentItemResponseDto {
   return {
     id: row.id,
@@ -89,7 +89,7 @@ export function toClassEnrollmentItem(
     status: row.status,
     enrolledAt: row.enrolledAt,
     statusChangedAt: row.statusChangedAt,
-    attendanceRate: null,
+    attendanceRate: options.attendanceRate,
   };
 }
 
@@ -106,11 +106,13 @@ export function toEnrollmentClassRef(row: EnrollmentClassRow): EnrollmentClassRe
 /**
  * One enrollment of the history of a student, with its class and the course of the class. The
  * course comes resolved by the caller (`EnrollmentListingService`), which owns the invariant that it
- * exists.
+ * exists, and so does `attendanceRate` (GUS-166, S14): presences over the roll calls recorded for
+ * the enrollment in lessons not cancelled, null without any. Neither has a default.
  */
 export function toStudentEnrollmentItem(
   row: StudentEnrollmentRow,
   course: CourseSummary,
+  attendanceRate: number | null,
 ): StudentEnrollmentItemResponseDto {
   return {
     id: row.id,
@@ -119,6 +121,7 @@ export function toStudentEnrollmentItem(
     statusChangedAt: row.statusChangedAt,
     class: toEnrollmentClassRef(row),
     course: { id: course.id, name: course.name, category: course.category, status: course.status },
+    attendanceRate,
   };
 }
 

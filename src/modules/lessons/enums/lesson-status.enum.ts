@@ -2,8 +2,8 @@
  * Status of a lesson along its life (F4.5).
  *
  * It is a column of `lessons`. `planned` is where every lesson starts; `confirmed` and `done` are
- * set by the edit, and no rule limits the moves between them yet (who marks `done` and when is the
- * attendance card, GUS-166). `cancelled` is different: it only comes from `PATCH /lessons/:id/cancel`,
+ * set by the edit, and no rule limits the moves between them yet (`done` stays manual: the roll call
+ * of the students does not set it, GUS-166, S17). `cancelled` is different: it only comes from `PATCH /lessons/:id/cancel`,
  * which records the reason, the instant and who did it, and it is final: a cancelled lesson is not
  * edited or rescheduled again, and nothing reactivates it.
  *

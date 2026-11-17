@@ -1,3 +1,5 @@
+import { isValidTimeOfDay } from "./time-of-day";
+
 /** Calendar of the project (UTFPR, Paraná). The server runs in UTC on Render. */
 export const APP_TIME_ZONE = "America/Sao_Paulo";
 
@@ -87,6 +89,42 @@ export function todayInAppTimeZone(now: Date = new Date()): string {
     parts.find((p) => p.type === type)?.value ?? "";
 
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/**
+ * The time of day in APP_TIME_ZONE as "HH:mm", the shape of the times of a lesson, so the two compare
+ * as strings ("is the lesson over?", GUS-166). `hourCycle: "h23"` keeps the hour after midnight at
+ * "00": `hour12: false` alone answers "24:05" on some ICU versions.
+ *
+ * It throws when `Intl` does not answer an hour and a minute, or answers something that is not
+ * "HH:mm": a made-up time (":05", or ":") compares above every time of a lesson and would publish
+ * every lesson of today as over.
+ */
+export function timeOfDayInAppTimeZone(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+
+  const part = (type: Intl.DateTimeFormatPartTypes): string => {
+    const value = parts.find((p) => p.type === type)?.value;
+    if (value === undefined) {
+      throw new Error(
+        `Intl did not answer the ${type} of ${now.toISOString()} in ${APP_TIME_ZONE}.`,
+      );
+    }
+    return value;
+  };
+
+  const time = `${part("hour")}:${part("minute")}`;
+  if (!isValidTimeOfDay(time)) {
+    throw new Error(
+      `Intl answered "${time}" as the time of ${now.toISOString()} in ${APP_TIME_ZONE}.`,
+    );
+  }
+  return time;
 }
 
 /**

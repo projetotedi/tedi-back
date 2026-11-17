@@ -1,6 +1,56 @@
 {
   "components": {
     "schemas": {
+      "AbsenceJustificationReason": {
+        "description": "Why the student missed the lesson: health or other (the note says more). The front translates by the value.",
+        "enum": [
+          "health",
+          "other"
+        ],
+        "type": "string"
+      },
+      "AbsenceJustificationResponseDto": {
+        "properties": {
+          "justifiedAt": {
+            "description": "When the absence was justified the last time.",
+            "example": "2026-03-10T14:20:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "justifiedBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who justified the absence the last time. Null when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "note": {
+            "description": "Free text of the justification. Null when it has none.",
+            "example": "Consulta médica marcada.",
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AbsenceJustificationReason"
+              }
+            ],
+            "description": "Why the student missed the lesson: health or other (the note says more). The front translates by the value.",
+            "example": "health"
+          }
+        },
+        "required": [
+          "reason",
+          "note",
+          "justifiedBy",
+          "justifiedAt"
+        ],
+        "type": "object"
+      },
       "AcceptInviteDto": {
         "properties": {
           "password": {
@@ -389,6 +439,64 @@
         ],
         "type": "string"
       },
+      "AttendanceCorrectionResponseDto": {
+        "properties": {
+          "correctedAt": {
+            "description": "When it was corrected.",
+            "example": "2026-03-10T15:05:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "correctedBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who corrected it. Null when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "fromStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+            "example": "present"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000c01",
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it was corrected. Null when the caller does not take the roll call of the lesson: it may carry health data.",
+            "example": "Marcado por engano: o aluno saiu antes do início da aula.",
+            "nullable": true,
+            "type": "string"
+          },
+          "toStatus": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+            "example": "absent"
+          }
+        },
+        "required": [
+          "id",
+          "fromStatus",
+          "toStatus",
+          "reason",
+          "correctedBy",
+          "correctedAt"
+        ],
+        "type": "object"
+      },
       "AttendanceLessonRefResponseDto": {
         "properties": {
           "date": {
@@ -767,8 +875,10 @@
       "ClassEnrollmentItemResponseDto": {
         "properties": {
           "attendanceRate": {
-            "description": "Always null until the student roll call (GUS-166).",
-            "example": null,
+            "description": "The attendance rate of the enrollment (F6.3): its presences over the roll calls recorded for it in lessons that were not cancelled, from 0 to 1 with two decimals. A justified absence counts as an absence. Null while no roll call of it is recorded, and without the attendance module.",
+            "example": 0.75,
+            "maximum": 1,
+            "minimum": 0,
             "nullable": true,
             "type": "number"
           },
@@ -1261,6 +1371,32 @@
         },
         "required": [
           "entries"
+        ],
+        "type": "object"
+      },
+      "CorrectStudentAttendanceDto": {
+        "description": "The correction of a signed attendance: the new status, which must differ from the current one, and the reason, required. It goes to the history of the attendance.",
+        "properties": {
+          "reason": {
+            "description": "Why the attendance is corrected. Required: missing, empty or blank after the trim is 400 VALIDATION_FAILED. It goes to the history of the attendance, never to an event (it may carry health data).",
+            "example": "Marcado por engano: o aluno saiu antes do início da aula.",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+            "example": "absent"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
         ],
         "type": "object"
       },
@@ -3409,6 +3545,31 @@
         ],
         "type": "string"
       },
+      "JustifyAbsenceDto": {
+        "description": "The justification of an absence: why, and optionally a note. Justifying again replaces it; the same reason and note change nothing. The absence stays an absence.",
+        "properties": {
+          "note": {
+            "description": "A note about the absence. Optional; trimmed, and empty becomes null. Omitted or empty, it clears the note of a previous justification: justifying replaces it as a whole. It may carry health data: it never goes to an event, and only whoever takes the roll call of the lesson reads it.",
+            "example": "Consulta médica marcada.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AbsenceJustificationReason"
+              }
+            ],
+            "description": "Why the student missed the lesson: health or other (the note says more). The front translates by the value.",
+            "example": "health"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
+      },
       "LessonAssignmentResponseDto": {
         "properties": {
           "cancelledAt": {
@@ -3524,6 +3685,23 @@
           "cancelledAt",
           "createdAt",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "LessonAttendanceDto": {
+        "properties": {
+          "pending": {
+            "description": "True when the roll call is pending: the lesson is not cancelled, it has ended (its day is before today, or it is today and its endTime has come, in America/Sao_Paulo) and students.signed is below students.total. False for a lesson without students, and without the attendance module.",
+            "example": false,
+            "type": "boolean"
+          },
+          "students": {
+            "$ref": "#/components/schemas/LessonStudentAttendanceCountDto"
+          }
+        },
+        "required": [
+          "students",
+          "pending"
         ],
         "type": "object"
       },
@@ -3662,6 +3840,11 @@
       },
       "LessonListItemResponseDto": {
         "properties": {
+          "attendancePending": {
+            "description": "True when the roll call of the students is pending, the \"Chamada pendente\" of the row (GUS-166): the lesson is not cancelled, it has ended and some student has no attendance. The same rule as attendance.pending of the lesson in full. False without the attendance module.",
+            "example": false,
+            "type": "boolean"
+          },
           "belowExpectedMonitors": {
             "description": "True when the lesson has fewer CONFIRMED monitors than it expects (F4.4, F5.4, RF-050): a pending monitor does not count. False for a cancelled lesson and when the lesson does not say how many monitors it expects (expectedMonitors null, so nothing is missing). The teacher is not part of it: a lesson without a teacher shows a dash in teacher. It is the same rule as belowExpectedMonitors of the lesson in full.",
             "example": false,
@@ -3729,7 +3912,8 @@
           "title",
           "status",
           "teacher",
-          "belowExpectedMonitors"
+          "belowExpectedMonitors",
+          "attendancePending"
         ],
         "type": "object"
       },
@@ -4150,6 +4334,14 @@
       },
       "LessonResponseDto": {
         "properties": {
+          "attendance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonAttendanceDto"
+              }
+            ],
+            "description": "The roll call of the students of the lesson (F6.1, GUS-166): how many students it has, how many are signed, and whether it is pending. Zeros and pending false without the attendance module."
+          },
           "belowExpectedMonitors": {
             "description": "True when fewer monitors are confirmed than expectedMonitors. Confirmed only: a pending monitor does not count. False for a cancelled lesson and when expectedMonitors is null (nothing is expected). The teacher is not part of it: read coverage.teacher.",
             "example": false,
@@ -4348,6 +4540,7 @@
           "expectedMonitors",
           "coverage",
           "belowExpectedMonitors",
+          "attendance",
           "subject",
           "postNotes",
           "status",
@@ -4372,6 +4565,25 @@
           "cancelled"
         ],
         "type": "string"
+      },
+      "LessonStudentAttendanceCountDto": {
+        "properties": {
+          "signed": {
+            "description": "The students with an attendance signed in the lesson, present or absent. Never above total. 0 without the attendance module.",
+            "example": 10,
+            "type": "integer"
+          },
+          "total": {
+            "description": "The students of the roll call of the lesson: the enrollments of the class the lesson expects (made before the lesson ended, and active from its day or before, or dropped or completed only after its day), plus the ones with an attendance signed in the lesson whatever their status today. 0 without the attendance module.",
+            "example": 12,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "signed"
+        ],
+        "type": "object"
       },
       "LessonTeacherCoverageDto": {
         "properties": {
@@ -6366,6 +6578,37 @@
         ],
         "type": "string"
       },
+      "RollCallEnrollmentResponseDto": {
+        "properties": {
+          "id": {
+            "description": "Id of the enrollment: the enrollmentId the PUT takes.",
+            "example": "01952ef7-0000-7000-8000-000000000010",
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EnrollmentStatus"
+              }
+            ],
+            "description": "active, dropped or completed. Only active enrollments take a seat of the class; the completed ones are the courses the student finished (RN-16).",
+            "example": "active"
+          },
+          "statusChangedAt": {
+            "description": "From when the current status holds, YYYY-MM-DD in America/Sao_Paulo.",
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "statusChangedAt"
+        ],
+        "type": "object"
+      },
       "Scope": {
         "enum": [
           "all",
@@ -6376,6 +6619,24 @@
           "none"
         ],
         "type": "string"
+      },
+      "SignStudentAttendanceDto": {
+        "description": "The attendance of enrollments of the roll call of the lesson of the URL, from 1 to 100 entries, all or none, signed by the actor at one instant. The same status of an attendance already signed is a no-op; another status is 409 STUDENT_ATTENDANCE_ALREADY_SIGNED: a signed attendance changes through correctStudentAttendance, with a reason.",
+        "properties": {
+          "entries": {
+            "description": "From 1 to 100 entries. The same enrollment twice, in any letter case, is 400 DUPLICATE_ENROLLMENT.",
+            "items": {
+              "$ref": "#/components/schemas/StudentAttendanceEntryDto"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
       },
       "SkippedLessonPlanResponseDto": {
         "properties": {
@@ -6408,6 +6669,118 @@
           "archivedAt"
         ],
         "type": "object"
+      },
+      "StudentAttendanceEntryDto": {
+        "properties": {
+          "enrollmentId": {
+            "description": "An enrollment of the roll call of the lesson of the URL (enrollment.id of the list); any other is 400 ENROLLMENT_NOT_IN_ROLL_CALL.",
+            "example": "01952ef7-0000-7000-8000-000000000010",
+            "format": "uuid",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+            "example": "present"
+          }
+        },
+        "required": [
+          "enrollmentId",
+          "status"
+        ],
+        "type": "object"
+      },
+      "StudentAttendanceResponseDto": {
+        "description": "The attendance of a student at a lesson: the status, who signed it first and when, whether the absence is justified, and the history of its corrections.",
+        "properties": {
+          "corrections": {
+            "description": "The corrections of the attendance, the oldest first. Empty when it has none.",
+            "items": {
+              "$ref": "#/components/schemas/AttendanceCorrectionResponseDto"
+            },
+            "type": "array"
+          },
+          "enrollmentId": {
+            "example": "01952ef7-0000-7000-8000-000000000010",
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "description": "The id the PATCH routes take (justifyAbsence, correctStudentAttendance).",
+            "example": "01999a3e-7c1b-7000-8000-000000000a11",
+            "format": "uuid",
+            "type": "string"
+          },
+          "justification": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AbsenceJustificationResponseDto"
+              }
+            ],
+            "description": "Null when not justified, or when the caller does not take the roll call of the lesson (it may carry health data): read justified.",
+            "nullable": true,
+            "type": "object"
+          },
+          "justified": {
+            "description": "Whether the absence is justified. Always told, also to whoever does not see the justification itself.",
+            "example": true,
+            "type": "boolean"
+          },
+          "lessonId": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "signedAt": {
+            "description": "When it was signed the first time.",
+            "example": "2026-03-10T14:05:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "signedBy": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "Who signed the attendance the first time; a correction does not change it. Null when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+            "example": "absent"
+          }
+        },
+        "required": [
+          "id",
+          "lessonId",
+          "enrollmentId",
+          "status",
+          "signedBy",
+          "signedAt",
+          "justified",
+          "justification",
+          "corrections"
+        ],
+        "type": "object"
+      },
+      "StudentAttendanceStatus": {
+        "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+        "enum": [
+          "present",
+          "absent"
+        ],
+        "type": "string"
       },
       "StudentByEnrollmentItemResponseDto": {
         "properties": {
@@ -6596,6 +6969,14 @@
       },
       "StudentEnrollmentItemResponseDto": {
         "properties": {
+          "attendanceRate": {
+            "description": "The attendance rate of the enrollment (F6.3): its presences over the roll calls recorded for it in lessons that were not cancelled, from 0 to 1 with two decimals. A justified absence counts as an absence. Null while no roll call of it is recorded, and without the attendance module.",
+            "example": 0.75,
+            "maximum": 1,
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
           "class": {
             "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
           },
@@ -6635,7 +7016,8 @@
           "enrolledAt",
           "statusChangedAt",
           "class",
-          "course"
+          "course",
+          "attendanceRate"
         ],
         "type": "object"
       },
@@ -6837,6 +7219,40 @@
           "createdById",
           "createdAt",
           "updatedAt"
+        ],
+        "type": "object"
+      },
+      "StudentRollCallItemResponseDto": {
+        "description": "A student of the roll call of the lesson: an enrollment the lesson expects (made before it ended and in force on its day), or one already signed in it, with its status as of today, the student and the attendance.",
+        "properties": {
+          "attendance": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceResponseDto"
+              }
+            ],
+            "description": "The attendance of the student at the lesson. Null while it is not signed.",
+            "nullable": true,
+            "type": "object"
+          },
+          "enrollment": {
+            "$ref": "#/components/schemas/RollCallEnrollmentResponseDto"
+          },
+          "student": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PersonRefDto"
+              }
+            ],
+            "description": "The student: id and name only. Null when the person was removed.",
+            "nullable": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "enrollment",
+          "student",
+          "attendance"
         ],
         "type": "object"
       },
@@ -11419,7 +11835,7 @@
                 }
               }
             },
-            "description": "CLASS_ARCHIVED | ENROLLMENT_NOT_REMOVABLE"
+            "description": "CLASS_ARCHIVED | ENROLLMENT_NOT_REMOVABLE (not active, or with an attendance signed: change its status instead)"
           },
           "500": {
             "content": {
@@ -14325,6 +14741,194 @@
         ]
       }
     },
+    "/lessons/{id}/attendance/students": {
+      "get": {
+        "operationId": "listStudentAttendance",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StudentRollCallItemResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The roll call of the lesson, by the name of the student: the enrollments the lesson expects (made before it ended, and active from its day or before, or dropped or completed only after it), plus the ones already signed in it, with the status of each enrollment and the attendance (null while not signed). Not paginated."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
+        ]
+      },
+      "put": {
+        "operationId": "signStudentAttendance",
+        "parameters": [
+          {
+            "description": "Id of the lesson.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignStudentAttendanceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StudentRollCallItemResponseDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The roll call of the lesson after the commit, the same list as the GET. All or none: any error writes nothing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | DUPLICATE_ENROLLMENT | ENROLLMENT_NOT_IN_ROLL_CALL"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | LESSON_IN_FUTURE | CLASS_ARCHIVED | STUDENT_ATTENDANCE_ALREADY_SIGNED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
+        ]
+      }
+    },
     "/lessons/{id}/cancel": {
       "patch": {
         "operationId": "cancelLesson",
@@ -16553,6 +17157,210 @@
         },
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/student-attendance/{id}/correct": {
+      "patch": {
+        "operationId": "correctStudentAttendance",
+        "parameters": [
+          {
+            "description": "Id of the attendance of the student (attendance.id of the roll call).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectStudentAttendanceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAttendanceResponseDto"
+                }
+              }
+            },
+            "description": "The attendance after the commit, with the new correction last in corrections."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | STUDENT_ATTENDANCE_STATUS_UNCHANGED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_ATTENDANCE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
+        ]
+      }
+    },
+    "/student-attendance/{id}/justify": {
+      "patch": {
+        "operationId": "justifyAbsence",
+        "parameters": [
+          {
+            "description": "Id of the attendance of the student (attendance.id of the roll call).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JustifyAbsenceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAttendanceResponseDto"
+                }
+              }
+            },
+            "description": "The attendance after the commit, with the justification. The same reason and note again change nothing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_ATTENDANCE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED | STUDENT_ATTENDANCE_NOT_ABSENT"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
         ]
       }
     },

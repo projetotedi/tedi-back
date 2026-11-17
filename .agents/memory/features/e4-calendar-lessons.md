@@ -45,7 +45,7 @@ A GUS-153 entrega a leitura em lote (F4.4, RF-043, RF-030): `GET /lessons` (list
 
 ### Fora (explicitamente)
 
-- Listagem, filtros, paginação e calendário (GUS-153); alocação e candidatura (GUS-158); chamada e presença (GUS-166); o listener de estorno de horas (E7), de que só o evento `lesson.cancelled` existe.
+- Listagem, filtros, paginação e calendário (GUS-153); alocação e candidatura (GUS-158); chamada e presença (entregue na GUS-166: §18.1 da ARCHITECTURE); o listener de estorno de horas (E7), de que só o evento `lesson.cancelled` existe.
 - Descancelar, excluir ou arquivar aula; regras de transição de status (quem marca `done`, `done` só depois da data) e bloqueio de remarcar aula `done`.
 - Da geração em série (GUS-154): o front, modal "Gerar aulas" (GUS-157); estender o período da turma pelo modal; desfazer, apagar ou regerar aulas já geradas; mais de um dia por semana, feriados e datas a pular; `expectedStudents`, `expectedMonitors` e `subject` no corpo da geração; conflito de horário ou de local e checar a data contra "hoje"; mudança na matriz de permissões.
 - Validar as aulas contra a mudança de período da turma (risco P9 da GUS-101), conflito de horário ou de local entre aulas, seed de dados de desenvolvimento, o front (GUS-152, GUS-156), mudança na matriz de permissões e i18n.
@@ -60,7 +60,7 @@ A GUS-153 entrega a leitura em lote (F4.4, RF-043, RF-030): `GET /lessons` (list
 
 ### GUS-153, fora
 
-- O front (GUS-155) e os tokens `calendar/event-*`; alocação real, responsável e indicador de monitores (GUS-158, entregue: A19 da E5); chamada (GUS-166) e horas (E7); filtro com vários status ou "todos menos cancelada"; mudar `applyTextSearch` para pessoas e acessos; bloquear ou avisar sobre a P9; listagem e detalhe de turmas (GUS-103, GUS-104); geração em série (GUS-154); exportar o `LessonsModule`; agenda do membro; exportação iCal, PDF ou relatório; mudança na matriz de permissões; seed de desenvolvimento.
+- O front (GUS-155) e os tokens `calendar/event-*`; alocação real, responsável e indicador de monitores (GUS-158, entregue: A19 da E5); chamada (entregue na GUS-166: §18.1 da ARCHITECTURE) e horas (E7); filtro com vários status ou "todos menos cancelada"; mudar `applyTextSearch` para pessoas e acessos; bloquear ou avisar sobre a P9; listagem e detalhe de turmas (GUS-103, GUS-104); geração em série (GUS-154); exportar o `LessonsModule`; agenda do membro; exportação iCal, PDF ou relatório; mudança na matriz de permissões; seed de desenvolvimento.
 
 ## Decisões
 

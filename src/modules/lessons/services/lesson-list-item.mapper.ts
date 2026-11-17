@@ -31,15 +31,19 @@ export function calendarColorIndex(creationRank: number): number {
  *   nothing else of her, or null when the lesson has none (a pending teacher is not the teacher);
  * - `belowExpectedMonitors` is the rule of the coverage (`isBelowExpectedMonitors`): fewer
  *   confirmed monitors than `expectedMonitors`, false for a cancelled lesson and for a lesson that
- *   does not say how many it expects.
+ *   does not say how many it expects;
+ * - `attendancePending` is the rule of the roll call of the students (`isAttendancePending`,
+ *   GUS-166): the lesson is not cancelled, it has ended and some student has no attendance.
  *
- * `staff` is what the caller read for the lesson through the `LessonCoverageRegistry`, in one call
- * for the whole page; it has no default, so a caller that forgets to ask does not compile.
+ * `staff` is what the caller read for the lesson through the `LessonCoverageRegistry`, and
+ * `attendancePending` what it decided from the `LessonRollCallRegistry`, each in one call for the
+ * whole page; neither has a default, so a caller that forgets to ask does not compile.
  */
 export function toLessonListItem(
   lesson: Lesson,
   schoolClass: ClassRef,
   staff: ConfirmedStaff,
+  attendancePending: boolean,
 ): LessonListItemResponseDto {
   return {
     id: lesson.id,
@@ -56,5 +60,6 @@ export function toLessonListItem(
     status: lesson.status,
     teacher: staff.teacher === null ? null : { id: staff.teacher.id, name: staff.teacher.name },
     belowExpectedMonitors: isBelowExpectedMonitors(lesson, staff),
+    attendancePending,
   };
 }

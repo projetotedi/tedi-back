@@ -10,6 +10,7 @@ import { LessonCoverageRegistry } from "./services/lesson-coverage.registry";
 import { LessonCreationService } from "./services/lesson-creation.service";
 import { LessonGenerationService } from "./services/lesson-generation.service";
 import { LessonListingService } from "./services/lesson-listing.service";
+import { LessonRollCallRegistry } from "./services/lesson-roll-call.registry";
 import { LessonsService } from "./services/lessons.service";
 
 @Module({
@@ -34,6 +35,7 @@ import { LessonsService } from "./services/lessons.service";
     LessonGenerationService,
     LessonCreationService,
     LessonCoverageRegistry,
+    LessonRollCallRegistry,
     Clock,
   ],
   // What the other modules read from the lessons:
@@ -46,11 +48,15 @@ import { LessonsService } from "./services/lessons.service";
   //   with an open place and the pending applications), through LessonListingService
   //   (findAgendaBetween and findAgendaByIds), since assignments cannot import ClassesModule;
   // - attendance (GUS-168): the lesson whose attendance is signed (getLessonSummary FOR SHARE) and
-  //   the lessons of the history of a member (findLessonSummaries). The student roll call (GUS-166)
-  //   will say what else it needs.
+  //   the lessons of the history of a member (findLessonSummaries);
+  // - attendance (GUS-166): the port of the roll call of the students (LessonRollCallRegistry), where
+  //   it plugs in the counter behind `attendance` of every answer and `attendancePending` of the list
+  //   and the calendar; from LessonsService, the lesson of the roll call (getLessonSummary FOR
+  //   SHARE) and the cancelled lessons left out of the attendance rate (findLessonSummaries). The
+  //   arrow stays attendance -> lessons.
   // LessonCreationService stays inside on purpose: LessonsService and LessonGenerationService
   // (GUS-154) both build lessons through it, so a lesson of the series is born with the same rules
   // as one of POST /lessons.
-  exports: [LessonsService, LessonCoverageRegistry, LessonListingService],
+  exports: [LessonsService, LessonCoverageRegistry, LessonListingService, LessonRollCallRegistry],
 })
 export class LessonsModule {}

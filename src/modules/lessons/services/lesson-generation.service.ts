@@ -29,6 +29,8 @@ import {
   lessonsOutsideClassPeriod,
 } from "./lesson-errors";
 import { toLessonResponse } from "./lesson-response.mapper";
+import { NO_STUDENT_ROLL_CALL, rollCallLessonOf, toLessonAttendance } from "./lesson-roll-call";
+import { LessonRollCallRegistry } from "./lesson-roll-call.registry";
 import { invalidTimeRange, isValidTimeRange } from "./lesson-schedule";
 import { buildSeries, SeriesItem } from "./lesson-series";
 
@@ -94,7 +96,9 @@ interface ResolvedSeries {
  * The lessons are created by `LessonCreationService.createMany` inside the transaction, which also
  * checks the whole batch before writing. The audit events (one LESSON_CREATED per lesson, in the
  * order of the sequence) go out after the commit, so a rollback emits none. The answer is built
- * from what was already read, without another query.
+ * from what was already read, plus ONE call to the `LessonRollCallRegistry` for the roll call of
+ * every generated lesson (GUS-166): the class may already have students, so a lesson generated on
+ * a past day is born pending.
  */
 @Injectable()
 export class LessonGenerationService {
@@ -106,6 +110,7 @@ export class LessonGenerationService {
     private readonly classes: ClassesService,
     private readonly courses: CoursesService,
     private readonly courseLessonPlans: CourseLessonPlansService,
+    private readonly rollCalls: LessonRollCallRegistry,
   ) {}
 
   /**
@@ -202,6 +207,11 @@ export class LessonGenerationService {
         items.map((item) => this.toDraft(item, dto)),
         actorId,
       );
+      const rollCalls = await this.rollCalls.countStudentRollCalls(
+        lessons.map(rollCallLessonOf),
+        manager,
+      );
+      const now = this.clock.now();
 
       return {
         lessons,
@@ -215,6 +225,11 @@ export class LessonGenerationService {
               // A lesson that was just generated has nobody allocated yet, so the coverage is zero
               // without asking the counter (A2, the same as POST /lessons).
               staff: NO_CONFIRMED_STAFF,
+              attendance: toLessonAttendance(
+                lesson,
+                rollCalls.get(lesson.id) ?? NO_STUDENT_ROLL_CALL,
+                now,
+              ),
             }),
           ),
         },

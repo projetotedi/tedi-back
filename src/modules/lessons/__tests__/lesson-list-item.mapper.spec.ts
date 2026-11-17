@@ -56,9 +56,17 @@ function buildClassRef(overrides: Partial<ClassRef> = {}): ClassRef {
   };
 }
 
-/** The item of a lesson that nobody is confirmed in, unless the test hands the staff over. */
-function toItem(lesson: Lesson, schoolClass: ClassRef, staff: ConfirmedStaff = NO_CONFIRMED_STAFF) {
-  return toLessonListItem(lesson, schoolClass, staff);
+/**
+ * The item of a lesson that nobody is confirmed in and whose roll call is not pending, unless the
+ * test hands them over.
+ */
+function toItem(
+  lesson: Lesson,
+  schoolClass: ClassRef,
+  staff: ConfirmedStaff = NO_CONFIRMED_STAFF,
+  attendancePending = false,
+) {
+  return toLessonListItem(lesson, schoolClass, staff, attendancePending);
 }
 
 function staffOf(overrides: Partial<ConfirmedStaff> = {}): ConfirmedStaff {
@@ -124,7 +132,23 @@ describe("toLessonListItem", () => {
       status: LessonStatus.PLANNED,
       teacher: null,
       belowExpectedMonitors: false,
+      attendancePending: false,
     });
+  });
+
+  it("copies attendancePending", () => {
+    expect(toItem(buildLesson(), buildClassRef(), NO_CONFIRMED_STAFF, true).attendancePending).toBe(
+      true,
+    );
+    expect(
+      toItem(buildLesson(), buildClassRef(), NO_CONFIRMED_STAFF, false).attendancePending,
+    ).toBe(false);
+
+    // No default: a caller that forgets to decide it does not compile. The function is never called.
+    const forgetful = () =>
+      // @ts-expect-error the fourth argument has no default, so no row is built with a made-up flag
+      toLessonListItem(buildLesson(), buildClassRef(), NO_CONFIRMED_STAFF);
+    expect(typeof forgetful).toBe("function");
   });
 
   it("shows the code as the name of a class that has no name", () => {
@@ -342,6 +366,7 @@ describe("toLessonListItem", () => {
     );
 
     expect(Object.keys(item).sort()).toEqual([
+      "attendancePending",
       "belowExpectedMonitors",
       "class",
       "date",

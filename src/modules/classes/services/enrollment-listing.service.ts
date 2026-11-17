@@ -22,6 +22,7 @@ import { SchoolClass } from "../entities/class.entity";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { StudentEnrollmentSituation } from "../enums/student-enrollment-situation.enum";
 import { classNotFound } from "./classes.service";
+import { EnrollmentAttendanceRegistry } from "./enrollment-attendance.registry";
 import {
   ClassEnrollmentRow,
   EnrollmentClassRow,
@@ -47,6 +48,10 @@ interface CurrentClassRow extends EnrollmentClassRow {
  * is then completed with the data of this module in ONE query per page (never one per student).
  * Every `date` column read raw comes out `::text`, so it stays "YYYY-MM-DD" (the driver would make
  * it a Date at midnight of the server, which can be the day before).
+ *
+ * The `attendanceRate` of the list of a class and of the history of a student comes from the
+ * attendance (GUS-166), through the port `EnrollmentAttendanceRegistry`: ONE call per page or per
+ * history, with the ids of its enrollments, and none for an empty one.
  */
 @Injectable()
 export class EnrollmentListingService {
@@ -55,6 +60,7 @@ export class EnrollmentListingService {
     private readonly students: StudentsService,
     private readonly courses: CoursesService,
     private readonly policy: PermissionPolicy,
+    private readonly attendance: EnrollmentAttendanceRegistry,
   ) {}
 
   /**
@@ -63,7 +69,8 @@ export class EnrollmentListingService {
    * class answers 200, and an archived student with an old enrollment stays in it (history).
    *
    * `phone` and `accessibilityNeed` of the students go out only when the actor can see students
-   * (students.view), asked once per request; null otherwise (section 19, M11).
+   * (students.view), asked once per request; null otherwise (section 19, M11). `attendanceRate` is
+   * the one of the enrollment (section 18.1, S14), null while it has no roll call recorded.
    * `total` with `status=active` and no search is the `enrollmentsTotal` of the sheet of the class.
    */
   async listClassEnrollments(
@@ -90,10 +97,18 @@ export class EnrollmentListingService {
       { page, limit },
     );
     const canSeeStudentContact = this.policy.can(actor, Permission.STUDENTS_VIEW);
+    const entries = students.data.map((student) => ({
+      student,
+      row: this.rowOf(byStudent, student),
+    }));
+    const rates = await this.attendanceRatesOf(entries.map(({ row }) => row.id));
 
     return {
-      data: students.data.map((student) =>
-        toClassEnrollmentItem(this.rowOf(byStudent, student), student, { canSeeStudentContact }),
+      data: entries.map(({ student, row }) =>
+        toClassEnrollmentItem(row, student, {
+          canSeeStudentContact,
+          attendanceRate: rates.get(row.id) ?? null,
+        }),
       ),
       total: students.total,
       page: students.page,
@@ -175,9 +190,14 @@ export class EnrollmentListingService {
       ...new Set(rows.map((row) => row.courseId)),
     ]);
     const coursesById = new Map(courses.map((course) => [course.id, course]));
+    const rates = await this.attendanceRatesOf(rows.map((row) => row.id));
 
     const enrollments = rows.map((row) =>
-      toStudentEnrollmentItem(row, this.courseOf(coursesById, row.courseId)),
+      toStudentEnrollmentItem(
+        row,
+        this.courseOf(coursesById, row.courseId),
+        rates.get(row.id) ?? null,
+      ),
     );
     return { enrollments, summary: summarizeStudentEnrollments(enrollments) };
   }
@@ -273,6 +293,16 @@ export class EnrollmentListingService {
       else classes.push(toEnrollmentClassRef(row));
     }
     return byStudent;
+  }
+
+  /**
+   * The attendance rate of each enrollment, in ONE call to the port for the whole page or history; no
+   * enrollment, no call. One left out of the map has no roll call recorded: the caller reads null.
+   */
+  private async attendanceRatesOf(enrollmentIds: readonly string[]): Promise<Map<string, number>> {
+    if (enrollmentIds.length === 0) return new Map();
+
+    return this.attendance.attendanceRates(enrollmentIds);
   }
 
   /** The enrollment of a student of the page: the page only has the students of these rows. */

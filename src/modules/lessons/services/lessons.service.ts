@@ -40,6 +40,8 @@ import {
   lessonPlanNotInCourseSequence,
 } from "./lesson-errors";
 import { toLessonResponse } from "./lesson-response.mapper";
+import { NO_STUDENT_ROLL_CALL, rollCallLessonOf, toLessonAttendance } from "./lesson-roll-call";
+import { LessonRollCallRegistry } from "./lesson-roll-call.registry";
 import {
   invalidTimeRange,
   isValidTimeRange,
@@ -169,7 +171,9 @@ function assertWithinPeriod(date: string, schoolClass: ClassSummary): void {
  * position in the sequence through the catalog: this module touches no table of another one. The
  * same goes for who is assigned to a lesson: the coverage (F5.4) of every answer is counted through
  * the `LessonCoverageRegistry`, the port the assignments module plugs its counter in (section 15 of
- * docs/ARCHITECTURE.md), and this module touches no table of it.
+ * docs/ARCHITECTURE.md), and this module touches no table of it. And for the roll call of the
+ * students (GUS-166): its numbers come through the `LessonRollCallRegistry`, which the attendance
+ * module implements (section 18.1), and this module decides from them whether it is pending.
  *
  * Locks, always in this order, so no two writes wait for each other in a circle:
  * - creating: the class FOR SHARE, then the lesson plan FOR SHARE, then the insert;
@@ -191,6 +195,7 @@ export class LessonsService {
     private readonly lessonPlans: LessonPlansService,
     private readonly courseLessonPlans: CourseLessonPlansService,
     private readonly coverage: LessonCoverageRegistry,
+    private readonly rollCalls: LessonRollCallRegistry,
   ) {}
 
   /**
@@ -641,6 +646,10 @@ export class LessonsService {
    * lesson included (one count through the port of the coverage). The foreign keys guarantee the
    * class, the course and the plan of a lesson exist, so a missing one is a broken database and an
    * error, not a 404.
+   *
+   * The roll call of the students is always counted (one call to the `LessonRollCallRegistry`, with
+   * the `manager` of the transaction when there is one): even a lesson created now may already have
+   * students in its class, and one of a past day is born pending (GUS-166, S13).
    */
   private async buildResponse(
     manager: EntityManager | undefined,
@@ -679,7 +688,18 @@ export class LessonsService {
       (await this.coverage.countConfirmedStaff([lesson.id], manager)).get(lesson.id) ??
       NO_CONFIRMED_STAFF;
 
-    return toLessonResponse(lesson, { schoolClass, course, lessonPlan, staff });
+    const rollCall =
+      (await this.rollCalls.countStudentRollCalls([rollCallLessonOf(lesson)], manager)).get(
+        lesson.id,
+      ) ?? NO_STUDENT_ROLL_CALL;
+
+    return toLessonResponse(lesson, {
+      schoolClass,
+      course,
+      lessonPlan,
+      staff,
+      attendance: toLessonAttendance(lesson, rollCall, this.clock.now()),
+    });
   }
 
   /** Copies the fields that were sent and differ into the lesson, and records before and after. */

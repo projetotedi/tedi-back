@@ -39,7 +39,7 @@ A cobertura é a parte que mais pesa na arquitetura: toda resposta de aula (`les
 - Na GUS-158: candidatura (`source: application`, `assignments.manageOwn`, `assignments.review`), recusar alocação (`declined`) e "Minhas aulas" do membro, que entraram na GUS-160 (acima).
 - Na GUS-160: o front (GUS-161), expirar candidatura pendente, paginação da fila e das listas do membro, `CHECK` de candidatura no banco (C16) e a rota só do contador (`GET /applications/count`, aditiva se o front pedir).
 - Inativação de membro e o cancelamento das alocações futuras: GUS-147. Aqui fica só o gancho documentado.
-- O que a chamada e as horas precisam (exportar professores e monitores da aula para `allocated` e `lessonTeacher`; presença que gera horas): GUS-166 e GUS-168.
+- O que a chamada e as horas precisam (exportar professores e monitores da aula para `allocated` e `lessonTeacher`; presença que gera horas): entregue na GUS-168 e na GUS-166 (§18 e §18.1 da ARCHITECTURE).
 - Cancelar as alocações ao cancelar a aula, bloquear alocação em turma arquivada (A11), conflito de horário do membro entre aulas, paginação das listas, nome de turma e curso na lista do membro, mudança na matriz de permissões, front (GUS-159) e seed de desenvolvimento.
 
 ## Decisões
@@ -129,7 +129,7 @@ Superadmin passa em tudo. O guard decide `assignments.create` e `lessons.view` (
 - **GUS-160, para o PO validar no PR (não bloqueiam):** (1) `pending` não ocupa vaga; "quem se candidata primeiro ocupa" mudaria só `hasOpenPlace` e levaria o lock ao candidatar-se. (2) Recusadas e canceladas aparecem em Minhas aulas, fora dos totais. (3) O confirm direto segue sem limite de monitores, inclusive sobre candidatura. (4) A11 herdada: aula de turma arquivada some das listas, mas aceita candidatura por `POST` direto. (5) Candidatura pendente não expira: a de aula passada ou cancelada fica na fila e no contador até alguém recusar.
 - **A19:** a listagem e o calendário leem o professor e as contagens por `findConfirmedStaff`, uma vez por página ou período, nunca por aula. Quem precisar só das contagens, e de dentro de uma transação, usa `countConfirmedStaff`. Uma rota nova de aulas que precise da equipe usa uma das duas leituras, e não uma chamada por aula.
 - **GUS-155 (front da listagem):** `teacher` e `belowExpectedMonitors` já vêm preenchidos; o contrato do Orval não muda, só as descrições e o `example` de `teacher`. Sem o módulo de alocação num app, `teacher` é null e `belowExpectedMonitors` é verdadeiro para quem espera monitores.
-- **GUS-166 / GUS-168:** a chamada vai precisar de `lessonTeacherIds` e `lessonMonitorIds` por aula (os escopos `allocated` e `lessonTeacher`); o `AssignmentsModule` não exporta nada ainda, e a export é acrescentada quando elas disserem o que precisam.
+- **GUS-166 / GUS-168:** entregue (§18 e §18.1 da ARCHITECTURE): o `AssignmentsModule` exporta `ConfirmedStaffService`, de que saem o `lessonTeacherIds` da presença de membros e o `lessonTeacherIds` e o `lessonMonitorIds` da chamada de alunos.
 - **Front (GUS-152, GUS-156, GUS-159):** `LessonResponseDto` ganhou `coverage` e `belowExpectedMonitors` (aditivo); o Orval precisa ser regenerado. Tag Swagger nova: `assignments`.
 - **Concorrência:** a garantia das duas regras é o índice único parcial, não as pré-checagens; mudar o predicado de um deles é mudar a regra e exige migration nova (nunca editar a que já rodou).
 
