@@ -1917,7 +1917,7 @@ describe("LessonsController (e2e)", () => {
       expect(res.body.status).toBe("cancelled");
     });
 
-    it("cancels once when two requests cancel at the same time: both answer 200 with the same reason, and one event goes out", async () => {
+    it("cancels once when two requests cancel at the same time: both answer 200 with the same reason, one audit event goes out and both announce lesson.cancelled", async () => {
       const created = await createLesson();
       const events = collectEvents();
       const cancelled = collectCancelled();
@@ -1933,7 +1933,13 @@ describe("LessonsController (e2e)", () => {
       expect(first.body.cancelReason).toBe(stored.cancel_reason);
       expect(second.body.cancelReason).toBe(stored.cancel_reason);
       expect(first.body.cancelledById).toBe(stored.cancelled_by_id);
-      expect(cancelled).toHaveLength(1);
+      // The second request is the no-op of a cancelled lesson, which announces the hook of the
+      // hours again with who asked (GUS-168); only the cancel itself is audited.
+      expect(cancelled).toHaveLength(2);
+      expect(cancelled.map((event) => event.lessonId)).toEqual([created.id, created.id]);
+      expect(cancelled.map((event) => event.cancelledById).sort()).toEqual(
+        [director.id, coordinator.id].sort(),
+      );
       expect(
         events.filter((event) => event.action === AuditableAction.LESSON_CANCELLED),
       ).toHaveLength(1);
