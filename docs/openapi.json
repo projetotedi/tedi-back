@@ -896,6 +896,92 @@
         ],
         "type": "object"
       },
+      "ClassListItemDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Null while the class is not archived (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "capacity": {
+            "example": 15,
+            "minimum": 1,
+            "type": "number"
+          },
+          "code": {
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "course": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassCourseResponseDto"
+              }
+            ],
+            "description": "The course of the class, with its current category (RN-14)."
+          },
+          "edition": {
+            "$ref": "#/components/schemas/EditionResponseDto"
+          },
+          "endDate": {
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "enrolledCount": {
+            "description": "Active enrollments only (0 until the enrollments of GUS-108 exist).",
+            "example": 12,
+            "minimum": 0,
+            "type": "number"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica — A",
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "example": "planned"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "course",
+          "edition",
+          "startDate",
+          "endDate",
+          "enrolledCount",
+          "capacity",
+          "status",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
+      "ClassListSort": {
+        "enum": [
+          "startDate",
+          "code"
+        ],
+        "type": "string"
+      },
       "ClassResponseDto": {
         "properties": {
           "archiveReason": {
@@ -7963,6 +8049,192 @@
       }
     },
     "/classes": {
+      "get": {
+        "operationId": "listClasses",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Search by the code or the name of the class, or by the name of its course, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "info",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the classes of this edition.",
+            "in": "query",
+            "name": "editionId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the classes of this course.",
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the classes whose course has this category (RN-14).",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CourseCategory"
+            }
+          },
+          {
+            "description": "One or more statuses, comma separated (planned, in_progress, completed, cancelled). Omitted lists every status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "example": "planned,in_progress",
+              "type": "string"
+            }
+          },
+          {
+            "description": "true lists only the archived classes. Omitted (or false) lists only the classes that are not archived (RN-27).",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "example": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "startDate puts the class that starts last first; code is alphabetical.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ClassListSort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ClassListItemDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      },
       "post": {
         "operationId": "createClass",
         "parameters": [],
