@@ -396,6 +396,8 @@ describe("Course duplicate (e2e)", () => {
         objective: SOURCE.objective,
         category: "intermediate",
         status: "active",
+        archivedAt: null,
+        archiveReason: null,
         createdAt: copy.createdAt,
         createdBy: { id: coordinator.id, name: "Coordinator" },
         updatedAt: copy.updatedAt,

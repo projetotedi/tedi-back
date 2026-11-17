@@ -11,6 +11,7 @@ import { ClassDetailDto } from "../dto/class-detail.response.dto";
 import { ClassResponseDto } from "../dto/class.response.dto";
 import { ClassStatus } from "../enums/class-status.enum";
 import { ClassDetailService } from "../services/class-detail.service";
+import { ClassListService } from "../services/class-list.service";
 import { ClassesService } from "../services/classes.service";
 
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
@@ -23,6 +24,7 @@ const ACTOR: AuthUser = {
 
 describe("ClassesController", () => {
   it.each([
+    ["listClasses", Permission.CLASSES_VIEW],
     ["getClass", Permission.CLASSES_VIEW],
     ["createClass", Permission.CLASSES_MANAGE],
     ["updateClass", Permission.CLASSES_MANAGE],
@@ -33,6 +35,12 @@ describe("ClassesController", () => {
 
     expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(permission);
     expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+  });
+
+  it("serves GET /classes for the list", () => {
+    const handler = ClassesController.prototype.listClasses;
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe("/");
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.GET);
   });
 
   it("serves GET /classes/:id", () => {
@@ -53,15 +61,28 @@ describe("ClassesController", () => {
     };
     const detail = { id: CLASS_ID } as ClassDetailDto;
     const detailService = { findDetail: jest.fn() };
+    const listService = { list: jest.fn() };
     const controller = new ClassesController(
       service as unknown as ClassesService,
       detailService as unknown as ClassDetailService,
+      listService as unknown as ClassListService,
     );
 
     beforeEach(() => {
       jest.clearAllMocks();
       for (const method of Object.values(service)) method.mockResolvedValue(schoolClass);
       detailService.findDetail.mockResolvedValue(detail);
+    });
+
+    it("delegates listClasses to ClassListService.list with the query", async () => {
+      const page = { data: [], total: 0, page: 1, limit: 20 };
+      listService.list.mockResolvedValue(page);
+      const query = { search: "info", status: [ClassStatus.PLANNED] };
+
+      await expect(controller.listClasses(query)).resolves.toBe(page);
+
+      expect(listService.list).toHaveBeenCalledWith(query);
+      expect(detailService.findDetail).not.toHaveBeenCalled();
     });
 
     it("delegates getClass to ClassDetailService.findDetail with the id", async () => {

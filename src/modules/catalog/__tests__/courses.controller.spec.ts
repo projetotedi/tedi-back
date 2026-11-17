@@ -9,6 +9,7 @@ import { CourseDetailDto } from "../dto/course-detail.response.dto";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CourseCategory } from "../enums/course-category.enum";
 import { CourseDetailService } from "../services/course-detail.service";
+import { CourseListService } from "../services/course-list.service";
 import { CoursesService } from "../services/courses.service";
 
 const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000001";
@@ -21,10 +22,13 @@ const ACTOR: AuthUser = {
 
 describe("CoursesController", () => {
   it.each([
+    ["listCourses", Permission.CATALOG_VIEW],
     ["createCourse", Permission.COURSES_MANAGE],
     ["getCourse", Permission.CATALOG_VIEW],
     ["updateCourse", Permission.COURSES_MANAGE],
     ["duplicateCourse", Permission.COURSES_DUPLICATE_ARCHIVE],
+    ["archiveCourse", Permission.COURSES_DUPLICATE_ARCHIVE],
+    ["unarchiveCourse", Permission.COURSES_DUPLICATE_ARCHIVE],
   ] as const)("protects %s with %s and no @Roles", (name, permission) => {
     const handler = CoursesController.prototype[name];
 
@@ -35,17 +39,37 @@ describe("CoursesController", () => {
   describe("delegation", () => {
     const course = { id: COURSE_ID } as CourseResponseDto;
     const detail = { id: COURSE_ID } as CourseDetailDto;
-    const service = { create: jest.fn(), update: jest.fn(), duplicate: jest.fn() };
+    const service = {
+      create: jest.fn(),
+      update: jest.fn(),
+      duplicate: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
     const detailService = { findDetail: jest.fn() };
+    const listService = { list: jest.fn() };
     const controller = new CoursesController(
       service as unknown as CoursesService,
       detailService as unknown as CourseDetailService,
+      listService as unknown as CourseListService,
     );
 
     beforeEach(() => {
       jest.clearAllMocks();
       for (const method of Object.values(service)) method.mockResolvedValue(course);
       detailService.findDetail.mockResolvedValue(detail);
+    });
+
+    it("delegates listCourses to CourseListService.list with the query", async () => {
+      const page = { data: [], total: 0, page: 1, limit: 20 };
+      listService.list.mockResolvedValue(page);
+      const query = { search: "informatica", hasPrerequisite: true };
+
+      await expect(controller.listCourses(query)).resolves.toBe(page);
+
+      expect(listService.list).toHaveBeenCalledTimes(1);
+      expect(listService.list).toHaveBeenCalledWith(query);
+      expect(detailService.findDetail).not.toHaveBeenCalled();
     });
 
     it("delegates createCourse to CoursesService.create with the actor id", async () => {
@@ -87,6 +111,24 @@ describe("CoursesController", () => {
       expect(service.duplicate).toHaveBeenCalledWith(COURSE_ID, dto, ACTOR.id);
       expect(service.create).not.toHaveBeenCalled();
       expect(service.update).not.toHaveBeenCalled();
+    });
+
+    it("delegates archiveCourse to CoursesService.archive with the id, the body and the actor id", async () => {
+      const dto = { reason: "Substituído pela versão 2026." };
+
+      await expect(controller.archiveCourse(COURSE_ID, dto, ACTOR)).resolves.toBe(course);
+
+      expect(service.archive).toHaveBeenCalledTimes(1);
+      expect(service.archive).toHaveBeenCalledWith(COURSE_ID, dto, ACTOR.id);
+      expect(service.unarchive).not.toHaveBeenCalled();
+    });
+
+    it("delegates unarchiveCourse to CoursesService.unarchive with the id and the actor id", async () => {
+      await expect(controller.unarchiveCourse(COURSE_ID, ACTOR)).resolves.toBe(course);
+
+      expect(service.unarchive).toHaveBeenCalledTimes(1);
+      expect(service.unarchive).toHaveBeenCalledWith(COURSE_ID, ACTOR.id);
+      expect(service.archive).not.toHaveBeenCalled();
     });
   });
 });

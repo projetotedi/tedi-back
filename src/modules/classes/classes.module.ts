@@ -14,6 +14,7 @@ import { SchoolClass } from "./entities/class.entity";
 import { Edition } from "./entities/edition.entity";
 import { Enrollment } from "./entities/enrollment.entity";
 import { ClassDetailService } from "./services/class-detail.service";
+import { ClassListService } from "./services/class-list.service";
 import { ClassesService } from "./services/classes.service";
 import { CourseClassesService } from "./services/course-classes.service";
 import { EditionsService } from "./services/editions.service";
@@ -27,7 +28,8 @@ import { EnrollmentsService } from "./services/enrollments.service";
   // catalog <- classes and people <- classes, as docs/ARCHITECTURE.md section 3 draws it.
   // CatalogModule is in use since GUS-102: CoursesService.getCourseSummary validates the course of
   // a class and gives the `course` that every answer shows. Since GUS-104 it also gives
-  // CourseLessonPlansService.readSequence, for the workload of the course on the sheet of the class.
+  // CourseLessonPlansService.readSequence, for the workload of the course on the sheet of the class,
+  // and since GUS-103 CourseLookupService, for the courses of the list of classes.
   // PeopleModule has its first consumer in GUS-104 too: PeopleService.findRefsByIds, for who
   // created the class and the students of the preview. GUS-108 (the enrollments) uses
   // StudentsService.findStudentSummaries (the students of an enrollment, FOR SHARE on the profile)
@@ -57,6 +59,7 @@ import { EnrollmentsService } from "./services/enrollments.service";
   providers: [
     ClassesService,
     ClassDetailService,
+    ClassListService,
     CourseClassesService,
     EditionsService,
     EnrollmentCountsService,

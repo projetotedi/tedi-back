@@ -58,6 +58,10 @@ export enum AuditableAction {
   COURSE_LESSON_PLANS_REPLACED = "COURSE_LESSON_PLANS_REPLACED",
   /** A course was duplicated (GUS-117). Target is the copy; after carries sourceCourseId, the copied fields and lessonPlanIds in order. */
   COURSE_DUPLICATED = "COURSE_DUPLICATED",
+  /** A course was archived instead of deleted; it takes no new class (RN-27, RF-020, GUS-116). After carries archivedAt and archiveReason. */
+  COURSE_ARCHIVED = "COURSE_ARCHIVED",
+  /** An archived course was reactivated (GUS-116). Before carries the three archive columns. */
+  COURSE_UNARCHIVED = "COURSE_UNARCHIVED",
   /** A class was created, with its edition when that did not exist yet (GUS-101). */
   CLASS_CREATED = "CLASS_CREATED",
   /** Class data changed, or its edition. Payload carries only the changed fields plus changedFields (GUS-101). */

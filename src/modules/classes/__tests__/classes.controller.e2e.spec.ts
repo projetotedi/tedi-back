@@ -99,10 +99,11 @@ describe("ClassesController (e2e)", () => {
   let member: Actor;
   let courseId: string;
 
-  // The rules that depend on the active enrollments (archive, seats, change of course) run on real
-  // enrollments (GUS-108); the spy only records the calls of the real provider.
+  // The rules that depend on the enrollments (archive, seats, change of course, enrolledCount of the
+  // list) run on real enrollments (GUS-108); the spies only record the calls of the real provider.
   let countActive: jest.SpyInstance;
   let countLive: jest.SpyInstance;
+  let countActiveByClass: jest.SpyInstance;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -149,6 +150,7 @@ describe("ClassesController (e2e)", () => {
     );
     countActive = jest.spyOn(module.get(EnrollmentCountsService), "countActive");
     countLive = jest.spyOn(module.get(EnrollmentCountsService), "countLive");
+    countActiveByClass = jest.spyOn(module.get(EnrollmentCountsService), "countActiveByClass");
 
     director = await createActor("Director", Role.DIRECTOR);
     coordinator = await createActor("Coordinator", Role.COORDINATOR);
@@ -160,6 +162,7 @@ describe("ClassesController (e2e)", () => {
     eventEmitter.removeAllListeners(AUDITABLE_ACTION_EVENT);
     countActive.mockRestore();
     countLive.mockRestore();
+    countActiveByClass.mockRestore();
   });
 
   /** `count` real students with an active enrollment in the class (by SQL: scenery, not the rule). */
@@ -602,6 +605,30 @@ describe("ClassesController (e2e)", () => {
       );
       await postClass(director, body({ code: "INFO-B", editionName: "2026.2" })).expect(201);
       expect(await countRows("classes")).toBe(2);
+    });
+
+    it("GUS-116: a course archived through PATCH /courses/:id/archive takes no new class, keeps the classes it had and takes them again once reactivated", async () => {
+      const first = await createClass();
+      const before = await storedClass(first.id);
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}/archive`)
+        .set("Cookie", coordinator.cookie)
+        .send({ reason: "Substituído pela versão 2026." })
+        .expect(200);
+
+      const refused = await postClass(director, body({ code: "INFO-B" })).expect(409);
+      expect(refused.body.error).toBe("COURSE_ARCHIVED");
+      expect(await countRows("classes")).toBe(1);
+
+      // The class that was there before is left exactly as it was.
+      expect(await storedClass(first.id)).toEqual(before);
+
+      await request(app.getHttpServer())
+        .patch(`/courses/${courseId}/unarchive`)
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      await postClass(director, body({ code: "INFO-B" })).expect(201);
     });
 
     it("answers COURSE_NOT_FOUND, then COURSE_ARCHIVED, before CLASS_CODE_TAKEN", async () => {
@@ -2104,6 +2131,301 @@ describe("ClassesController (e2e)", () => {
         category: "intermediate",
         status: "active",
       });
+    });
+  });
+
+  describe("GET /classes (listClasses)", () => {
+    interface ListItemBody {
+      id: string;
+      code: string;
+      name: string | null;
+      course: CourseBody;
+      edition: { id: string; name: string };
+      startDate: string;
+      endDate: string;
+      enrolledCount: number;
+      capacity: number;
+      status: string;
+      archivedAt: string | null;
+    }
+
+    interface ListBody {
+      data: ListItemBody[];
+      total: number;
+      page: number;
+      limit: number;
+    }
+
+    type Query = Record<string, string | number | boolean | string[]>;
+
+    function listClasses(query: Query = {}, actor = director) {
+      return request(app.getHttpServer()).get("/classes").query(query).set("Cookie", actor.cookie);
+    }
+
+    async function listBody(query: Query = {}): Promise<ListBody> {
+      const res = await listClasses(query).expect(200);
+      return res.body as ListBody;
+    }
+
+    const codesOf = (body: ListBody) => body.data.map((item) => item.code);
+
+    /** The SQL the database ran while `work` ran, the lookups of the guard included. */
+    async function queriesDuring(work: () => PromiseLike<unknown>): Promise<string[]> {
+      const spy = jest.spyOn(dataSource.logger, "logQuery");
+      try {
+        await work();
+        return spy.mock.calls.map(([sql]) => sql);
+      } finally {
+        spy.mockRestore();
+      }
+    }
+
+    it("CT1: 12 classes in 2026.1 and 3 in 2025.2, editionId of 2026.1 and limit 10 answer 10 items and total 12", async () => {
+      let editionId = "";
+      for (let index = 1; index <= 12; index++) {
+        const created = await createClass(body({ code: `T-${String(index).padStart(2, "0")}` }));
+        editionId = created.edition.id;
+      }
+      for (let index = 1; index <= 3; index++) {
+        await createClass(
+          body({
+            code: `OLD-${index}`,
+            editionName: "2025.2",
+            startDate: "2025-08-05",
+            endDate: "2025-12-12",
+          }),
+        );
+      }
+
+      const first = await listBody({ editionId, limit: 10 });
+      const second = await listBody({ editionId, limit: 10, page: 2 });
+
+      expect(first).toMatchObject({ total: 12, page: 1, limit: 10 });
+      expect(first.data).toHaveLength(10);
+      expect(second.data).toHaveLength(2);
+      expect([...first.data, ...second.data].every((item) => item.edition.name === "2026.1")).toBe(
+        true,
+      );
+      expect((await listBody()).total).toBe(15);
+    });
+
+    it("answers each class with its course, edition, period, seats, status and enrolledCount", async () => {
+      const created = await createClass(
+        body({ name: "Informática Básica — A", location: "Sala 2" }),
+      );
+
+      const [item] = (await listBody()).data;
+
+      expect(item).toEqual({
+        id: created.id,
+        code: "INFO-A",
+        name: "Informática Básica — A",
+        course: BASIC_COURSE(),
+        edition: { id: created.edition.id, name: "2026.1" },
+        startDate: "2026-03-03",
+        endDate: "2026-06-27",
+        enrolledCount: 0,
+        capacity: 15,
+        status: "planned",
+        archivedAt: null,
+      });
+    });
+
+    it("CT2: category=basic answers only the classes of basic courses, with the current category of the course", async () => {
+      const networks = await createCourse("Redes Sociais com Segurança", "intermediate");
+      await createClass();
+      await createClass(body({ courseId: networks, code: "REDES-A" }));
+
+      expect(codesOf(await listBody({ category: "basic" }))).toEqual(["INFO-A"]);
+      const intermediate = await listBody({ category: "intermediate" });
+      expect(codesOf(intermediate)).toEqual(["REDES-A"]);
+      expect(intermediate.data[0].course.category).toBe("intermediate");
+      expect((await listBody({ category: "advanced" })).total).toBe(0);
+    });
+
+    it("CT3: search=INFO finds INFO-A and INFO-B, and search=smartphones finds by the name of the course", async () => {
+      const smartphones = await createCourse("Smartphones no dia a dia");
+      await createClass();
+      await createClass(body({ code: "INFO-B" }));
+      await createClass(body({ courseId: smartphones, code: "CEL-A" }));
+
+      expect(codesOf(await listBody({ search: "INFO", sort: "code" }))).toEqual([
+        "INFO-A",
+        "INFO-B",
+      ]);
+      expect(codesOf(await listBody({ search: "smartphones" }))).toEqual(["CEL-A"]);
+    });
+
+    it("finds the same classes for search=informatica and search=INFORMÁTICA, by the name of the course or of the class", async () => {
+      const smartphones = await createCourse("Smartphones no dia a dia");
+      await createClass(body({ code: "T1" }));
+      await createClass(
+        body({ courseId: smartphones, code: "T2", name: "Informática no celular" }),
+      );
+      await createClass(body({ courseId: smartphones, code: "T3" }));
+
+      const lower = await listBody({ search: "informatica", sort: "code" });
+      const upper = await listBody({ search: "INFORMÁTICA", sort: "code" });
+
+      expect(codesOf(lower)).toEqual(["T1", "T2"]);
+      expect(codesOf(upper)).toEqual(codesOf(lower));
+    });
+
+    it("treats % and _ in the search as plain characters", async () => {
+      await createClass();
+
+      expect((await listBody({ search: "%" })).total).toBe(0);
+      expect((await listBody({ search: "_" })).total).toBe(0);
+    });
+
+    it("accepts more than one status, comma separated or repeated", async () => {
+      await createClass(body({ code: "A" }));
+      await createClass(body({ code: "B", status: "in_progress" }));
+      await createClass(body({ code: "C", status: "completed" }));
+
+      expect(codesOf(await listBody({ status: "planned,in_progress", sort: "code" }))).toEqual([
+        "A",
+        "B",
+      ]);
+      expect(
+        codesOf(await listBody({ status: ["completed", "in_progress"], sort: "code" })),
+      ).toEqual(["B", "C"]);
+      expect(codesOf(await listBody({ status: "completed" }))).toEqual(["C"]);
+    });
+
+    it("combines courseId, status, category and search", async () => {
+      const smartphones = await createCourse("Smartphones no dia a dia");
+      await createClass(body({ code: "INFO-A" }));
+      await createClass(body({ code: "INFO-B", status: "in_progress" }));
+      await createClass(body({ courseId: smartphones, code: "INFO-C", status: "in_progress" }));
+
+      const body1 = await listBody({
+        courseId,
+        status: "in_progress",
+        category: "basic",
+        search: "info",
+      });
+
+      expect(codesOf(body1)).toEqual(["INFO-B"]);
+      expect((await listBody({ courseId: smartphones, search: "info" })).total).toBe(1);
+    });
+
+    it("lists only the classes that are not archived, and only the archived ones with archived=true", async () => {
+      await createClass(body({ code: "INFO-A" }));
+      const archived = await createClass(body({ code: "INFO-B" }));
+      await archiveClass(archived.id, director).expect(200);
+
+      expect(codesOf(await listBody())).toEqual(["INFO-A"]);
+      expect(codesOf(await listBody({ archived: false }))).toEqual(["INFO-A"]);
+      const onlyArchived = await listBody({ archived: true });
+      expect(codesOf(onlyArchived)).toEqual(["INFO-B"]);
+      expect(onlyArchived.data[0].archivedAt).toEqual(expect.any(String));
+    });
+
+    it("keeps listing a class whose course was archived, with the course status archived", async () => {
+      await createClass();
+      await archiveCourse(dataSource, courseId, coordinator.id);
+
+      const [item] = (await listBody()).data;
+
+      expect(item.course.status).toBe("archived");
+    });
+
+    it("orders by the start date, newest first, by default, and by code with sort=code", async () => {
+      await createClass(body({ code: "B", startDate: "2026-03-03" }));
+      await createClass(body({ code: "C", startDate: "2026-08-03", endDate: "2026-12-01" }));
+      await createClass(body({ code: "a", startDate: "2026-05-04" }));
+
+      expect(codesOf(await listBody())).toEqual(["C", "a", "B"]);
+      expect(codesOf(await listBody({ sort: "code" }))).toEqual(["a", "B", "C"]);
+    });
+
+    it("CT4: enrolledCount is the active enrollments of each class, from one call for the whole page", async () => {
+      const first = await createClass(body({ code: "INFO-A" }));
+      const second = await createClass(body({ code: "INFO-B" }));
+      // 12 real active enrollments in the first class and none in the second (GUS-108).
+      await enroll(first.id, 12);
+
+      const page = await listBody({ sort: "code" });
+
+      expect(page.data.map((item) => item.enrolledCount)).toEqual([12, 0]);
+      expect(countActiveByClass).toHaveBeenCalledTimes(1);
+      expect(countActiveByClass.mock.calls[0][1]).toEqual(
+        expect.arrayContaining([first.id, second.id]),
+      );
+    });
+
+    it("reads with the same number of queries for 1 and for 12 classes of different courses and editions", async () => {
+      await createClass();
+      const countQueries = async () =>
+        (await queriesDuring(() => listClasses().expect(200))).length;
+      const withOne = await countQueries();
+
+      for (let index = 0; index < 11; index++) {
+        const otherCourse = await createCourse(`Curso ${index}`);
+        await createClass(
+          body({
+            courseId: otherCourse,
+            code: `C-${index}`,
+            editionName: `2027.${(index % 9) + 1}`,
+          }),
+        );
+      }
+
+      expect(await countQueries()).toBe(withOne);
+      expect((await listBody()).total).toBe(12);
+    });
+
+    it("answers an empty page with no extra query when no course matches the category", async () => {
+      await createClass();
+
+      const queries = await queriesDuring(() => listClasses({ category: "advanced" }).expect(200));
+
+      expect(queries.some((sql) => /FROM "classes"/.test(sql))).toBe(false);
+    });
+
+    it("returns 200 for a member, a coordinator and a director", async () => {
+      await createClass();
+
+      for (const actor of [member, coordinator, director]) {
+        const res = await listClasses({}, actor).expect(200);
+        expect(res.body.total).toBe(1);
+      }
+    });
+
+    it("returns 401 without a session cookie", async () => {
+      await request(app.getHttpServer()).get("/classes").expect(401);
+    });
+
+    it("returns 400 VALIDATION_FAILED for invalid filters", async () => {
+      const cases: Array<[Query, string]> = [
+        [{ status: "open" }, "status"],
+        [{ status: "planned,closed" }, "status"],
+        [{ archived: "sim" }, "archived"],
+        [{ editionId: "2026.1" }, "editionId"],
+        [{ courseId: "abc" }, "courseId"],
+        [{ category: "expert" }, "category"],
+        [{ sort: "name" }, "sort"],
+        [{ limit: 101 }, "limit"],
+        [{ search: "x".repeat(101) }, "search"],
+      ];
+
+      for (const [query, field] of cases) {
+        const res = await listClasses(query).expect(400);
+        expect(res.body.error).toBe("VALIDATION_FAILED");
+        expect(fieldsOf(res.body)).toEqual([field]);
+      }
+    });
+
+    it("does not shadow GET /classes/summary-by-course nor GET /classes/:id", async () => {
+      const created = await createClass();
+
+      await request(app.getHttpServer())
+        .get("/classes/summary-by-course")
+        .query({ courseIds: courseId })
+        .set("Cookie", director.cookie)
+        .expect(200);
+      expect((await listBody()).data[0].id).toBe(created.id);
     });
   });
 

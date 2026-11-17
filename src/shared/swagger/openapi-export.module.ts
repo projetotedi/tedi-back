@@ -58,11 +58,13 @@ import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
 import { CourseDetailService } from "@modules/catalog/services/course-detail.service";
+import { CourseListService } from "@modules/catalog/services/course-list.service";
 import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlanUsageService } from "@modules/catalog/services/lesson-plan-usage.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { ClassDetailService } from "@modules/classes/services/class-detail.service";
+import { ClassListService } from "@modules/classes/services/class-list.service";
 import { ClassesService } from "@modules/classes/services/classes.service";
 import { CourseClassesService } from "@modules/classes/services/course-classes.service";
 import { EditionsService } from "@modules/classes/services/editions.service";
@@ -233,6 +235,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
       useValue: { findDetail: async () => ({}) },
     },
     {
+      provide: CourseListService,
+      useValue: { list: async () => ({}) },
+    },
+    {
       provide: ClassesService,
       useValue: {
         create: async () => ({}),
@@ -246,6 +252,10 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     {
       provide: ClassDetailService,
       useValue: { findDetail: async () => ({}) },
+    },
+    {
+      provide: ClassListService,
+      useValue: { list: async () => ({}) },
     },
     {
       provide: EditionsService,
