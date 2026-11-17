@@ -2,6 +2,8 @@ import { HttpException } from "@nestjs/common";
 import {
   assignmentNotConfirmed,
   attendanceCorrectionForbidden,
+  attendanceNotAbsent,
+  attendanceStatusUnchanged,
   classArchived,
   duplicateAssignment,
   duplicateEnrollment,
@@ -11,6 +13,7 @@ import {
   lessonNotFound,
   memberNotFound,
   studentAttendanceAlreadySigned,
+  studentAttendanceNotFound,
 } from "../services/attendance-errors";
 
 function shapeOf(error: HttpException): { status: number; body: unknown } {
@@ -133,7 +136,23 @@ describe("attendance errors", () => {
     }
   });
 
-  it("builds CLASS_ARCHIVED 409 with the body of the lessons", () => {
+  it("builds STUDENT_ATTENDANCE_NOT_FOUND 404, ATTENDANCE_NOT_ABSENT 409, ATTENDANCE_STATUS_UNCHANGED 400 on status and CLASS_ARCHIVED 409", () => {
+    expect(shapeOf(studentAttendanceNotFound())).toEqual({
+      status: 404,
+      body: { error: "STUDENT_ATTENDANCE_NOT_FOUND", message: "Student attendance not found." },
+    });
+    expect(shapeOf(attendanceNotAbsent())).toEqual({
+      status: 409,
+      body: { error: "ATTENDANCE_NOT_ABSENT", message: "Only an absence can be justified." },
+    });
+    expect(shapeOf(attendanceStatusUnchanged())).toEqual({
+      status: 400,
+      body: {
+        error: "ATTENDANCE_STATUS_UNCHANGED",
+        message: "The attendance already has this status.",
+        details: [{ field: "status", message: "must differ from the current status" }],
+      },
+    });
     expect(shapeOf(classArchived())).toEqual({
       status: 409,
       body: { error: "CLASS_ARCHIVED", message: "Archived classes are read-only." },

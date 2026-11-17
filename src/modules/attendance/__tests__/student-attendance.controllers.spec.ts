@@ -7,10 +7,14 @@ import { Role } from "@shared/enums/role.enum";
 import { Permission } from "@shared/permissions/permission.enum";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
 import { LessonStudentAttendanceController } from "../controllers/lesson-student-attendance.controller";
+import { StudentAttendanceController } from "../controllers/student-attendance.controller";
+import { AbsenceJustificationReason } from "../enums/absence-justification-reason.enum";
 import { StudentAttendanceStatus } from "../enums/student-attendance-status.enum";
+import { StudentAttendanceRecordsService } from "../services/student-attendance-records.service";
 import { StudentRollCallService } from "../services/student-roll-call.service";
 
 const LESSON_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
+const ATTENDANCE_ID = "01999a3e-7c1b-7000-8000-000000000a01";
 const ACTOR: AuthUser = {
   id: "01999a3e-0000-7000-8000-0000000000aa",
   role: Role.MEMBER,
@@ -33,38 +37,73 @@ function pipeOfId(controller: object, name: string): PipeTransform {
 }
 
 describe("the controllers of the roll call of the students", () => {
-  it("requires lessons.view on listStudentAttendance and attendance.takeStudents on signStudentAttendance", () => {
+  it("requires lessons.view on listStudentAttendance, attendance.takeStudents on signStudentAttendance and justifyAbsence, and attendance.correct on correctStudentAttendance", () => {
     expect(Reflect.getMetadata(PATH_METADATA, LessonStudentAttendanceController)).toBe(
       "lessons/:id/attendance/students",
     );
+    expect(Reflect.getMetadata(PATH_METADATA, StudentAttendanceController)).toBe(
+      "student-attendance",
+    );
 
-    for (const [name, permission, method] of [
-      ["listStudentAttendance", Permission.LESSONS_VIEW, RequestMethod.GET],
-      ["signStudentAttendance", Permission.ATTENDANCE_TAKE_STUDENTS, RequestMethod.PUT],
+    for (const [controller, name, permission, method, path] of [
+      [
+        LessonStudentAttendanceController,
+        "listStudentAttendance",
+        Permission.LESSONS_VIEW,
+        RequestMethod.GET,
+        "/",
+      ],
+      [
+        LessonStudentAttendanceController,
+        "signStudentAttendance",
+        Permission.ATTENDANCE_TAKE_STUDENTS,
+        RequestMethod.PUT,
+        "/",
+      ],
+      [
+        StudentAttendanceController,
+        "justifyAbsence",
+        Permission.ATTENDANCE_TAKE_STUDENTS,
+        RequestMethod.PATCH,
+        ":id/justify",
+      ],
+      [
+        StudentAttendanceController,
+        "correctStudentAttendance",
+        Permission.ATTENDANCE_CORRECT,
+        RequestMethod.PATCH,
+        ":id/correct",
+      ],
     ] as const) {
-      const handler = handlerOf(LessonStudentAttendanceController.prototype, name);
+      const handler = handlerOf(controller.prototype, name);
       expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(permission);
       expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
       expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(method);
+      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(path);
     }
   });
 
-  it("answers a malformed id with 404 LESSON_NOT_FOUND", async () => {
+  it("answers a malformed id with the 404 of the resource of the URL", async () => {
     const metadata = { type: "param" as const, data: "id" };
-    for (const name of ["listStudentAttendance", "signStudentAttendance"]) {
+    for (const [controller, name, code] of [
+      [LessonStudentAttendanceController, "listStudentAttendance", "LESSON_NOT_FOUND"],
+      [LessonStudentAttendanceController, "signStudentAttendance", "LESSON_NOT_FOUND"],
+      [StudentAttendanceController, "justifyAbsence", "STUDENT_ATTENDANCE_NOT_FOUND"],
+      [StudentAttendanceController, "correctStudentAttendance", "STUDENT_ATTENDANCE_NOT_FOUND"],
+    ] as const) {
       const failure = await Promise.resolve(
-        pipeOfId(LessonStudentAttendanceController, name).transform("not-a-uuid", metadata),
+        pipeOfId(controller, name).transform("not-a-uuid", metadata),
       ).catch((error: unknown) => error);
 
       expect(failure).toBeInstanceOf(HttpException);
-      expect(failure).toMatchObject({ status: 404, response: { error: "LESSON_NOT_FOUND" } });
+      expect(failure).toMatchObject({ status: 404, response: { error: code } });
     }
   });
 
   it("tags both controllers attendance and delegates the id, the body and the actor", async () => {
-    expect(Reflect.getMetadata("swagger/apiUseTags", LessonStudentAttendanceController)).toEqual([
-      "attendance",
-    ]);
+    for (const controller of [LessonStudentAttendanceController, StudentAttendanceController]) {
+      expect(Reflect.getMetadata("swagger/apiUseTags", controller)).toEqual(["attendance"]);
+    }
 
     const service = {
       list: jest.fn().mockResolvedValue(["list"]),
@@ -86,5 +125,23 @@ describe("the controllers of the roll call of the students", () => {
     expect(service.list).toHaveBeenCalledWith(LESSON_ID, ACTOR);
     expect(await controller.signStudentAttendance(LESSON_ID, body, ACTOR)).toEqual(["after"]);
     expect(service.sign).toHaveBeenCalledWith(LESSON_ID, body, ACTOR);
+
+    const records = {
+      justify: jest.fn().mockResolvedValue({ id: "justified" }),
+      correct: jest.fn().mockResolvedValue({ id: "corrected" }),
+    };
+    const recordsController = new StudentAttendanceController(
+      records as unknown as StudentAttendanceRecordsService,
+    );
+    const justification = { reason: AbsenceJustificationReason.HEALTH, note: "Consulta." };
+    const correction = { status: StudentAttendanceStatus.ABSENT, reason: "Engano." };
+    expect(await recordsController.justifyAbsence(ATTENDANCE_ID, justification, ACTOR)).toEqual({
+      id: "justified",
+    });
+    expect(records.justify).toHaveBeenCalledWith(ATTENDANCE_ID, justification, ACTOR);
+    expect(
+      await recordsController.correctStudentAttendance(ATTENDANCE_ID, correction, ACTOR),
+    ).toEqual({ id: "corrected" });
+    expect(records.correct).toHaveBeenCalledWith(ATTENDANCE_ID, correction, ACTOR);
   });
 });

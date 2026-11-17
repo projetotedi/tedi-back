@@ -872,4 +872,308 @@ describe("student attendance routes (e2e)", () => {
       }
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // PATCH /student-attendance/:id/justify
+  // ---------------------------------------------------------------------------
+
+  describe("PATCH /student-attendance/:id/justify (justifyAbsence)", () => {
+    function justify(actor: Actor, id: string, body: Record<string, unknown>) {
+      return request(app.getHttpServer())
+        .patch(`/student-attendance/${id}/justify`)
+        .set("Cookie", actor.cookie)
+        .send(body);
+    }
+
+    async function absenceOf(student: Student): Promise<string> {
+      return insertStudentAttendance(dataSource, {
+        lessonId,
+        enrollmentId: student.enrollmentId,
+        status: "absent",
+        signedById: monitor.id,
+        signedAt: new Date("2026-03-10T14:05:00.000Z"),
+      });
+    }
+
+    async function justificationRow(id: string): Promise<Record<string, unknown>> {
+      const rows: Array<Record<string, unknown>> = await dataSource.query(
+        `SELECT status, justification_reason, justification_note, justified_by_id, justified_at,
+                signed_by_id, signed_at
+           FROM student_attendance WHERE id = $1`,
+        [id],
+      );
+      return rows[0];
+    }
+
+    it("the allocated monitor justifies an absence with reason, note, who and when; the attendance stays absent", async () => {
+      const id = await absenceOf(ana);
+
+      const res = await justify(monitor, id, {
+        reason: "health",
+        note: "  Consulta médica marcada.  ",
+      }).expect(200);
+
+      expect(res.body).toMatchObject({
+        id,
+        status: "absent",
+        justified: true,
+        justification: {
+          reason: "health",
+          note: "Consulta médica marcada.",
+          justifiedBy: { id: monitor.id, name: "Beatriz Nunes" },
+          justifiedAt: NOW.toISOString(),
+        },
+        corrections: [],
+      });
+      expect(await justificationRow(id)).toMatchObject({
+        status: "absent",
+        justification_reason: "health",
+        justification_note: "Consulta médica marcada.",
+        justified_by_id: monitor.id,
+        justified_at: NOW,
+        signed_by_id: monitor.id,
+        signed_at: new Date("2026-03-10T14:05:00.000Z"),
+      });
+    });
+
+    it("justifying again replaces it; the same reason and note is a no-op", async () => {
+      const id = await absenceOf(ana);
+      await justify(monitor, id, { reason: "health", note: "Consulta." }).expect(200);
+
+      await justify(coordinator, id, { reason: "other" }).expect(200);
+      expect(await justificationRow(id)).toMatchObject({
+        justification_reason: "other",
+        justification_note: null,
+        justified_by_id: coordinator.id,
+      });
+
+      const events = collectEvents();
+      const before = await justificationRow(id);
+      await justify(teacher, id, { reason: "other", note: "" }).expect(200);
+      expect(await justificationRow(id)).toEqual(before);
+      expect(studentEvents(events)).toEqual([]);
+    });
+
+    it("answers 409 ATTENDANCE_NOT_ABSENT for a presence, 403 FORBIDDEN_SCOPE to a member not allocated and 404 STUDENT_ATTENDANCE_NOT_FOUND for an unknown or malformed id", async () => {
+      const presence = await insertStudentAttendance(dataSource, {
+        lessonId,
+        enrollmentId: bruno.enrollmentId,
+        status: "present",
+        signedById: monitor.id,
+      });
+      const notAbsent = await justify(monitor, presence, { reason: "health" }).expect(409);
+      expect(notAbsent.body).toEqual({
+        error: "ATTENDANCE_NOT_ABSENT",
+        message: "Only an absence can be justified.",
+      });
+
+      const id = await absenceOf(ana);
+      for (const actor of [outsider, pendingMonitor]) {
+        const forbidden = await justify(actor, id, { reason: "health" }).expect(403);
+        expect(forbidden.body.error).toBe("FORBIDDEN_SCOPE");
+      }
+      expect((await justificationRow(id)).justification_reason).toBeNull();
+
+      for (const unknown of [UNKNOWN_ID, "not-a-uuid"]) {
+        const missing = await justify(coordinator, unknown, { reason: "health" }).expect(404);
+        expect(missing.body.error).toBe("STUDENT_ATTENDANCE_NOT_FOUND");
+      }
+      const invalid = await justify(coordinator, id, { reason: "travel" }).expect(400);
+      expect(invalid.body.error).toBe("VALIDATION_FAILED");
+    });
+
+    it("emits STUDENT_ABSENCE_JUSTIFIED without the reason and the note", async () => {
+      const id = await absenceOf(ana);
+      const events = collectEvents();
+
+      await justify(monitor, id, { reason: "health", note: "Consulta médica marcada." }).expect(
+        200,
+      );
+
+      const [event] = studentEvents(events);
+      expect(event.action).toBe(AuditableAction.STUDENT_ABSENCE_JUSTIFIED);
+      expect(event.targetId).toBe(id);
+      expect(event.actorId).toBe(monitor.id);
+      expect(event.before).toEqual({ justified: false });
+      expect(event.after).toEqual({
+        justified: true,
+        justifiedAt: NOW,
+        changedFields: ["justificationReason", "justificationNote"],
+      });
+      expect(JSON.stringify(event)).not.toMatch(/health|Consulta/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PATCH /student-attendance/:id/correct
+  // ---------------------------------------------------------------------------
+
+  describe("PATCH /student-attendance/:id/correct (correctStudentAttendance)", () => {
+    function correct(actor: Actor, id: string, body: Record<string, unknown>) {
+      return request(app.getHttpServer())
+        .patch(`/student-attendance/${id}/correct`)
+        .set("Cookie", actor.cookie)
+        .send(body);
+    }
+
+    async function presenceOf(student: Student): Promise<string> {
+      return insertStudentAttendance(dataSource, {
+        lessonId,
+        enrollmentId: student.enrollmentId,
+        status: "present",
+        signedById: monitor.id,
+        signedAt: new Date("2026-03-10T14:05:00.000Z"),
+      });
+    }
+
+    async function correctionRows(id: string): Promise<Array<Record<string, unknown>>> {
+      return dataSource.query(
+        `SELECT from_status, to_status, reason, corrected_by_id, created_at
+           FROM attendance_corrections WHERE student_attendance_id = $1 ORDER BY created_at, id`,
+        [id],
+      );
+    }
+
+    it("CA3: without a reason (missing, empty or blank) answers 400 VALIDATION_FAILED and writes nothing", async () => {
+      const id = await presenceOf(ana);
+
+      for (const body of [
+        { status: "absent" },
+        { status: "absent", reason: "" },
+        { status: "absent", reason: "   " },
+      ]) {
+        const res = await correct(coordinator, id, body).expect(400);
+        expect(res.body.error).toBe("VALIDATION_FAILED");
+        expect(res.body.details.map((detail: { field: string }) => detail.field)).toContain(
+          "reason",
+        );
+      }
+      expect(await correctionRows(id)).toEqual([]);
+      const rows: Array<{ status: string }> = await dataSource.query(
+        `SELECT status FROM student_attendance WHERE id = $1`,
+        [id],
+      );
+      expect(rows).toEqual([{ status: "present" }]);
+    });
+
+    it("CA3: with a reason the coordination corrects present to absent: one row in attendance_corrections with from, to, reason, who and when, and the history shows in the attendance and in the list", async () => {
+      const id = await presenceOf(ana);
+
+      const res = await correct(coordinator, id, {
+        status: "absent",
+        reason: "  Marcado por engano: saiu antes do início.  ",
+      }).expect(200);
+
+      expect(await correctionRows(id)).toEqual([
+        {
+          from_status: "present",
+          to_status: "absent",
+          reason: "Marcado por engano: saiu antes do início.",
+          corrected_by_id: coordinator.id,
+          created_at: NOW,
+        },
+      ]);
+      expect(res.body).toMatchObject({
+        id,
+        status: "absent",
+        // The first signature stays.
+        signedBy: { id: monitor.id, name: "Beatriz Nunes" },
+        signedAt: "2026-03-10T14:05:00.000Z",
+        corrections: [
+          {
+            fromStatus: "present",
+            toStatus: "absent",
+            reason: "Marcado por engano: saiu antes do início.",
+            correctedBy: { id: coordinator.id, name: "Carla Coordenadora" },
+            correctedAt: NOW.toISOString(),
+          },
+        ],
+      });
+
+      const list = await getRollCall(monitor).expect(200);
+      expect(itemOf(list.body as RollCallItemBody[], ana).attendance?.corrections).toEqual(
+        res.body.corrections,
+      );
+    });
+
+    it("correcting an absence to present clears its justification", async () => {
+      const id = await insertStudentAttendance(dataSource, {
+        lessonId,
+        enrollmentId: ana.enrollmentId,
+        status: "absent",
+        signedById: monitor.id,
+        justification: { reason: "health", note: "Consulta.", justifiedById: monitor.id },
+      });
+
+      const res = await correct(director, id, {
+        status: "present",
+        reason: "Chegou depois da chamada.",
+      }).expect(200);
+
+      expect(res.body).toMatchObject({ status: "present", justified: false, justification: null });
+      const rows: Array<Record<string, unknown>> = await dataSource.query(
+        `SELECT justification_reason, justification_note, justified_by_id, justified_at
+           FROM student_attendance WHERE id = $1`,
+        [id],
+      );
+      expect(rows).toEqual([
+        {
+          justification_reason: null,
+          justification_note: null,
+          justified_by_id: null,
+          justified_at: null,
+        },
+      ]);
+    });
+
+    it("answers 400 ATTENDANCE_STATUS_UNCHANGED for the same status, 403 FORBIDDEN to a member (allocated or not) and 409 LESSON_CANCELLED", async () => {
+      const id = await presenceOf(ana);
+
+      const unchanged = await correct(coordinator, id, {
+        status: "present",
+        reason: "Nada muda.",
+      }).expect(400);
+      expect(unchanged.body).toEqual({
+        error: "ATTENDANCE_STATUS_UNCHANGED",
+        message: "The attendance already has this status.",
+        details: [{ field: "status", message: "must differ from the current status" }],
+      });
+
+      for (const actor of [monitor, teacher, outsider]) {
+        const forbidden = await correct(actor, id, { status: "absent", reason: "Engano." }).expect(
+          403,
+        );
+        expect(forbidden.body.error).toBe("FORBIDDEN");
+      }
+
+      await lessonsService.cancel(lessonId, { reason: "Feriado." }, coordinator.id);
+      const cancelled = await correct(coordinator, id, {
+        status: "absent",
+        reason: "Engano.",
+      }).expect(409);
+      expect(cancelled.body.error).toBe("LESSON_CANCELLED");
+      expect(await correctionRows(id)).toEqual([]);
+    });
+
+    it("emits STUDENT_ATTENDANCE_CORRECTED without the reason", async () => {
+      const id = await presenceOf(ana);
+      const events = collectEvents();
+
+      await correct(coordinator, id, { status: "absent", reason: "Problema de saúde." }).expect(
+        200,
+      );
+
+      const [event] = studentEvents(events);
+      expect(event.action).toBe(AuditableAction.STUDENT_ATTENDANCE_CORRECTED);
+      expect(event.targetId).toBe(id);
+      expect(event.before).toEqual({ status: "present", justified: false });
+      expect(event.after).toEqual({
+        status: "absent",
+        justified: false,
+        correctionId: expect.any(String),
+        correctedAt: NOW,
+      });
+      expect(JSON.stringify(event)).not.toContain("saúde");
+    });
+  });
 });

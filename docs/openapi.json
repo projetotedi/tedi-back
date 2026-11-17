@@ -1288,6 +1288,32 @@
         ],
         "type": "object"
       },
+      "CorrectStudentAttendanceDto": {
+        "description": "The correction of a signed attendance: the new status, which must differ from the current one, and the reason, required. It goes to the history of the attendance.",
+        "properties": {
+          "reason": {
+            "description": "Why the attendance is corrected. Required: missing, empty or blank after the trim is 400 VALIDATION_FAILED. It goes to the history of the attendance, never to an event (it may carry health data).",
+            "example": "Marcado por engano: o aluno saiu antes do início da aula.",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StudentAttendanceStatus"
+              }
+            ],
+            "description": "present or absent. A justified absence is still absent: it counts as an absence in the attendance rate. Students generate no hours.",
+            "example": "absent"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ],
+        "type": "object"
+      },
       "CourseCategory": {
         "description": "Level of the content. A class has no category of its own: it shows the one of its course (RN-14).",
         "enum": [
@@ -3348,6 +3374,31 @@
           "password_reset"
         ],
         "type": "string"
+      },
+      "JustifyAbsenceDto": {
+        "description": "The justification of an absence: why, and optionally a note. Justifying again replaces it; the same reason and note change nothing. The absence stays an absence.",
+        "properties": {
+          "note": {
+            "description": "A note about the absence. Optional; trimmed, and empty becomes null. It may carry health data: it never goes to an event, and only whoever takes the roll call of the lesson reads it.",
+            "example": "Consulta médica marcada.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AbsenceJustificationReason"
+              }
+            ],
+            "description": "Why the student missed the lesson: health or other (the note says more). The front translates by the value.",
+            "example": "health"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "type": "object"
       },
       "LessonAssignmentResponseDto": {
         "properties": {
@@ -16412,6 +16463,210 @@
         },
         "tags": [
           "people"
+        ]
+      }
+    },
+    "/student-attendance/{id}/correct": {
+      "patch": {
+        "operationId": "correctStudentAttendance",
+        "parameters": [
+          {
+            "description": "Id of the attendance of the student (attendance.id of the roll call).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectStudentAttendanceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAttendanceResponseDto"
+                }
+              }
+            },
+            "description": "The attendance after the commit, with the new correction last in corrections."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | ATTENDANCE_STATUS_UNCHANGED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_ATTENDANCE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
+        ]
+      }
+    },
+    "/student-attendance/{id}/justify": {
+      "patch": {
+        "operationId": "justifyAbsence",
+        "parameters": [
+          {
+            "description": "Id of the attendance of the student (attendance.id of the roll call).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JustifyAbsenceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAttendanceResponseDto"
+                }
+              }
+            },
+            "description": "The attendance after the commit, with the justification. The same reason and note again change nothing."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "STUDENT_ATTENDANCE_NOT_FOUND"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED | ATTENDANCE_NOT_ABSENT"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "attendance"
         ]
       }
     },

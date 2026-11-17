@@ -110,6 +110,10 @@ export enum AuditableAction {
   MEMBER_ATTENDANCE_CORRECTED = "MEMBER_ATTENDANCE_CORRECTED",
   /** The attendance of a student at a lesson was signed for the first time, present or absent; after carries ids, status and instant only (GUS-166). */
   STUDENT_ATTENDANCE_SIGNED = "STUDENT_ATTENDANCE_SIGNED",
+  /** An absence of a student was justified, or its justification replaced; changedFields names the fields that changed, never their values: the reason and the note may be health data (RNF-13, GUS-166). */
+  STUDENT_ABSENCE_JUSTIFIED = "STUDENT_ABSENCE_JUSTIFIED",
+  /** A signed attendance of a student changed status through a correction; carries the statuses, whether it is justified and the id of the correction, never its reason (RNF-13, GUS-166). */
+  STUDENT_ATTENDANCE_CORRECTED = "STUDENT_ATTENDANCE_CORRECTED",
 }
 
 /**

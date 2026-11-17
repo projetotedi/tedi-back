@@ -10,11 +10,13 @@ import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { LessonMemberAttendanceController } from "./controllers/lesson-member-attendance.controller";
 import { LessonStudentAttendanceController } from "./controllers/lesson-student-attendance.controller";
 import { MemberAttendanceController } from "./controllers/member-attendance.controller";
+import { StudentAttendanceController } from "./controllers/student-attendance.controller";
 import { AttendanceCorrection } from "./entities/attendance-correction.entity";
 import { MemberAttendance } from "./entities/member-attendance.entity";
 import { StudentAttendance } from "./entities/student-attendance.entity";
 import { MemberAttendanceHistoryService } from "./services/member-attendance-history.service";
 import { MemberAttendanceService } from "./services/member-attendance.service";
+import { StudentAttendanceRecordsService } from "./services/student-attendance-records.service";
 import { StudentRollCallCounterService } from "./services/student-roll-call-counter.service";
 import { StudentRollCallGuard } from "./services/student-roll-call.guard";
 import { StudentRollCallService } from "./services/student-roll-call.service";
@@ -53,6 +55,7 @@ import { StudentRollCallService } from "./services/student-roll-call.service";
     LessonMemberAttendanceController,
     MemberAttendanceController,
     LessonStudentAttendanceController,
+    StudentAttendanceController,
   ],
   // StudentRollCallCounterService plugs itself in the port of the lessons (LessonRollCallRegistry)
   // in onModuleInit, so every answer of the lessons counts the roll call through it.
@@ -60,6 +63,7 @@ import { StudentRollCallService } from "./services/student-roll-call.service";
     MemberAttendanceService,
     MemberAttendanceHistoryService,
     StudentRollCallService,
+    StudentAttendanceRecordsService,
     StudentRollCallGuard,
     StudentRollCallCounterService,
     Clock,

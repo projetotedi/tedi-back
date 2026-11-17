@@ -138,6 +138,40 @@ export function studentAttendanceAlreadySigned(fields: readonly string[]): HttpE
   );
 }
 
+/**
+ * 404 for `/student-attendance/:id`, shared by the pipe of the id of the route and by the service:
+ * an unknown, malformed or removed attendance.
+ */
+export function studentAttendanceNotFound(): HttpException {
+  return new HttpException(
+    { error: "STUDENT_ATTENDANCE_NOT_FOUND", message: "Student attendance not found." },
+    404,
+  );
+}
+
+/** 409: only an absence is justified; a presence is corrected instead. */
+export function attendanceNotAbsent(): HttpException {
+  return new HttpException(
+    { error: "ATTENDANCE_NOT_ABSENT", message: "Only an absence can be justified." },
+    409,
+  );
+}
+
+/**
+ * 400: a correction to the status the attendance already has changes nothing, and would throw the
+ * reason away in silence. It points to `status`, the field of the body.
+ */
+export function attendanceStatusUnchanged(): HttpException {
+  return new HttpException(
+    {
+      error: "ATTENDANCE_STATUS_UNCHANGED",
+      message: "The attendance already has this status.",
+      details: [{ field: "status", message: "must differ from the current status" }],
+    },
+    400,
+  );
+}
+
 /** 409: archived classes are read-only (RN-27), their roll calls included. */
 export function classArchived(): HttpException {
   return new HttpException(
