@@ -281,14 +281,14 @@ describe("StudentAttendanceRecordsService", () => {
       nothingWritten();
     });
 
-    it("answers 409 ATTENDANCE_NOT_ABSENT for a presence", async () => {
+    it("answers 409 STUDENT_ATTENDANCE_NOT_ABSENT for a presence", async () => {
       state.locked = rowOf({ status: PRESENT });
 
       const failure = await httpFailure(service.justify(ROW_ID, { reason: HEALTH }, MONITOR));
 
       expect(failure.getStatus()).toBe(409);
       expect(failure.getResponse()).toEqual({
-        error: "ATTENDANCE_NOT_ABSENT",
+        error: "STUDENT_ATTENDANCE_NOT_ABSENT",
         message: "Only an absence can be justified.",
       });
       nothingWritten();
@@ -445,14 +445,14 @@ describe("StudentAttendanceRecordsService", () => {
       nothingWritten();
     });
 
-    it("answers 400 ATTENDANCE_STATUS_UNCHANGED with details on status for the status the record already has, and writes nothing", async () => {
+    it("answers 400 STUDENT_ATTENDANCE_STATUS_UNCHANGED with details on status for the status the record already has, and writes nothing", async () => {
       const failure = await httpFailure(
         service.correct(ROW_ID, { status: ABSENT, reason: "Engano." }, COORDINATOR),
       );
 
       expect(failure.getStatus()).toBe(400);
       expect(failure.getResponse()).toEqual({
-        error: "ATTENDANCE_STATUS_UNCHANGED",
+        error: "STUDENT_ATTENDANCE_STATUS_UNCHANGED",
         message: "The attendance already has this status.",
         details: [{ field: "status", message: "must differ from the current status" }],
       });

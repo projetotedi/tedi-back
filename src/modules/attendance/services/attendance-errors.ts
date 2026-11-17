@@ -150,9 +150,9 @@ export function studentAttendanceNotFound(): HttpException {
 }
 
 /** 409: only an absence is justified; a presence is corrected instead. */
-export function attendanceNotAbsent(): HttpException {
+export function studentAttendanceNotAbsent(): HttpException {
   return new HttpException(
-    { error: "ATTENDANCE_NOT_ABSENT", message: "Only an absence can be justified." },
+    { error: "STUDENT_ATTENDANCE_NOT_ABSENT", message: "Only an absence can be justified." },
     409,
   );
 }
@@ -161,10 +161,10 @@ export function attendanceNotAbsent(): HttpException {
  * 400: a correction to the status the attendance already has changes nothing, and would throw the
  * reason away in silence. It points to `status`, the field of the body.
  */
-export function attendanceStatusUnchanged(): HttpException {
+export function studentAttendanceStatusUnchanged(): HttpException {
   return new HttpException(
     {
-      error: "ATTENDANCE_STATUS_UNCHANGED",
+      error: "STUDENT_ATTENDANCE_STATUS_UNCHANGED",
       message: "The attendance already has this status.",
       details: [{ field: "status", message: "must differ from the current status" }],
     },

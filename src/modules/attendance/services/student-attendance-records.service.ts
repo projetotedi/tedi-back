@@ -20,10 +20,10 @@ import { AttendanceCorrection } from "../entities/attendance-correction.entity";
 import { StudentAttendance } from "../entities/student-attendance.entity";
 import { StudentAttendanceStatus } from "../enums/student-attendance-status.enum";
 import {
-  attendanceNotAbsent,
-  attendanceStatusUnchanged,
   lessonCancelled,
+  studentAttendanceNotAbsent,
   studentAttendanceNotFound,
+  studentAttendanceStatusUnchanged,
 } from "./attendance-errors";
 import { correctedAuditOf, justifiedAuditOf } from "./student-attendance-audit";
 import { toStudentAttendanceResponse } from "./student-attendance-response.mapper";
@@ -67,7 +67,7 @@ export class StudentAttendanceRecordsService {
    * Errors, in the order they are answered: 404 STUDENT_ATTENDANCE_NOT_FOUND, 409 LESSON_CANCELLED,
    * 409 CLASS_ARCHIVED, 403 FORBIDDEN_SCOPE (a member who does not take the roll call of the lesson:
    * the confirmed assignments are read FOR SHARE, after the advisory lock) and 409
-   * ATTENDANCE_NOT_ABSENT.
+   * STUDENT_ATTENDANCE_NOT_ABSENT.
    *
    * Emits STUDENT_ABSENCE_JUSTIFIED after the commit, with the names of the fields that changed and
    * never their values.
@@ -84,7 +84,7 @@ export class StudentAttendanceRecordsService {
       const { id, lesson } = await this.lockRollCallOf(manager, requestedId);
       await this.guard.assertCanTake(actor, lesson.id, manager);
       const row = await this.lockRow(manager, id);
-      if (row.status !== StudentAttendanceStatus.ABSENT) throw attendanceNotAbsent();
+      if (row.status !== StudentAttendanceStatus.ABSENT) throw studentAttendanceNotAbsent();
 
       const changedFields = [
         ...(row.justificationReason === dto.reason ? [] : ["justificationReason"]),
@@ -117,7 +117,7 @@ export class StudentAttendanceRecordsService {
    * absent it is not restored.
    *
    * Errors, in the order they are answered: 404 STUDENT_ATTENDANCE_NOT_FOUND, 409 LESSON_CANCELLED,
-   * 409 CLASS_ARCHIVED and 400 ATTENDANCE_STATUS_UNCHANGED (a correction to the status it already
+   * 409 CLASS_ARCHIVED and 400 STUDENT_ATTENDANCE_STATUS_UNCHANGED (a correction to the status it already
    * has would throw the reason away). Who may is attendance.correct, all or none, so the guard of
    * the route decides it and the policy is not asked here.
    *
@@ -133,7 +133,7 @@ export class StudentAttendanceRecordsService {
     const outcome = await this.dataSource.transaction(async (manager): Promise<RecordOutcome> => {
       const { id } = await this.lockRollCallOf(manager, requestedId);
       const row = await this.lockRow(manager, id);
-      if (row.status === dto.status) throw attendanceStatusUnchanged();
+      if (row.status === dto.status) throw studentAttendanceStatusUnchanged();
 
       const correction = await manager.save(
         AttendanceCorrection,

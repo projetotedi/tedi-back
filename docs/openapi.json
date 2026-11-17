@@ -16510,7 +16510,7 @@
                 }
               }
             },
-            "description": "VALIDATION_FAILED | ATTENDANCE_STATUS_UNCHANGED"
+            "description": "VALIDATION_FAILED | STUDENT_ATTENDANCE_STATUS_UNCHANGED"
           },
           "401": {
             "content": {
@@ -16652,7 +16652,7 @@
                 }
               }
             },
-            "description": "LESSON_CANCELLED | CLASS_ARCHIVED | ATTENDANCE_NOT_ABSENT"
+            "description": "LESSON_CANCELLED | CLASS_ARCHIVED | STUDENT_ATTENDANCE_NOT_ABSENT"
           },
           "500": {
             "content": {

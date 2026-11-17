@@ -29,10 +29,10 @@ body:json {
 docs {
   Justifica a falta de um aluno numa aula (modal "Justificar falta", GUS-166). O :id é o id da presença (attendance.id da chamada da aula).
   Requer cookie tedi_session e a permissão attendance.takeStudents (todos os perfis); o escopo é o da aula da presença: o membro só justifica na aula em que é o professor ou um monitor CONFIRMADO, diretoria e coordenação em qualquer aula. Membro não alocado recebe 403 FORBIDDEN_SCOPE.
-  Corpo: reason obrigatório (health ou other; a lista é mínima de propósito, motivo novo é aditivo) e note opcional (aparada, vazia vira null, até 500 caracteres). Só uma ausência é justificada: presença responde 409 ATTENDANCE_NOT_ABSENT (presença se corrige, não se justifica).
+  Corpo: reason obrigatório (health ou other; a lista é mínima de propósito, motivo novo é aditivo) e note opcional (aparada, vazia vira null, até 500 caracteres). Só uma ausência é justificada: presença responde 409 STUDENT_ATTENDANCE_NOT_ABSENT (presença se corrige, não se justifica).
   A falta continua registrada: o status não muda e a frequência conta a falta justificada como falta. Grava também quem justificou e quando. Justificar de novo substitui (motivo, nota, quem e quando); com o mesmo motivo e a mesma nota não muda nada (200, sem escrita e sem evento). Não há histórico da justificativa.
   A justificativa pode ter dado de saúde: só quem faz a chamada da aula a lê na lista; o evento STUDENT_ABSENCE_JUSTIFIED (depois do commit) diz só que foi justificada e quais campos mudaram (changedFields), nunca o motivo nem a nota.
   Aula cancelada responde 409 LESSON_CANCELLED; turma arquivada responde 409 CLASS_ARCHIVED.
   Retorna 200 com a presença depois do commit, com a justificativa e o histórico de correções.
-  Erros, nesta ordem: 401; 404 STUDENT_ATTENDANCE_NOT_FOUND (id mal formado); 400 VALIDATION_FAILED (reason, note); 404 STUDENT_ATTENDANCE_NOT_FOUND; 409 LESSON_CANCELLED; 409 CLASS_ARCHIVED; 403 FORBIDDEN_SCOPE; 409 ATTENDANCE_NOT_ABSENT.
+  Erros, nesta ordem: 401; 404 STUDENT_ATTENDANCE_NOT_FOUND (id mal formado); 400 VALIDATION_FAILED (reason, note); 404 STUDENT_ATTENDANCE_NOT_FOUND; 409 LESSON_CANCELLED; 409 CLASS_ARCHIVED; 403 FORBIDDEN_SCOPE; 409 STUDENT_ATTENDANCE_NOT_ABSENT.
 }

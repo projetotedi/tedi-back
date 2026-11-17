@@ -29,10 +29,10 @@ body:json {
 docs {
   Corrige a presença já assinada de um aluno (modal "Corrigir presença", GUS-166). O :id é o id da presença (attendance.id da chamada da aula).
   Requer cookie tedi_session e a permissão attendance.correct (diretoria e coordenação, em qualquer aula; o membro recebe 403 FORBIDDEN do guard).
-  Corpo: status (present ou absent), diferente do atual, e reason obrigatório (aparado, de 1 a 500 caracteres). Sem motivo, motivo vazio ou só com espaços responde 400 VALIDATION_FAILED. O mesmo status que a presença já tem responde 400 ATTENDANCE_STATUS_UNCHANGED (details em status): a correção não muda nada e o motivo seria descartado.
+  Corpo: status (present ou absent), diferente do atual, e reason obrigatório (aparado, de 1 a 500 caracteres). Sem motivo, motivo vazio ou só com espaços responde 400 VALIDATION_FAILED. O mesmo status que a presença já tem responde 400 STUDENT_ATTENDANCE_STATUS_UNCHANGED (details em status): a correção não muda nada e o motivo seria descartado.
   Na mesma transação grava uma linha no histórico (attendance_corrections: de, para, motivo, quem corrigiu e quando; o histórico é imutável) e troca o status da presença. Quem assinou primeiro e quando (signedBy, signedAt) não mudam. Ausente corrigida para presente perde a justificativa (presença não é justificada); voltar a ausente não a restaura.
   O motivo pode ter dado de saúde: na lista, só quem faz a chamada da aula o lê; o evento STUDENT_ATTENDANCE_CORRECTED (depois do commit) leva o status e se estava justificada, antes e depois, e o id da correção, nunca o motivo.
   Aula cancelada responde 409 LESSON_CANCELLED; turma arquivada responde 409 CLASS_ARCHIVED (para corrigir, a coordenação reativa a turma).
   Retorna 200 com a presença depois do commit, com o histórico de correções (a nova por último).
-  Erros, nesta ordem: 401; 403 FORBIDDEN (membro); 404 STUDENT_ATTENDANCE_NOT_FOUND (id mal formado); 400 VALIDATION_FAILED (status, reason); 404 STUDENT_ATTENDANCE_NOT_FOUND; 409 LESSON_CANCELLED; 409 CLASS_ARCHIVED; 400 ATTENDANCE_STATUS_UNCHANGED.
+  Erros, nesta ordem: 401; 403 FORBIDDEN (membro); 404 STUDENT_ATTENDANCE_NOT_FOUND (id mal formado); 400 VALIDATION_FAILED (status, reason); 404 STUDENT_ATTENDANCE_NOT_FOUND; 409 LESSON_CANCELLED; 409 CLASS_ARCHIVED; 400 STUDENT_ATTENDANCE_STATUS_UNCHANGED.
 }

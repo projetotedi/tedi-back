@@ -64,7 +64,7 @@ export class StudentAttendanceController {
   @ApiNotFoundResponse(STUDENT_ATTENDANCE_NOT_FOUND_RESPONSE)
   @ApiConflictResponse({
     type: ApiErrorDto,
-    description: "LESSON_CANCELLED | CLASS_ARCHIVED | ATTENDANCE_NOT_ABSENT",
+    description: "LESSON_CANCELLED | CLASS_ARCHIVED | STUDENT_ATTENDANCE_NOT_ABSENT",
   })
   justifyAbsence(
     @Param("id", STUDENT_ATTENDANCE_ID) id: string,
@@ -83,7 +83,7 @@ export class StudentAttendanceController {
   })
   @ApiBadRequestResponse({
     type: ApiErrorDto,
-    description: "VALIDATION_FAILED | ATTENDANCE_STATUS_UNCHANGED",
+    description: "VALIDATION_FAILED | STUDENT_ATTENDANCE_STATUS_UNCHANGED",
   })
   @ApiForbiddenResponse({ type: ApiErrorDto, description: "FORBIDDEN" })
   @ApiNotFoundResponse(STUDENT_ATTENDANCE_NOT_FOUND_RESPONSE)

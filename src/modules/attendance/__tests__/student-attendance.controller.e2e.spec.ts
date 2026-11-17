@@ -984,7 +984,7 @@ describe("student attendance routes (e2e)", () => {
       expect(studentEvents(events)).toEqual([]);
     });
 
-    it("answers 409 ATTENDANCE_NOT_ABSENT for a presence, 403 FORBIDDEN_SCOPE to a member not allocated and 404 STUDENT_ATTENDANCE_NOT_FOUND for an unknown or malformed id", async () => {
+    it("answers 409 STUDENT_ATTENDANCE_NOT_ABSENT for a presence, 403 FORBIDDEN_SCOPE to a member not allocated and 404 STUDENT_ATTENDANCE_NOT_FOUND for an unknown or malformed id", async () => {
       const presence = await insertStudentAttendance(dataSource, {
         lessonId,
         enrollmentId: bruno.enrollmentId,
@@ -993,7 +993,7 @@ describe("student attendance routes (e2e)", () => {
       });
       const notAbsent = await justify(monitor, presence, { reason: "health" }).expect(409);
       expect(notAbsent.body).toEqual({
-        error: "ATTENDANCE_NOT_ABSENT",
+        error: "STUDENT_ATTENDANCE_NOT_ABSENT",
         message: "Only an absence can be justified.",
       });
 
@@ -1156,7 +1156,7 @@ describe("student attendance routes (e2e)", () => {
       ]);
     });
 
-    it("answers 400 ATTENDANCE_STATUS_UNCHANGED for the same status, 403 FORBIDDEN to a member (allocated or not) and 409 LESSON_CANCELLED", async () => {
+    it("answers 400 STUDENT_ATTENDANCE_STATUS_UNCHANGED for the same status, 403 FORBIDDEN to a member (allocated or not) and 409 LESSON_CANCELLED", async () => {
       const id = await presenceOf(ana);
 
       const unchanged = await correct(coordinator, id, {
@@ -1164,7 +1164,7 @@ describe("student attendance routes (e2e)", () => {
         reason: "Nada muda.",
       }).expect(400);
       expect(unchanged.body).toEqual({
-        error: "ATTENDANCE_STATUS_UNCHANGED",
+        error: "STUDENT_ATTENDANCE_STATUS_UNCHANGED",
         message: "The attendance already has this status.",
         details: [{ field: "status", message: "must differ from the current status" }],
       });
