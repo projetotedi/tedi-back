@@ -60,8 +60,8 @@ export class EnrollmentAttendanceRegistry implements EnrollmentAttendanceReader 
   }
 
   /** The attendances of the enrollment, read with the `manager` of the caller (see the port). */
-  countAttendance(manager: EntityManager, enrollmentId: string): Promise<number> {
-    if (this.reader === null) return Promise.resolve(0);
+  async countAttendance(manager: EntityManager, enrollmentId: string): Promise<number> {
+    if (this.reader === null) return 0;
 
     return this.reader.countAttendance(manager, enrollmentId);
   }

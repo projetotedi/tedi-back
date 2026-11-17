@@ -73,16 +73,17 @@ export class EnrollmentRosterService {
    * The enrollments of the roll call of a lesson (`slot`: its class, day and end): the ones the
    * lesson expects, plus the ones in `includeIds` (the enrollments with an attendance signed in the
    * lesson), whatever their status today and removed or not, so a signature always finds its
-   * enrollment. By student, then by id. A `classId` that is not a UUID answers [] without querying;
-   * a `date` or an `endTime` that is not valid is a broken invariant (they come from a lesson) and
-   * throws.
+   * enrollment. By student, then by id. A `classId` that is not a UUID, or a `date` or an `endTime`
+   * that is not valid, is a broken invariant (they all come from a lesson) and throws.
    */
   async findRoster(
     slot: RosterSlot,
     options: { includeIds?: readonly string[] } = {},
     manager?: EntityManager,
   ): Promise<RosterEnrollment[]> {
-    if (!isUUID(slot.classId)) return [];
+    if (!isUUID(slot.classId)) {
+      throw new Error(`The class of a roll call must be a uuid, got "${slot.classId}".`);
+    }
     if (!isValidCalendarDate(slot.date) || !isValidTimeOfDay(slot.endTime)) {
       throw new Error(
         `The lesson of a roll call must have a calendar date and an end time, got "${slot.date}" and "${slot.endTime}".`,

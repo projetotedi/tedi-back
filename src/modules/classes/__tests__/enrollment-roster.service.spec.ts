@@ -33,8 +33,10 @@ describe("EnrollmentRosterService", () => {
   });
 
   describe("findRoster()", () => {
-    it("answers [] without querying for a class id that is not a uuid", async () => {
-      await expect(service.findRoster(slotOf({ classId: "not-a-uuid" }))).resolves.toEqual([]);
+    it("throws for a class id that is not a uuid, without querying", async () => {
+      await expect(service.findRoster(slotOf({ classId: "not-a-uuid" }))).rejects.toThrow(
+        'The class of a roll call must be a uuid, got "not-a-uuid".',
+      );
 
       expect(plainManager.query).not.toHaveBeenCalled();
     });
