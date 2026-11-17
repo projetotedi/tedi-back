@@ -105,8 +105,8 @@ function toLessonAgendaRef(lesson: Lesson, schoolClass: ClassRef): LessonAgendaR
  *
  * `attendancePending` comes from the roll call of the students (GUS-166), which this module does not
  * know either: it asks the `LessonRollCallRegistry`, the port the attendance module plugs its
- * counter in (section 18.1), the same way (once per page, once per period, with the id, the class
- * and the day of each lesson), and decides with `isAttendancePending` against one instant of the
+ * counter in (section 18.1), the same way (once per page, once per period, with the id, the class,
+ * the day and the end of each lesson), and decides with `isAttendancePending` against one instant of the
  * clock, read once per call. Without a counter no lesson is pending.
  *
  * Two more reads are the contract of the agenda for another module (the assignments, GUS-160:
