@@ -16,6 +16,7 @@ import { SchoolClass } from "../entities/class.entity";
 import { Enrollment } from "../entities/enrollment.entity";
 import { ClassStatus } from "../enums/class-status.enum";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
+import { EnrollmentAttendanceRegistry } from "../services/enrollment-attendance.registry";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
 import { EnrollmentsService } from "../services/enrollments.service";
 
@@ -126,6 +127,7 @@ describe("EnrollmentsService", () => {
   const students = { findStudentSummaries: jest.fn() };
   const courses = { findPrerequisiteRefs: jest.fn() };
   const counts = { countActive: jest.fn() };
+  const attendance = { attendanceRates: jest.fn(), countAttendance: jest.fn() };
 
   function emittedEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls.map((call) => call[1] as AuditableActionEvent);
@@ -214,6 +216,9 @@ describe("EnrollmentsService", () => {
       order.push("count-active");
       return state.active;
     });
+    // No reader registered, or no attendance signed: the registry counts 0.
+    attendance.attendanceRates.mockResolvedValue(new Map());
+    attendance.countAttendance.mockResolvedValue(0);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -224,6 +229,7 @@ describe("EnrollmentsService", () => {
         { provide: StudentsService, useValue: students },
         { provide: CoursesService, useValue: courses },
         { provide: EnrollmentCountsService, useValue: counts },
+        { provide: EnrollmentAttendanceRegistry, useValue: attendance },
       ],
     }).compile();
 
@@ -1080,6 +1086,56 @@ describe("EnrollmentsService", () => {
       expect(event.before).toEqual({ classId: CLASS_ID, studentId: ANA, status: "active" });
       expect(event.after).toEqual({ deletedAt: NOW });
       expect(event.occurredAt).toBe(NOW);
+    });
+
+    it("refuses to remove an active enrollment with attendance with 409 ENROLLMENT_NOT_REMOVABLE, counting with the manager after the enrollment is locked, and writes nothing", async () => {
+      attendance.countAttendance.mockImplementation(async () => {
+        order.push("count-attendance");
+        return 2;
+      });
+
+      const failure = await httpFailure(service.remove(ENROLLMENT_ID, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "ENROLLMENT_NOT_REMOVABLE",
+        message: "An enrollment with attendance cannot be removed; change its status instead.",
+      });
+      expect(attendance.countAttendance).toHaveBeenCalledWith(manager, ENROLLMENT_ID);
+      expect(order).toEqual([
+        "begin",
+        "peek-enrollment",
+        "lock-class:pessimistic_write",
+        "lock-enrollment:pessimistic_write",
+        "count-attendance",
+      ]);
+      expect(manager.update).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("does not count the attendance of a dropped or completed enrollment", async () => {
+      for (const status of [EnrollmentStatus.DROPPED, EnrollmentStatus.COMPLETED]) {
+        state.locked = buildEnrollment({ status });
+
+        const failure = await httpFailure(service.remove(ENROLLMENT_ID, ACTOR_ID));
+
+        expect(failure.getResponse()).toMatchObject({
+          message:
+            "Only an active enrollment can be removed; use the status change for the others.",
+        });
+      }
+      expect(attendance.countAttendance).not.toHaveBeenCalled();
+    });
+
+    it("removes an active enrollment without attendance", async () => {
+      await service.remove(ENROLLMENT_ID, ACTOR_ID);
+
+      expect(attendance.countAttendance).toHaveBeenCalledTimes(1);
+      expect(attendance.countAttendance).toHaveBeenCalledWith(manager, ENROLLMENT_ID);
+      expect(manager.update).toHaveBeenCalledTimes(1);
+      expect(emittedEvents().map((event) => event.action)).toEqual([
+        AuditableAction.ENROLLMENT_REMOVED,
+      ]);
     });
   });
 });

@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { ENROLLMENT_STATUS_DESCRIPTION, EnrollmentStatus } from "../enums/enrollment-status.enum";
+import { ATTENDANCE_RATE_DESCRIPTION } from "./class-enrollment-item.response.dto";
 import { ClassCourseResponseDto } from "./class-course.response.dto";
 import { EnrollmentClassRefResponseDto } from "./enrollment-class-ref.response.dto";
 
@@ -37,4 +38,14 @@ export class StudentEnrollmentItemResponseDto {
 
   @ApiProperty({ type: () => ClassCourseResponseDto })
   course!: ClassCourseResponseDto;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    minimum: 0,
+    maximum: 1,
+    example: 0.75,
+    description: ATTENDANCE_RATE_DESCRIPTION,
+  })
+  attendanceRate!: number | null;
 }

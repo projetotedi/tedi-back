@@ -97,7 +97,8 @@ export class EnrollmentsController {
   @ApiNotFoundResponse(ENROLLMENT_NOT_FOUND_RESPONSE)
   @ApiConflictResponse({
     type: ApiErrorDto,
-    description: "CLASS_ARCHIVED | ENROLLMENT_NOT_REMOVABLE",
+    description:
+      "CLASS_ARCHIVED | ENROLLMENT_NOT_REMOVABLE (not active, or with an attendance signed: change its status instead)",
   })
   removeEnrollment(
     @Param("id", ENROLLMENT_ID) id: string,

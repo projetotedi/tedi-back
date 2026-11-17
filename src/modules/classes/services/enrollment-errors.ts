@@ -13,6 +13,10 @@ import { HttpException } from "@nestjs/common";
  * The ones about the ids of the BODY carry the positions in `details` (`studentIds.<i>`): the ids
  * are not in the URL (docs/ARCHITECTURE.md section 10.3). STUDENT_ARCHIVED is 409 even so, as the
  * card asks (section 19, M18).
+ *
+ * ENROLLMENT_NOT_REMOVABLE has two helpers, one per reason, with the same code and the message that
+ * says which: `enrollmentNotRemovable` (not active) and `enrollmentHasAttendance` (an active one
+ * with an attendance signed, GUS-166, section 18.1, S15).
  */
 
 interface FieldError {
@@ -146,6 +150,20 @@ export function enrollmentNotRemovable(): HttpException {
     {
       error: "ENROLLMENT_NOT_REMOVABLE",
       message: "Only an active enrollment can be removed; use the status change for the others.",
+    },
+    409,
+  );
+}
+
+/**
+ * 409: an active enrollment with an attendance signed in a lesson is history too (GUS-166): the
+ * attendance keeps pointing to it, so it leaves the class through the status (dropped) instead.
+ */
+export function enrollmentHasAttendance(): HttpException {
+  return new HttpException(
+    {
+      error: "ENROLLMENT_NOT_REMOVABLE",
+      message: "An enrollment with attendance cannot be removed; change its status instead.",
     },
     409,
   );

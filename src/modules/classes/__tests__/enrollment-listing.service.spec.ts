@@ -20,6 +20,7 @@ import { PermissionPolicy } from "@shared/permissions/permission.policy";
 import { SchoolClass } from "../entities/class.entity";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { StudentEnrollmentSituation } from "../enums/student-enrollment-situation.enum";
+import { EnrollmentAttendanceRegistry } from "../services/enrollment-attendance.registry";
 import { EnrollmentListingService } from "../services/enrollment-listing.service";
 import {
   ClassEnrollmentRow,
@@ -92,6 +93,7 @@ describe("EnrollmentListingService", () => {
   const students = { listStudentEntries: jest.fn(), findStudentSummaries: jest.fn() };
   const courses = { getCourseSummaries: jest.fn() };
   const policy = { can: jest.fn() };
+  const attendance = { attendanceRates: jest.fn(), countAttendance: jest.fn() };
 
   function queriesWith(fragment: string): Array<[string, unknown[]]> {
     return dataSource.query.mock.calls.filter(([sql]: [string]) => sql.includes(fragment));
@@ -124,6 +126,9 @@ describe("EnrollmentListingService", () => {
     students.findStudentSummaries.mockResolvedValue([{ id: ANA, name: "Ana", archivedAt: null }]);
     courses.getCourseSummaries.mockImplementation(async () => state.courses);
     policy.can.mockReturnValue(true);
+    // No reader registered, or no roll call recorded: the registry answers an empty map.
+    attendance.attendanceRates.mockResolvedValue(new Map());
+    attendance.countAttendance.mockResolvedValue(0);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -132,6 +137,7 @@ describe("EnrollmentListingService", () => {
         { provide: StudentsService, useValue: students },
         { provide: CoursesService, useValue: courses },
         { provide: PermissionPolicy, useValue: policy },
+        { provide: EnrollmentAttendanceRegistry, useValue: attendance },
       ],
     }).compile();
 
@@ -241,7 +247,40 @@ describe("EnrollmentListingService", () => {
       });
     });
 
-    it("answers attendanceRate null", async () => {
+    it("asks the attendance registry ONCE per page with the enrollment ids of the page and fills attendanceRate, null when it has none", async () => {
+      state.classRows = [classRow(ANA), classRow(BRUNO)];
+      students.listStudentEntries.mockResolvedValue({
+        data: [ref(BRUNO, "Bruno"), ref(ANA, "Ana")],
+        total: 2,
+        page: 1,
+        limit: 20,
+      });
+      attendance.attendanceRates.mockResolvedValue(new Map([[`enrollment-of-${BRUNO}`, 0.75]]));
+
+      const page = await service.listClassEnrollments(CLASS_ID, {}, ACTOR);
+
+      expect(attendance.attendanceRates).toHaveBeenCalledTimes(1);
+      expect(attendance.attendanceRates).toHaveBeenCalledWith([
+        `enrollment-of-${BRUNO}`,
+        `enrollment-of-${ANA}`,
+      ]);
+      expect(page.data.map((item) => [item.id, item.attendanceRate])).toEqual([
+        [`enrollment-of-${BRUNO}`, 0.75],
+        [`enrollment-of-${ANA}`, null],
+      ]);
+    });
+
+    it("does not ask the attendance registry for an empty page", async () => {
+      // No enrollment in the class with that status.
+      await service.listClassEnrollments(CLASS_ID, {}, ACTOR);
+      // Enrollments, but the search finds none of their students.
+      state.classRows = [classRow(ANA)];
+      await service.listClassEnrollments(CLASS_ID, { search: "ninguém" }, ACTOR);
+
+      expect(attendance.attendanceRates).not.toHaveBeenCalled();
+    });
+
+    it("answers attendanceRate null when the registry has no rate", async () => {
       state.classRows = [classRow(ANA)];
       students.listStudentEntries.mockResolvedValue({
         data: [ref(ANA, "Ana")],
@@ -434,6 +473,40 @@ describe("EnrollmentListingService", () => {
       // A course the catalog does not answer is a broken invariant (the foreign key keeps it).
       state.courses = [];
       await expect(service.listStudentEnrollments(ANA)).rejects.toThrow("of a class is gone");
+    });
+
+    it("fills attendanceRate of every enrollment of the history of a student with one call, and asks nothing for an empty history", async () => {
+      state.history = ["e1", "e2"].map((id) => ({
+        ...currentClass(ANA, CLASS_ID, "INFO-A"),
+        id,
+        status: EnrollmentStatus.ACTIVE,
+        enrolledAt: ENROLLED_AT,
+        statusChangedAt: "2026-03-03",
+        courseId: BASIC_ID,
+      }));
+      state.courses = [
+        {
+          id: BASIC_ID,
+          name: "Informática Básica",
+          category: CourseCategory.BASIC,
+          status: CourseStatus.ACTIVE,
+        },
+      ];
+      attendance.attendanceRates.mockResolvedValue(new Map([["e2", 0.5]]));
+
+      const history = await service.listStudentEnrollments(ANA);
+
+      expect(attendance.attendanceRates).toHaveBeenCalledTimes(1);
+      expect(attendance.attendanceRates).toHaveBeenCalledWith(["e1", "e2"]);
+      expect(history.enrollments.map((item) => [item.id, item.attendanceRate])).toEqual([
+        ["e1", null],
+        ["e2", 0.5],
+      ]);
+
+      attendance.attendanceRates.mockClear();
+      state.history = [];
+      await service.listStudentEnrollments(ANA);
+      expect(attendance.attendanceRates).not.toHaveBeenCalled();
     });
   });
 

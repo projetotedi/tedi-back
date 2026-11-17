@@ -6,6 +6,7 @@ import {
   duplicateStudent,
   effectiveDateBeforeEnrollment,
   effectiveDateInFuture,
+  enrollmentHasAttendance,
   enrollmentNotFound,
   enrollmentNotRemovable,
   studentArchived,
@@ -98,5 +99,15 @@ describe("enrollment errors", () => {
       [409, "ALREADY_ENROLLED"],
       [409, "ENROLLMENT_NOT_REMOVABLE"],
     ]);
+  });
+
+  it("builds ENROLLMENT_NOT_REMOVABLE of an enrollment with attendance with its own message and no details (GUS-166)", () => {
+    expect(shape(enrollmentHasAttendance())).toEqual({
+      status: 409,
+      body: {
+        error: "ENROLLMENT_NOT_REMOVABLE",
+        message: "An enrollment with attendance cannot be removed; change its status instead.",
+      },
+    });
   });
 });

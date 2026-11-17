@@ -2,6 +2,13 @@ import { ApiProperty } from "@nestjs/swagger";
 import { ENROLLMENT_STATUS_DESCRIPTION, EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { EnrollmentStudentResponseDto } from "./enrollment-student.response.dto";
 
+/**
+ * The description of the attendance rate of an enrollment (F6.3, GUS-166, S14), the same in the list
+ * of a class and in the history of a student.
+ */
+export const ATTENDANCE_RATE_DESCRIPTION =
+  "The attendance rate of the enrollment (F6.3): its presences over the roll calls recorded for it in lessons that were not cancelled, from 0 to 1 with two decimals. A justified absence counts as an absence. Null while no roll call of it is recorded, and without the attendance module.";
+
 /** One enrollment of the list of a class (GET /classes/:id/enrollments). Never the reason. */
 export class ClassEnrollmentItemResponseDto {
   @ApiProperty({
@@ -37,8 +44,10 @@ export class ClassEnrollmentItemResponseDto {
   @ApiProperty({
     type: Number,
     nullable: true,
-    example: null,
-    description: "Always null until the student roll call (GUS-166).",
+    minimum: 0,
+    maximum: 1,
+    example: 0.75,
+    description: ATTENDANCE_RATE_DESCRIPTION,
   })
   attendanceRate!: number | null;
 }

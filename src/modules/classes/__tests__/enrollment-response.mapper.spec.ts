@@ -3,12 +3,14 @@ import {
   CourseStatus,
   CourseSummary,
 } from "@modules/catalog/services/courses.service";
+import { AccessibilityNeed } from "@modules/people/services/students.service";
 import { Enrollment } from "../entities/enrollment.entity";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { StudentEnrollmentItemResponseDto } from "../dto/student-enrollment-item.response.dto";
 import {
   StudentEnrollmentRow,
   summarizeStudentEnrollments,
+  toClassEnrollmentItem,
   toEnrollmentResponse,
   toStudentEnrollmentItem,
 } from "../services/enrollment-response.mapper";
@@ -68,6 +70,7 @@ function historyItem(
   return toStudentEnrollmentItem(
     historyRow(id, status, course, statusChangedAt, enrolledAt),
     course,
+    null,
   );
 }
 
@@ -194,6 +197,7 @@ describe("enrollment response mapper", () => {
           "2025-03-02T13:00:00.000Z",
         ),
         ACCESS,
+        null,
       ),
     ).toEqual({
       id: "e1",
@@ -212,6 +216,63 @@ describe("enrollment response mapper", () => {
         category: CourseCategory.BASIC,
         status: CourseStatus.ARCHIVED,
       },
+      attendanceRate: null,
     });
+  });
+
+  it("answers the attendanceRate it is given in the history item", () => {
+    const row = historyRow(
+      "e1",
+      EnrollmentStatus.ACTIVE,
+      BASIC,
+      "2026-03-03",
+      ENROLLED_AT.toISOString(),
+    );
+
+    expect(toStudentEnrollmentItem(row, BASIC, 0.67).attendanceRate).toBe(0.67);
+    expect(toStudentEnrollmentItem(row, BASIC, 0).attendanceRate).toBe(0);
+    expect(toStudentEnrollmentItem(row, BASIC, null).attendanceRate).toBeNull();
+  });
+
+  it("answers the attendanceRate it is given, and phone and accessibilityNeed only with canSeeStudentContact", () => {
+    const row = {
+      id: ENROLLMENT_ID,
+      studentId: STUDENT_ID,
+      status: EnrollmentStatus.ACTIVE,
+      enrolledAt: ENROLLED_AT,
+      statusChangedAt: "2026-03-03",
+    };
+    const student = {
+      id: STUDENT_ID,
+      name: "Maria Silva",
+      age: 68,
+      phone: "43999990000",
+      accessibilityNeed: AccessibilityNeed.VISUAL,
+    };
+
+    expect(
+      toClassEnrollmentItem(row, student, { canSeeStudentContact: true, attendanceRate: 0.75 }),
+    ).toEqual({
+      id: ENROLLMENT_ID,
+      student: {
+        id: STUDENT_ID,
+        name: "Maria Silva",
+        age: 68,
+        phone: "43999990000",
+        accessibilityNeed: AccessibilityNeed.VISUAL,
+      },
+      status: EnrollmentStatus.ACTIVE,
+      enrolledAt: ENROLLED_AT,
+      statusChangedAt: "2026-03-03",
+      attendanceRate: 0.75,
+    });
+
+    const hidden = toClassEnrollmentItem(row, student, {
+      canSeeStudentContact: false,
+      attendanceRate: null,
+    });
+    expect(hidden.student.phone).toBeNull();
+    expect(hidden.student.accessibilityNeed).toBeNull();
+    expect(hidden.attendanceRate).toBeNull();
   });
 });

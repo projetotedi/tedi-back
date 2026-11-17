@@ -767,8 +767,10 @@
       "ClassEnrollmentItemResponseDto": {
         "properties": {
           "attendanceRate": {
-            "description": "Always null until the student roll call (GUS-166).",
-            "example": null,
+            "description": "The attendance rate of the enrollment (F6.3): its presences over the roll calls recorded for it in lessons that were not cancelled, from 0 to 1 with two decimals. A justified absence counts as an absence. Null while no roll call of it is recorded, and without the attendance module.",
+            "example": 0.75,
+            "maximum": 1,
+            "minimum": 0,
             "nullable": true,
             "type": "number"
           },
@@ -6477,6 +6479,14 @@
       },
       "StudentEnrollmentItemResponseDto": {
         "properties": {
+          "attendanceRate": {
+            "description": "The attendance rate of the enrollment (F6.3): its presences over the roll calls recorded for it in lessons that were not cancelled, from 0 to 1 with two decimals. A justified absence counts as an absence. Null while no roll call of it is recorded, and without the attendance module.",
+            "example": 0.75,
+            "maximum": 1,
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
           "class": {
             "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
           },
@@ -6516,7 +6526,8 @@
           "enrolledAt",
           "statusChangedAt",
           "class",
-          "course"
+          "course",
+          "attendanceRate"
         ],
         "type": "object"
       },
@@ -10776,7 +10787,7 @@
                 }
               }
             },
-            "description": "CLASS_ARCHIVED | ENROLLMENT_NOT_REMOVABLE"
+            "description": "CLASS_ARCHIVED | ENROLLMENT_NOT_REMOVABLE (not active, or with an attendance signed: change its status instead)"
           },
           "500": {
             "content": {

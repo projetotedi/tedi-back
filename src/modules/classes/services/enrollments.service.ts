@@ -18,6 +18,7 @@ import { ClassStatus } from "../enums/class-status.enum";
 import { EnrollmentSkipReason } from "../enums/enrollment-skip-reason.enum";
 import { EnrollmentStatus } from "../enums/enrollment-status.enum";
 import { classArchived, classNotFound } from "./classes.service";
+import { EnrollmentAttendanceRegistry } from "./enrollment-attendance.registry";
 import { buildEnrollmentAuditEvent } from "./enrollment-audit";
 import { EnrollmentCountsService } from "./enrollment-counts.service";
 import {
@@ -27,6 +28,7 @@ import {
   duplicateStudent,
   effectiveDateBeforeEnrollment,
   effectiveDateInFuture,
+  enrollmentHasAttendance,
   enrollmentNotFound,
   enrollmentNotRemovable,
   studentArchived,
@@ -153,6 +155,7 @@ export class EnrollmentsService {
     private readonly students: StudentsService,
     private readonly courses: CoursesService,
     private readonly counts: EnrollmentCountsService,
+    private readonly attendance: EnrollmentAttendanceRegistry,
   ) {}
 
   /**
@@ -303,10 +306,11 @@ export class EnrollmentsService {
    * completed are history (RN-16) and answer 409 ENROLLMENT_NOT_REMOVABLE. Removing frees the pair
    * (class, student), so the student can be enrolled again; removing again is 404.
    *
-   * Errors, in order: 404 ENROLLMENT_NOT_FOUND; 409 CLASS_ARCHIVED; 409 ENROLLMENT_NOT_REMOVABLE.
-   * Locks: the class FOR UPDATE, then the enrollment FOR UPDATE. The roll call of the students
-   * (GUS-166) adds "has attendance" to the same 409, asked after the lock of the enrollment and
-   * before the update (section 19, hooks for GUS-166).
+   * Errors, in order: 404 ENROLLMENT_NOT_FOUND; 409 CLASS_ARCHIVED; 409 ENROLLMENT_NOT_REMOVABLE (not
+   * active); 409 ENROLLMENT_NOT_REMOVABLE (an active one with an attendance signed, GUS-166: the
+   * attendance is history too, so it changes through the status). Locks: the class FOR UPDATE, then
+   * the enrollment FOR UPDATE; the attendance is counted after both, through the port
+   * `EnrollmentAttendanceRegistry`, with no lock of its own (section 18.1, S15).
    * Emits ENROLLMENT_REMOVED after the commit.
    */
   async remove(requestedId: string, actorId: string): Promise<void> {
@@ -324,6 +328,9 @@ export class EnrollmentsService {
       if (enrollment === null) throw enrollmentNotFound();
       if (isArchived(schoolClass.archive)) throw classArchived();
       if (enrollment.status !== EnrollmentStatus.ACTIVE) throw enrollmentNotRemovable();
+      if ((await this.attendance.countAttendance(manager, enrollment.id)) > 0) {
+        throw enrollmentHasAttendance();
+      }
 
       await manager.update(Enrollment, { id: enrollment.id }, { deletedAt: now, updatedAt: now });
       return enrollment;
