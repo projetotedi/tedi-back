@@ -1022,6 +1022,8 @@ describe("CoursesController (e2e)", () => {
         objective: BASIC.objective,
         category: "basic",
         status: "active",
+        archivedAt: null,
+        archiveReason: null,
         createdAt: basic.createdAt,
         createdBy: { id: director.id, name: "Director" },
         updatedAt: expect.any(String),
@@ -1048,6 +1050,8 @@ describe("CoursesController (e2e)", () => {
         objective: null,
         category: "intermediate",
         status: "active",
+        archivedAt: null,
+        archiveReason: null,
         createdAt: intermediate.createdAt,
         createdBy: { id: director.id, name: "Director" },
         updatedAt: expect.any(String),
@@ -1212,6 +1216,31 @@ describe("CoursesController (e2e)", () => {
       // The page is the same for whoever can see the catalog.
       const asMember = await getCourse(basic.id, member).expect(200);
       expect(asMember.body.status).toBe("archived");
+    });
+
+    it("answers archivedAt and archiveReason of an archived course for its history, and null again after it is reactivated (GUS-139)", async () => {
+      const basic = await createCourse(BASIC);
+      expect(await detailOf(basic.id)).toMatchObject({ archivedAt: null, archiveReason: null });
+
+      const archived = await patchArchive(basic.id, coordinator, {
+        reason: "Conteúdo substituído pelo curso Redes Sociais 2026.",
+      }).expect(200);
+
+      const detail = await detailOf(basic.id, member);
+      expect(detail).toMatchObject({
+        status: "archived",
+        archivedAt: archived.body.archivedAt,
+        archiveReason: "Conteúdo substituído pelo curso Redes Sociais 2026.",
+      });
+      // Who archived it is not on the page.
+      expect(detail).not.toHaveProperty("archivedById");
+
+      await patchUnarchive(basic.id, coordinator).expect(200);
+      expect(await detailOf(basic.id)).toMatchObject({
+        status: "active",
+        archivedAt: null,
+        archiveReason: null,
+      });
     });
 
     it("keeps an archived prerequisite and an archived course in requiredBy, with status archived", async () => {

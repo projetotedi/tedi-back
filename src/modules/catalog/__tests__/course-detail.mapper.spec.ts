@@ -279,6 +279,26 @@ describe("toCourseDetail()", () => {
     expect(detail.objective).toBeNull();
   });
 
+  it("answers when and why an archived course was archived, for its history (GUS-139), and not who did it", () => {
+    const archivedAt = new Date("2026-10-10T12:00:00.000Z");
+    const course = buildCourse({
+      archive: {
+        archivedAt,
+        archivedById: CREATOR_ID,
+        archiveReason: "Conteúdo substituído pelo curso Redes Sociais 2026.",
+      },
+    });
+
+    const detail = toCourseDetail(course, [], buildSequence([]), null);
+
+    expect(detail).toMatchObject({
+      status: "archived",
+      archivedAt,
+      archiveReason: "Conteúdo substituído pelo curso Redes Sociais 2026.",
+    });
+    expect(detail).not.toHaveProperty("archivedById");
+  });
+
   it("copies the data of the course and answers exactly the fields of the page", () => {
     const course = buildCourse();
     const items = [buildItem(FIRST_PLAN_ID, 1, 90)];
@@ -297,6 +317,8 @@ describe("toCourseDetail()", () => {
       objective: "Deixar o aluno à vontade para usar o computador.",
       category: "basic",
       status: "active",
+      archivedAt: null,
+      archiveReason: null,
       createdAt: CREATED_AT,
       createdBy: { id: CREATOR_ID, name: "Carla Menezes" },
       updatedAt: UPDATED_AT,
@@ -314,6 +336,8 @@ describe("toCourseDetail()", () => {
       lessonPlanCount: 1,
     });
     expect(Object.keys(detail).sort()).toEqual([
+      "archiveReason",
+      "archivedAt",
       "category",
       "createdAt",
       "createdBy",
@@ -329,9 +353,10 @@ describe("toCourseDetail()", () => {
       "status",
       "updatedAt",
     ]);
-    // Nothing of the entity that is not part of the page: who archived it, why, the soft delete.
+    // Nothing of the entity that is not part of the page: who archived it and the soft delete.
+    // When and why it was archived are part of the page since GUS-139 (its history card).
     expect(detail).not.toHaveProperty("createdById");
-    expect(detail).not.toHaveProperty("archivedAt");
+    expect(detail).not.toHaveProperty("archivedById");
     expect(detail).not.toHaveProperty("deletedAt");
   });
 
