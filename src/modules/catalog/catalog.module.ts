@@ -13,6 +13,7 @@ import { LessonPlan } from "./entities/lesson-plan.entity";
 import { CourseDetailService } from "./services/course-detail.service";
 import { CourseLessonPlansService } from "./services/course-lesson-plans.service";
 import { CourseListService } from "./services/course-list.service";
+import { CourseLookupService } from "./services/course-lookup.service";
 import { CoursesService } from "./services/courses.service";
 import { LessonPlanUsageService } from "./services/lesson-plan-usage.service";
 import { LessonPlansService } from "./services/lesson-plans.service";
@@ -37,6 +38,7 @@ import { LessonPlansService } from "./services/lesson-plans.service";
     LessonPlanUsageService,
     CourseDetailService,
     CourseListService,
+    CourseLookupService,
     Clock,
   ],
   // What the other modules read from the catalog:
@@ -46,7 +48,9 @@ import { LessonPlansService } from "./services/lesson-plans.service";
   //   sequence of the course (CourseLessonPlansService.findPosition);
   // - lessons (GUS-154): the whole sequence of a course with the title, the objective and the
   //   duration of each plan, to generate the lessons of a class (CourseLessonPlansService.
-  //   getSequenceSummaries).
-  exports: [CoursesService, LessonPlansService, CourseLessonPlansService],
+  //   getSequenceSummaries);
+  // - classes (GUS-103): the ids of the courses that match a name or a category, and the summary of
+  //   the courses of a page of classes, in one query each (CourseLookupService).
+  exports: [CoursesService, LessonPlansService, CourseLessonPlansService, CourseLookupService],
 })
 export class CatalogModule {}
