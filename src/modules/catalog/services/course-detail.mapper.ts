@@ -44,7 +44,7 @@ function relatedCoursesOf(
 }
 
 /**
- * The page of a course: its data, both lists of related courses (archived ones included, with
+ * The page of a course: its data (with when and why it was archived, for its history), both lists of related courses (archived ones included, with
  * their status, each ordered by name), the sequence as it was read and the workload it adds up to
  * (RN-24, never stored). `lessonPlanCount` is the number of items of the sequence.
  *
@@ -64,6 +64,8 @@ export function toCourseDetail(
     objective: course.objective ?? null,
     category: course.category,
     status: courseStatusOf(course),
+    archivedAt: course.archive?.archivedAt ?? null,
+    archiveReason: course.archive?.archiveReason ?? null,
     createdAt: course.createdAt,
     createdBy: createdBy === null ? null : { id: createdBy.id, name: createdBy.name },
     updatedAt: course.updatedAt,

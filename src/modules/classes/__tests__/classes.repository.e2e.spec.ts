@@ -317,6 +317,18 @@ describe("classes repository (e2e)", () => {
       expect(definition[0]).toMatch(/\(edition_id, lower\(.*code.*\)\)/i);
     });
 
+    it.each(["code", "name"])(
+      "has the GIN index idx_classes_%s_search on search_normalize of the column, for the search of the list (GUS-103)",
+      async (column) => {
+        const definition = await indexDefinition("classes", `idx_classes_${column}_search`);
+
+        expect(definition).toHaveLength(1);
+        expect(definition[0]).toContain("USING gin");
+        expect(definition[0]).toContain(`search_normalize((${column})`);
+        expect(definition[0]).toContain("gin_trgm_ops");
+      },
+    );
+
     it("has the check constraints ck_classes_capacity_positive and ck_classes_period declared by the entity", async () => {
       const declared = dataSource
         .getMetadata(SchoolClass)

@@ -3,7 +3,8 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { isUUID } from "class-validator";
 import { DataSource, EntityManager, In, QueryFailedError } from "typeorm";
 import { Clock } from "@shared/dates/clock";
-import { isArchived } from "@shared/entities/archivable.columns";
+import { ArchiveDto } from "@shared/dto/archive.dto";
+import { isArchived, markArchived, markUnarchived } from "@shared/entities/archivable.columns";
 import {
   AUDITABLE_ACTION_EVENT,
   AuditableAction,
@@ -118,8 +119,8 @@ export interface GetCourseSummaryOptions {
 }
 
 /**
- * Courses of the catalog (RF-013, RF-019, RF-021): create, edit, duplicate and the prerequisites
- * between them. Exported by CatalogModule for `classes` through `getCourseSummary`.
+ * Courses of the catalog (RF-013, RF-019, RF-020, RF-021): create, edit, duplicate, archive and
+ * reactivate, and the prerequisites between them. Exported by CatalogModule for `classes` through `getCourseSummary`.
  */
 @Injectable()
 export class CoursesService {
@@ -329,6 +330,92 @@ export class CoursesService {
   }
 
   /**
+   * Archives a course instead of deleting it (RN-27): it stays readable by id, with status
+   * archived, and takes no new class (RF-020, 409 COURSE_ARCHIVED on `POST /classes`). The classes
+   * it already has do not change. Fills the three archive columns and takes `updatedAt` from the
+   * clock, as the edit does.
+   *
+   * The row is locked FOR UPDATE, which conflicts with the FOR SHARE that the creation of a class
+   * takes through `getCourseSummary`: either the class sees the course archived, or the archive
+   * waits for the class to commit.
+   *
+   * A course that is already archived is a no-op that answers 200 with the course as it is: the
+   * first archive wins and no event is emitted (docs/ARCHITECTURE.md, section 10.3). 404
+   * COURSE_NOT_FOUND for an unknown id. Emits COURSE_ARCHIVED after the commit, with the reason.
+   */
+  async archive(
+    requestedId: string,
+    dto: ArchiveDto | undefined,
+    actorId: string,
+  ): Promise<CourseResponseDto> {
+    const now = this.clock.now();
+
+    const result = await this.runInTransaction(async (manager) => {
+      const course = await this.loadCourse(manager, requestedId);
+
+      const changed = markArchived(course.archive, actorId, dto?.reason ?? null, now);
+      if (changed) {
+        course.updatedAt = now;
+        await manager.save(course);
+      }
+
+      const prerequisites = await this.loadCurrentPrerequisites(manager, course.id);
+      return { course, prerequisites, changed };
+    });
+
+    if (result.changed) {
+      this.emit(
+        AuditableAction.COURSE_ARCHIVED,
+        actorId,
+        result.course.id,
+        { archivedAt: null },
+        {
+          archivedAt: result.course.archive.archivedAt,
+          archiveReason: result.course.archive.archiveReason,
+        },
+      );
+    }
+
+    return toCourseResponse(result.course, result.prerequisites);
+  }
+
+  /**
+   * Reactivates an archived course: clears the three archive columns and takes `updatedAt` from
+   * the clock. A course that is not archived is a no-op that answers 200 without writing or
+   * emitting. 404 COURSE_NOT_FOUND for an unknown id. Emits COURSE_UNARCHIVED after the commit,
+   * with the archive columns it had.
+   */
+  async unarchive(requestedId: string, actorId: string): Promise<CourseResponseDto> {
+    const now = this.clock.now();
+
+    const result = await this.runInTransaction(async (manager) => {
+      const course = await this.loadCourse(manager, requestedId);
+
+      const before = {
+        archivedAt: course.archive.archivedAt,
+        archivedById: course.archive.archivedById,
+        archiveReason: course.archive.archiveReason,
+      };
+      const changed = markUnarchived(course.archive);
+      if (changed) {
+        course.updatedAt = now;
+        await manager.save(course);
+      }
+
+      const prerequisites = await this.loadCurrentPrerequisites(manager, course.id);
+      return { course, prerequisites, before, changed };
+    });
+
+    if (result.changed) {
+      this.emit(AuditableAction.COURSE_UNARCHIVED, actorId, result.course.id, result.before, {
+        archivedAt: null,
+      });
+    }
+
+    return toCourseResponse(result.course, result.prerequisites);
+  }
+
+  /**
    * Summary of a course for another module. Null when the id is not a course or is not even a
    * UUID: whoever calls decides the error (the classes answer for the `courseId` of their body).
    * An archived course is returned, with status archived. Pass the `manager` of a transaction to
@@ -338,7 +425,7 @@ export class CoursesService {
    * (so it needs one: without it this throws, as a bug of the caller). It is for whoever is about
    * to write something that depends on the course staying active, as a class being created in it
    * (RF-020). `FOR SHARE` conflicts with the `FOR UPDATE` that an edit of the course takes
-   * (`update`), and the archive of a course (another card) has to take it too. If the archive
+   * (`update`) and the archive of a course (`archive`) take. If the archive
    * commits first, the reader waits and then sees the course archived; if the reader locks first,
    * the archive waits until the work of the reader commits. Without the lock a class could be
    * created in a course that is being archived at the same instant.

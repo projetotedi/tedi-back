@@ -12,6 +12,8 @@ import { LessonPlanContent } from "./entities/lesson-plan-content.entity";
 import { LessonPlan } from "./entities/lesson-plan.entity";
 import { CourseDetailService } from "./services/course-detail.service";
 import { CourseLessonPlansService } from "./services/course-lesson-plans.service";
+import { CourseListService } from "./services/course-list.service";
+import { CourseLookupService } from "./services/course-lookup.service";
 import { CoursesService } from "./services/courses.service";
 import { LessonPlanUsageService } from "./services/lesson-plan-usage.service";
 import { LessonPlansService } from "./services/lesson-plans.service";
@@ -35,6 +37,8 @@ import { LessonPlansService } from "./services/lesson-plans.service";
     CourseLessonPlansService,
     LessonPlanUsageService,
     CourseDetailService,
+    CourseListService,
+    CourseLookupService,
     Clock,
   ],
   // What the other modules read from the catalog:
@@ -47,7 +51,9 @@ import { LessonPlansService } from "./services/lesson-plans.service";
   //   getSequenceSummaries);
   // - classes (GUS-108): CoursesService.getCourseSummaries (the courses of the enrollment history of
   //   a student) and CoursesService.findPrerequisiteRefs (the prerequisites of the course of a class,
-  //   for the warning of the enrollment).
-  exports: [CoursesService, LessonPlansService, CourseLessonPlansService],
+  //   for the warning of the enrollment);
+  // - classes (GUS-103): the ids of the courses that match a name or a category, and the summary of
+  //   the courses of a page of classes, in one query each (CourseLookupService).
+  exports: [CoursesService, LessonPlansService, CourseLessonPlansService, CourseLookupService],
 })
 export class CatalogModule {}

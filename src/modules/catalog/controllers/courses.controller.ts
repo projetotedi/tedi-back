@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import {
   ApiBadRequestResponse,
+  ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -11,15 +12,21 @@ import {
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { ApiErrorDto } from "@shared/dto/api-error.dto";
+import { ArchiveDto } from "@shared/dto/archive.dto";
 import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
+import { ApiOkResponsePaginated } from "@shared/pagination/api-paginated-response.decorator";
+import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { CourseDetailDto } from "../dto/course-detail.response.dto";
+import { CourseListItemDto } from "../dto/course-list-item.response.dto";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CreateCourseDto } from "../dto/create-course.dto";
 import { DuplicateCourseDto } from "../dto/duplicate-course.dto";
+import { ListCoursesQueryDto } from "../dto/list-courses-query.dto";
 import { UpdateCourseDto } from "../dto/update-course.dto";
 import { CourseDetailService } from "../services/course-detail.service";
+import { CourseListService } from "../services/course-list.service";
 import { CoursesService } from "../services/courses.service";
 import { COURSE_ID, COURSE_ID_PARAM } from "./course-id.param";
 
@@ -30,7 +37,16 @@ export class CoursesController {
   constructor(
     private readonly coursesService: CoursesService,
     private readonly courseDetailService: CourseDetailService,
+    private readonly courseListService: CourseListService,
   ) {}
+
+  @Get()
+  @RequirePermission(Permission.CATALOG_VIEW)
+  @ApiOkResponsePaginated(CourseListItemDto)
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  listCourses(@Query() query: ListCoursesQueryDto): Promise<PaginatedResult<CourseListItemDto>> {
+    return this.courseListService.list(query);
+  }
 
   @Post()
   @RequirePermission(Permission.COURSES_MANAGE)
@@ -88,5 +104,32 @@ export class CoursesController {
     @CurrentUser() actor: AuthUser,
   ): Promise<CourseResponseDto> {
     return this.coursesService.duplicate(id, dto, actor.id);
+  }
+
+  @Patch(":id/archive")
+  @RequirePermission(Permission.COURSES_DUPLICATE_ARCHIVE)
+  @ApiParam(COURSE_ID_PARAM)
+  @ApiBody({ type: ArchiveDto, required: false })
+  @ApiOkResponse({ type: CourseResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: "COURSE_NOT_FOUND" })
+  archiveCourse(
+    @Param("id", COURSE_ID) id: string,
+    @Body() dto: ArchiveDto,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<CourseResponseDto> {
+    return this.coursesService.archive(id, dto, actor.id);
+  }
+
+  @Patch(":id/unarchive")
+  @RequirePermission(Permission.COURSES_DUPLICATE_ARCHIVE)
+  @ApiParam(COURSE_ID_PARAM)
+  @ApiOkResponse({ type: CourseResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorDto, description: "COURSE_NOT_FOUND" })
+  unarchiveCourse(
+    @Param("id", COURSE_ID) id: string,
+    @CurrentUser() actor: AuthUser,
+  ): Promise<CourseResponseDto> {
+    return this.coursesService.unarchive(id, actor.id);
   }
 }

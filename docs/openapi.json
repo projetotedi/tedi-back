@@ -977,6 +977,92 @@
         ],
         "type": "object"
       },
+      "ClassListItemDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Null while the class is not archived (RN-27).",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "capacity": {
+            "example": 15,
+            "minimum": 1,
+            "type": "number"
+          },
+          "code": {
+            "example": "INFO-A",
+            "type": "string"
+          },
+          "course": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassCourseResponseDto"
+              }
+            ],
+            "description": "The course of the class, with its current category (RN-14)."
+          },
+          "edition": {
+            "$ref": "#/components/schemas/EditionResponseDto"
+          },
+          "endDate": {
+            "example": "2026-06-27",
+            "format": "date",
+            "type": "string"
+          },
+          "enrolledCount": {
+            "description": "Active enrollments only: dropped, completed and removed ones are left out.",
+            "example": 12,
+            "minimum": 0,
+            "type": "number"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Informática Básica — A",
+            "nullable": true,
+            "type": "string"
+          },
+          "startDate": {
+            "example": "2026-03-03",
+            "format": "date",
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ClassStatus"
+              }
+            ],
+            "example": "planned"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "course",
+          "edition",
+          "startDate",
+          "endDate",
+          "enrolledCount",
+          "capacity",
+          "status",
+          "archivedAt"
+        ],
+        "type": "object"
+      },
+      "ClassListSort": {
+        "enum": [
+          "startDate",
+          "code"
+        ],
+        "type": "string"
+      },
       "ClassResponseDto": {
         "properties": {
           "archiveReason": {
@@ -1254,6 +1340,19 @@
       },
       "CourseDetailDto": {
         "properties": {
+          "archiveReason": {
+            "description": "Reason given when the course was archived, shown in its history. Null while it is active or when none was given.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedAt": {
+            "description": "When the course was archived (RN-27, GUS-116). Null while it is active.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "category": {
             "allOf": [
               {
@@ -1352,6 +1451,8 @@
           "objective",
           "category",
           "status",
+          "archivedAt",
+          "archiveReason",
           "createdAt",
           "createdBy",
           "updatedAt",
@@ -1455,6 +1556,75 @@
           "items"
         ],
         "type": "object"
+      },
+      "CourseListItemDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseCategory"
+              }
+            ],
+            "example": "intermediate"
+          },
+          "createdAt": {
+            "example": "2026-09-01T12:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000002",
+            "format": "uuid",
+            "type": "string"
+          },
+          "lessonPlanCount": {
+            "description": "Lesson plans in the sequence of the course, archived ones included.",
+            "example": 12,
+            "type": "number"
+          },
+          "name": {
+            "example": "Informática Intermediária",
+            "type": "string"
+          },
+          "plannedWorkloadMinutes": {
+            "description": "Sum of the expected duration of the lesson plans of the sequence, in minutes.",
+            "example": 1440,
+            "type": "number"
+          },
+          "prerequisites": {
+            "description": "Courses required before this one, archived ones included, ordered by name. Empty when there are none.",
+            "items": {
+              "$ref": "#/components/schemas/CourseReferenceResponseDto"
+            },
+            "type": "array"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CourseStatus"
+              }
+            ],
+            "example": "active"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "status",
+          "lessonPlanCount",
+          "plannedWorkloadMinutes",
+          "prerequisites",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "CourseListSort": {
+        "enum": [
+          "name",
+          "createdAt"
+        ],
+        "type": "string"
       },
       "CourseReferenceResponseDto": {
         "properties": {
@@ -8443,6 +8613,192 @@
       }
     },
     "/classes": {
+      "get": {
+        "operationId": "listClasses",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Search by the code or the name of the class, or by the name of its course, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "info",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the classes of this edition.",
+            "in": "query",
+            "name": "editionId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the classes of this course.",
+            "in": "query",
+            "name": "courseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the classes whose course has this category (RN-14).",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CourseCategory"
+            }
+          },
+          {
+            "description": "One or more statuses, comma separated (planned, in_progress, completed, cancelled). Omitted lists every status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "example": "planned,in_progress",
+              "type": "string"
+            }
+          },
+          {
+            "description": "true lists only the archived classes. Omitted (or false) lists only the classes that are not archived (RN-27).",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "example": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "startDate puts the class that starts last first; code is alphabetical.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ClassListSort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/ClassListItemDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "classes"
+        ]
+      },
       "post": {
         "operationId": "createClass",
         "parameters": [],
@@ -9578,6 +9934,170 @@
       }
     },
     "/courses": {
+      "get": {
+        "operationId": "listCourses",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Search by name, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "informatica",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CourseCategory"
+            }
+          },
+          {
+            "description": "Omitted lists active and archived courses. The selectors of a new class and of prerequisites send active.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CourseStatus"
+            }
+          },
+          {
+            "description": "true lists only courses with a prerequisite; false, only courses without one.",
+            "in": "query",
+            "name": "hasPrerequisite",
+            "required": false,
+            "schema": {
+              "example": true,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "name is alphabetical; createdAt puts the newest first.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CourseListSort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/CourseListItemDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      },
       "post": {
         "operationId": "createCourse",
         "parameters": [],
@@ -9833,6 +10353,98 @@
               }
             },
             "description": "COURSE_ARCHIVED | COURSE_NAME_TAKEN"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/courses/{id}/archive": {
+      "patch": {
+        "operationId": "archiveCourse",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveDto"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
           },
           "500": {
             "content": {
@@ -10255,6 +10867,88 @@
               }
             },
             "description": "COURSE_ARCHIVED"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/courses/{id}/unarchive": {
+      "patch": {
+        "operationId": "unarchiveCourse",
+        "parameters": [
+          {
+            "description": "Id of the course.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CourseResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "COURSE_NOT_FOUND"
           },
           "500": {
             "content": {
