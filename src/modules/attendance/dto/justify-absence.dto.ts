@@ -29,7 +29,7 @@ export class JustifyAbsenceDto {
     maxLength: ABSENCE_JUSTIFICATION_NOTE_MAX_LENGTH,
     example: "Consulta médica marcada.",
     description:
-      "A note about the absence. Optional; trimmed, and empty becomes null. It may carry health data: it never goes to an event, and only whoever takes the roll call of the lesson reads it.",
+      "A note about the absence. Optional; trimmed, and empty becomes null. Omitted or empty, it clears the note of a previous justification: justifying replaces it as a whole. It may carry health data: it never goes to an event, and only whoever takes the roll call of the lesson reads it.",
   })
   @IsOptional()
   @Transform(trimToNull)

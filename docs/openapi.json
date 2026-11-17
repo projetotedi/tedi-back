@@ -3379,7 +3379,7 @@
         "description": "The justification of an absence: why, and optionally a note. Justifying again replaces it; the same reason and note change nothing. The absence stays an absence.",
         "properties": {
           "note": {
-            "description": "A note about the absence. Optional; trimmed, and empty becomes null. It may carry health data: it never goes to an event, and only whoever takes the roll call of the lesson reads it.",
+            "description": "A note about the absence. Optional; trimmed, and empty becomes null. Omitted or empty, it clears the note of a previous justification: justifying replaces it as a whole. It may carry health data: it never goes to an event, and only whoever takes the roll call of the lesson reads it.",
             "example": "Consulta médica marcada.",
             "maxLength": 500,
             "nullable": true,

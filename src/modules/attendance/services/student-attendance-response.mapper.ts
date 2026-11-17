@@ -121,8 +121,8 @@ export function toStudentRollCallItem(
 
 /**
  * The order of a roll call (S20): the name of the student (pt-BR, ignoring case and accents), then
- * her id, then the id of the enrollment (a student can have a removed enrollment signed and a new
- * one); a removed person last, by the id of the enrollment.
+ * her id, then the id of the enrollment, which closes the tie; a removed person last, by the id of
+ * the enrollment.
  */
 export function compareRollCallItems(
   left: StudentRollCallItemResponseDto,
