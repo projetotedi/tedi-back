@@ -13,6 +13,7 @@ import { LessonPlan } from "./entities/lesson-plan.entity";
 import { CourseDetailService } from "./services/course-detail.service";
 import { CourseLessonPlansService } from "./services/course-lesson-plans.service";
 import { CourseListService } from "./services/course-list.service";
+import { LessonPlanListService } from "./services/lesson-plan-list.service";
 import { CourseLookupService } from "./services/course-lookup.service";
 import { CoursesService } from "./services/courses.service";
 import { LessonPlanUsageService } from "./services/lesson-plan-usage.service";
@@ -38,6 +39,7 @@ import { LessonPlansService } from "./services/lesson-plans.service";
     LessonPlanUsageService,
     CourseDetailService,
     CourseListService,
+    LessonPlanListService,
     CourseLookupService,
     Clock,
   ],

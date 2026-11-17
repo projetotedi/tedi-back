@@ -15,13 +15,19 @@ import { ApiErrorDto } from "@shared/dto/api-error.dto";
 import { ArchiveDto } from "@shared/dto/archive.dto";
 import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
+import { ApiOkResponsePaginated } from "@shared/pagination/api-paginated-response.decorator";
+import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { CreateLessonPlanDto } from "../dto/create-lesson-plan.dto";
 import { LessonPlanDetailDto } from "../dto/lesson-plan-detail.response.dto";
+import { LessonPlanListItemDto } from "../dto/lesson-plan-list-item.response.dto";
 import { LessonPlanUsageQueryDto } from "../dto/lesson-plan-usage-query.dto";
+import { ListLessonPlanContentsQueryDto } from "../dto/list-lesson-plan-contents-query.dto";
+import { ListLessonPlansQueryDto } from "../dto/list-lesson-plans-query.dto";
 import { LessonPlanUsageResponseDto } from "../dto/lesson-plan-usage.response.dto";
 import { LessonPlanResponseDto } from "../dto/lesson-plan.response.dto";
 import { UpdateLessonPlanDto } from "../dto/update-lesson-plan.dto";
+import { LessonPlanListService } from "../services/lesson-plan-list.service";
 import { LessonPlanUsageService } from "../services/lesson-plan-usage.service";
 import { LessonPlansService, lessonPlanNotFound } from "../services/lesson-plans.service";
 
@@ -38,7 +44,32 @@ export class LessonPlansController {
   constructor(
     private readonly lessonPlansService: LessonPlansService,
     private readonly lessonPlanUsageService: LessonPlanUsageService,
+    private readonly lessonPlanListService: LessonPlanListService,
   ) {}
+
+  // The two reads of the list are declared before GET :id: without that order, "contents" would
+  // reach the ParseUUIDPipe of :id and answer 404 LESSON_PLAN_NOT_FOUND.
+  @Get()
+  @RequirePermission(Permission.CATALOG_VIEW)
+  @ApiOkResponsePaginated(LessonPlanListItemDto)
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  listLessonPlans(
+    @Query() query: ListLessonPlansQueryDto,
+  ): Promise<PaginatedResult<LessonPlanListItemDto>> {
+    return this.lessonPlanListService.list(query);
+  }
+
+  @Get("contents")
+  @RequirePermission(Permission.CATALOG_VIEW)
+  @ApiOkResponse({
+    type: [String],
+    description:
+      "Up to 20 distinct contents of the plans that are not archived, for the suggestions of the filter Conteúdo.",
+  })
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  listLessonPlanContents(@Query() query: ListLessonPlanContentsQueryDto): Promise<string[]> {
+    return this.lessonPlanListService.listContents(query.search);
+  }
 
   @Post()
   @RequirePermission(Permission.LESSON_PLANS_MANAGE)

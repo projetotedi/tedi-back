@@ -4074,6 +4074,92 @@
         ],
         "type": "object"
       },
+      "LessonPlanListItemDto": {
+        "properties": {
+          "archivedAt": {
+            "description": "Null while the plan is not archived (RN-27).",
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "contents": {
+            "description": "The contents of the plan, in their order.",
+            "example": [
+              "Teclado e mouse",
+              "Janelas do sistema"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "courseCount": {
+            "description": "Courses whose sequence has the plan, archived courses included: the same count as the sequence and the detail of the plan.",
+            "example": 2,
+            "minimum": 0,
+            "type": "number"
+          },
+          "expectedDurationMinutes": {
+            "example": 90,
+            "type": "number"
+          },
+          "id": {
+            "example": "01999a3e-7c1b-7000-8000-000000000010",
+            "format": "uuid",
+            "type": "string"
+          },
+          "materialUrl": {
+            "example": "https://drive.google.com/file/d/exemplo/view",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LessonPlanListStatus"
+              }
+            ],
+            "description": "archived when the plan is archived; else in_use when courseCount > 0, unused when not.",
+            "example": "in_use"
+          },
+          "title": {
+            "example": "Teclado, mouse e janelas",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "contents",
+          "expectedDurationMinutes",
+          "materialUrl",
+          "courseCount",
+          "status",
+          "archivedAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "LessonPlanListSort": {
+        "enum": [
+          "title",
+          "updatedAt"
+        ],
+        "type": "string"
+      },
+      "LessonPlanListStatus": {
+        "description": "archived when the plan is archived; else in_use when courseCount > 0, unused when not.",
+        "enum": [
+          "in_use",
+          "unused",
+          "archived"
+        ],
+        "type": "string"
+      },
       "LessonPlanRefDto": {
         "properties": {
           "archivedAt": {
@@ -4236,6 +4322,14 @@
           "newWorkloadMinutes"
         ],
         "type": "object"
+      },
+      "LessonPlanUsageFilter": {
+        "enum": [
+          "in_use",
+          "unused",
+          "archived"
+        ],
+        "type": "string"
       },
       "LessonPlanUsageResponseDto": {
         "properties": {
@@ -13045,6 +13139,195 @@
       }
     },
     "/lesson-plans": {
+      "get": {
+        "operationId": "listLessonPlans",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Search by title, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "teclado",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the plans with a content that contains this text, ignoring case and accents.",
+            "in": "query",
+            "name": "content",
+            "required": false,
+            "schema": {
+              "example": "janela",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "in_use: not archived and in at least one course; unused: not archived and in no course; archived: only the archived ones. Omitted lists every plan that is not archived.",
+            "in": "query",
+            "name": "usage",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LessonPlanUsageFilter"
+            }
+          },
+          {
+            "description": "Only the plans of at least this many minutes.",
+            "in": "query",
+            "name": "minDuration",
+            "required": false,
+            "schema": {
+              "example": 60,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Only the plans of at most this many minutes. Not below minDuration.",
+            "in": "query",
+            "name": "maxDuration",
+            "required": false,
+            "schema": {
+              "example": 120,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Leaves out the plans that are in the sequence of this course: the picker of the sequence sends it.",
+            "in": "query",
+            "name": "excludeCourseId",
+            "required": false,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "title is alphabetical; updatedAt puts the plan changed last first.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/LessonPlanListSort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/LessonPlanListItemDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      },
       "post": {
         "operationId": "createLessonPlan",
         "parameters": [],
@@ -13078,6 +13361,92 @@
               }
             },
             "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/lesson-plans/contents": {
+      "get": {
+        "operationId": "listLessonPlanContents",
+        "parameters": [
+          {
+            "description": "Only the contents that contain this text, ignoring case and accents.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "jan",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Up to 20 distinct contents of the plans that are not archived, for the suggestions of the filter Conteúdo."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
           },
           "401": {
             "content": {

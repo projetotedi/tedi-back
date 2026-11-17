@@ -8,6 +8,7 @@ import { LessonPlansController } from "../controllers/lesson-plans.controller";
 import { LessonPlanDetailDto } from "../dto/lesson-plan-detail.response.dto";
 import { LessonPlanUsageResponseDto } from "../dto/lesson-plan-usage.response.dto";
 import { LessonPlanResponseDto } from "../dto/lesson-plan.response.dto";
+import { LessonPlanListService } from "../services/lesson-plan-list.service";
 import { LessonPlanUsageService } from "../services/lesson-plan-usage.service";
 import { LessonPlansService } from "../services/lesson-plans.service";
 
@@ -20,6 +21,8 @@ const ACTOR: AuthUser = {
 
 describe("LessonPlansController", () => {
   it.each([
+    ["listLessonPlans", Permission.CATALOG_VIEW],
+    ["listLessonPlanContents", Permission.CATALOG_VIEW],
     ["createLessonPlan", Permission.LESSON_PLANS_MANAGE],
     ["getLessonPlan", Permission.CATALOG_VIEW],
     ["getLessonPlanUsage", Permission.CATALOG_VIEW],
@@ -46,9 +49,11 @@ describe("LessonPlansController", () => {
       duplicate: jest.fn(),
     };
     const usageService = { getDetail: jest.fn(), getUsage: jest.fn() };
+    const listService = { list: jest.fn(), listContents: jest.fn() };
     const controller = new LessonPlansController(
       service as unknown as LessonPlansService,
       usageService as unknown as LessonPlanUsageService,
+      listService as unknown as LessonPlanListService,
     );
 
     beforeEach(() => {
@@ -56,6 +61,23 @@ describe("LessonPlansController", () => {
       for (const method of Object.values(service)) method.mockResolvedValue(plan);
       usageService.getDetail.mockResolvedValue(detail);
       usageService.getUsage.mockResolvedValue(usage);
+    });
+
+    it("delegates listLessonPlans to LessonPlanListService.list with the query", async () => {
+      const page = { data: [], total: 0, page: 1, limit: 20 };
+      listService.list.mockResolvedValue(page);
+
+      await expect(controller.listLessonPlans({ search: "teclado" })).resolves.toBe(page);
+      expect(listService.list).toHaveBeenCalledWith({ search: "teclado" });
+    });
+
+    it("delegates listLessonPlanContents to LessonPlanListService.listContents with the search", async () => {
+      listService.listContents.mockResolvedValue(["Janelas"]);
+
+      await expect(controller.listLessonPlanContents({ search: "jan" })).resolves.toEqual([
+        "Janelas",
+      ]);
+      expect(listService.listContents).toHaveBeenCalledWith("jan");
     });
 
     it("delegates createLessonPlan to LessonPlansService.create with the actor id", async () => {
