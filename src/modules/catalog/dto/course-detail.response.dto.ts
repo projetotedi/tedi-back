@@ -47,6 +47,24 @@ export class CourseDetailDto {
   })
   status!: CourseStatus;
 
+  @ApiProperty({
+    type: String,
+    format: "date-time",
+    nullable: true,
+    example: null,
+    description: "When the course was archived (RN-27, GUS-116). Null while it is active.",
+  })
+  archivedAt!: Date | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: null,
+    description:
+      "Reason given when the course was archived, shown in its history. Null while it is active or when none was given.",
+  })
+  archiveReason!: string | null;
+
   @ApiProperty({ type: String, format: "date-time", example: "2026-10-01T13:00:00.000Z" })
   createdAt!: Date;
 

@@ -1148,6 +1148,19 @@
       },
       "CourseDetailDto": {
         "properties": {
+          "archiveReason": {
+            "description": "Reason given when the course was archived, shown in its history. Null while it is active or when none was given.",
+            "example": null,
+            "nullable": true,
+            "type": "string"
+          },
+          "archivedAt": {
+            "description": "When the course was archived (RN-27, GUS-116). Null while it is active.",
+            "example": null,
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "category": {
             "allOf": [
               {
@@ -1246,6 +1259,8 @@
           "objective",
           "category",
           "status",
+          "archivedAt",
+          "archiveReason",
           "createdAt",
           "createdBy",
           "updatedAt",
