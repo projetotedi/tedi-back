@@ -11,7 +11,7 @@ import { EditionResponseDto } from "./edition.response.dto";
  * category and the size of its plan, the progress of the class and a preview of its students, all
  * in one call (RF-035). An archived class is read the same way, with `archivedAt` set (RN-27).
  * The classes of a course are `GET /courses/{id}/classes` and the list of enrollments is
- * `GET /classes/{id}/enrollments` (GUS-108).
+ * `GET /classes/{id}/enrollments`.
  */
 export class ClassDetailDto {
   @ApiProperty({ type: String, format: "uuid", example: "01999a3e-7c1b-7000-8000-0000000000c1" })
@@ -88,7 +88,7 @@ export class ClassDetailDto {
   @ApiProperty({
     type: [ClassEnrollmentPreviewItemResponseDto],
     description:
-      "Up to 5 active enrollments, the earliest first. The full list is GET /classes/{id}/enrollments (GUS-108). Empty when there are none.",
+      "Up to 5 active enrollments, the earliest first. The full list is GET /classes/{id}/enrollments. Empty when there are none.",
   })
   enrollmentsPreview!: ClassEnrollmentPreviewItemResponseDto[];
 

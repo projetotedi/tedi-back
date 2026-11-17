@@ -35,7 +35,7 @@ docs {
   editionName move a turma para essa edição, criada sob demanda como no POST. O código da turma é conferido na edição nova.
   O período é conferido com as datas que ficam: mandar só endDate compara com o startDate gravado, e mandar só startDate compara com o endDate gravado (400 INVALID_PERIOD).
   status aceita qualquer valor: as regras de transição entre situações ainda não existem (F2.6).
-  capacity não pode ficar abaixo do número de matrículas ativas: 409 CAPACITY_BELOW_ENROLLED. Enquanto a matrícula não existe (GUS-108) o número é 0 e a regra não dispara.
+  capacity não pode ficar abaixo do número de matrículas ativas: 409 CAPACITY_BELOW_ENROLLED (desistentes, concluídos e matrículas removidas não contam).
   Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada e sem evento.
   Turma arquivada é somente leitura: 409 CLASS_ARCHIVED. A linha da turma fica travada durante a edição: duas edições ao mesmo tempo são feitas uma depois da outra.
   Retorna 200 ClassResponseDto e registra o evento CLASS_UPDATED só com os campos alterados (trocar a edição registra editionId e editionName).

@@ -13,7 +13,7 @@ export class ClassDetailSummaryResponseDto {
     type: "integer",
     minimum: 0,
     example: 12,
-    description: "Active enrollments. 0 until enrollments exist (GUS-108).",
+    description: "Active enrollments.",
   })
   enrolledCount!: number;
 

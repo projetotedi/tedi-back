@@ -53,7 +53,8 @@ export function classNotFound(): HttpException {
   return new HttpException({ error: "CLASS_NOT_FOUND", message: "Class not found." }, 404);
 }
 
-function classArchived(): HttpException {
+/** 409: an archived class is read-only (RN-27). Shared with the enrollments (GUS-108). */
+export function classArchived(): HttpException {
   return new HttpException(
     { error: "CLASS_ARCHIVED", message: "Archived classes are read-only." },
     409,
@@ -240,7 +241,9 @@ export class ClassesService {
    * Edits a class. Every field is optional: omitted keeps, `name` and `location` sent as null
    * clear. `editionName` moves the class to that edition, created on demand. `courseId` moves the
    * class to another course (RN-13, GUS-102), but only while the class is planned and has no
-   * active enrollments. The status that counts is the one stored, not the one in the body: the
+   * enrollment that is not removed, in any status: a completed enrollment is a course the student
+   * completed (RN-16), derived from the course of the class, so moving it would rewrite the history
+   * (GUS-108). The status that counts is the one stored, not the one in the body: the
    * rule protects a class that has already started, and a body that sends `planned` together with
    * a new course does not get around it. The same course the class has is not a change, so a form
    * that sends every field back works for a class in progress too. The status takes any value: the
@@ -250,7 +253,7 @@ export class ClassesService {
    * classes are read-only, RN-27), 400 INVALID_PERIOD (the period that results, with the dates
    * sent and the ones already stored, must end on or after it starts), 409
    * COURSE_CHANGE_NOT_ALLOWED (only when the course changes: the class is not planned, or has
-   * active enrollments), 400 COURSE_NOT_FOUND and 409 COURSE_ARCHIVED (only for the new course,
+   * enrollments that are not removed), 400 COURSE_NOT_FOUND and 409 COURSE_ARCHIVED (only for the new course,
    * read `FOR SHARE`, see `loadActiveCourse`), 409 CLASS_CODE_TAKEN (only when the code or the
    * edition changes; the class itself is left out of the check, so changing only the case of its
    * own code passes) and 409 CAPACITY_BELOW_ENROLLED (only when the seats change, and below the
@@ -260,9 +263,9 @@ export class ClassesService {
    * refuse new classes (RF-020), not the ones they already have (RN-27).
    *
    * The row of the class is locked FOR UPDATE until the end of the transaction, so two edits of
-   * the same class are serialized, and so is an edit and an archive. Counting the enrollments
-   * under that lock is what GUS-108 must keep: an enrollment has to take the same lock, or it and
-   * a change of course could both pass their checks.
+   * the same class are serialized, and so is an edit and an archive. The enrollments are counted
+   * under that lock, and an enrollment takes the same lock (`EnrollmentsService`, section 19): an
+   * enrollment and a change of course (or a cut of the seats) never pass their checks at once.
    *
    * Without a change (or with an empty body) nothing is written and no event is emitted. Emits
    * CLASS_UPDATED after the commit, with only the fields that changed (`courseId` included).
@@ -294,8 +297,8 @@ export class ClassesService {
       let course: CourseSummary;
       if (courseChanged) {
         if (schoolClass.status !== ClassStatus.PLANNED) throw courseChangeNotAllowed();
-        const active = await this.enrollmentCounts.countActive(manager, schoolClass.id);
-        if (active > 0) throw courseChangeNotAllowed();
+        const live = await this.enrollmentCounts.countLive(manager, schoolClass.id);
+        if (live > 0) throw courseChangeNotAllowed();
 
         course = await this.loadActiveCourse(manager, nextCourseId);
 
@@ -364,8 +367,8 @@ export class ClassesService {
    * readable by id and becomes read-only. Archiving an archived class is a no-op that answers 200
    * and keeps the first archive (no write, no event, and the enrollments are not even counted).
    *
-   * A class with active enrollments cannot be archived: 409 CLASS_HAS_ACTIVE_ENROLLMENTS. Until
-   * GUS-108 there is no enrollment, so the count is 0 (see EnrollmentCountsService).
+   * A class with active enrollments cannot be archived: 409 CLASS_HAS_ACTIVE_ENROLLMENTS. The count
+   * runs under the lock of the class, the same lock an enrollment takes (section 19).
    *
    * `archivedAt` and `updatedAt` are the same instant, read once from the clock. Emits
    * CLASS_ARCHIVED after the commit, only when the class was archived now.

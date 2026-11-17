@@ -1,0 +1,40 @@
+meta {
+  name: update-enrollment-status
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/enrollments/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-0000000000f1
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "dropped",
+    "effectiveDate": "2026-04-10",
+    "reason": "Mudou de cidade."
+  }
+}
+
+docs {
+  Muda a situação de uma matrícula (RF-027): active, dropped ou completed, qualquer uma para qualquer outra. O :id é o da matrícula.
+  Requer cookie tedi_session e a permissão enrollments.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  effectiveDate é o "A partir de" do modal: AAAA-MM-DD entre o dia da matrícula e hoje (America/Sao_Paulo), as duas pontas incluídas. Vira o statusChangedAt da matrícula.
+  reason é opcional (até 500 caracteres, aparado; vazio vira null): substitui o motivo anterior, e a mudança sem motivo o limpa. O motivo nunca vai para listagem nem para evento (pode ter informação de saúde).
+  A mesma situação é no-op: 200 sem gravar nada e sem evento, a data e o motivo ignorados.
+  Voltar para active (reativar) ocupa vaga: exige turma aberta (409 CLASS_CLOSED), aluno não arquivado (409 STUDENT_ARCHIVED) e vaga (409 CLASS_FULL, details[0].field = status). Sair de active nunca exige vaga e vale também em turma completed ou cancelled (é assim que se fecha uma turma).
+  Turma arquivada é somente leitura: 409 CLASS_ARCHIVED.
+  Retorna 200 EnrollmentResponseDto ({ id, classId, student { id, name }, status, enrolledAt, statusChangedAt, statusReason }) e registra ENROLLMENT_STATUS_CHANGED (sem o motivo).
+  Erros possíveis, nesta ordem: 400 VALIDATION_FAILED, 400 EFFECTIVE_DATE_IN_FUTURE, 404 ENROLLMENT_NOT_FOUND (inexistente, mal formada ou removida), 409 CLASS_ARCHIVED, 400 EFFECTIVE_DATE_BEFORE_ENROLLMENT, 409 CLASS_CLOSED, 409 STUDENT_ARCHIVED, 409 CLASS_FULL; 401; 403 FORBIDDEN.
+}

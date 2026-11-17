@@ -70,6 +70,12 @@ export enum AuditableAction {
   CLASS_ARCHIVED = "CLASS_ARCHIVED",
   /** An archived class was reactivated (GUS-101). */
   CLASS_UNARCHIVED = "CLASS_UNARCHIVED",
+  /** A student was enrolled in a class, one event per enrollment of the batch; after carries ids, status, dates and missingPrerequisiteIds, no personal data (GUS-108). */
+  ENROLLMENT_CREATED = "ENROLLMENT_CREATED",
+  /** The status of an enrollment changed. before and after carry status and statusChangedAt; changedFields names statusReason when it changed, never its value (RNF-13, GUS-108). */
+  ENROLLMENT_STATUS_CHANGED = "ENROLLMENT_STATUS_CHANGED",
+  /** An active enrollment made by mistake was removed; the row stays with deleted_at (GUS-108). */
+  ENROLLMENT_REMOVED = "ENROLLMENT_REMOVED",
   /** A lesson was created, alone or from a lesson plan (GUS-151). */
   LESSON_CREATED = "LESSON_CREATED",
   /** Lesson data changed. Payload carries only the changed fields plus changedFields; the free text of postNotes is never in it (RNF-13, GUS-151). */
@@ -115,7 +121,7 @@ export enum AuditableAction {
  * Fields:
  *  - actorId     — UUID of the person who triggered the action
  *  - action      — which AuditableAction occurred
- *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | "member_attendance" | ...)
+ *  - targetType  — entity type affected ("invite" | "person" | "student" | "member" | "department" | "course" | "class" | "lesson" | "lesson_assignment" | "hour_entry" | "member_attendance" | "enrollment" | ...)
  *  - targetId    — UUID of the affected entity
  *  - before      — snapshot of the entity before the change (null if created)
  *  - after       — snapshot of the entity after the change

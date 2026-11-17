@@ -24,8 +24,7 @@ import { EnrollmentCountsService } from "./enrollment-counts.service";
  * - the plans of the course, through `CourseLessonPlansService.readSequence`. The number of lesson
  *   plans and the workload are the same ones `GET /courses/:id` answers, archived plans that stayed
  *   in the sequence included, because it is the same read (RN-24, P22);
- * - the active enrollments, through `EnrollmentCountsService`: the count and the first few. Both
- *   are empty until GUS-108;
+ * - the active enrollments, through `EnrollmentCountsService`: the count and the first few;
  * - who created the class and the students of the preview, through
  *   `PeopleService.findRefsByIds`, one call for all of them.
  *

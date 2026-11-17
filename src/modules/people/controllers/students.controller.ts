@@ -33,7 +33,8 @@ const STUDENT_ID_PARAM = { name: "id", format: "uuid", description: "Person id o
 
 /**
  * StudentsController — student registration (GUS-105) and the student record (GUS-107).
- * The list comes in GUS-106; enrollments in GUS-108.
+ * The list comes in GUS-106. The enrollments of a student live in `classes`
+ * (`GET /students/:id/enrollments`, GUS-108), because the enrollments are a table of that module.
  *
  *  POST  /students                 — createStudent    (students.manage: director, coordinator)
  *  GET   /students/:id             — getStudent       (students.view: every role)
@@ -98,8 +99,8 @@ export class StudentsController {
 
   /**
    * Archives a student instead of deleting (RN-27). The first archive wins: archiving again
-   * answers 200 without changes. From GUS-108 on, a student with an active enrollment
-   * answers 409 STUDENT_HAS_ACTIVE_ENROLLMENTS.
+   * answers 200 without changes. A student with an active enrollment answers 409
+   * STUDENT_HAS_ACTIVE_ENROLLMENTS.
    */
   @Patch(":id/archive")
   @RequirePermission(Permission.STUDENTS_ARCHIVE)
@@ -107,6 +108,7 @@ export class StudentsController {
   @ApiBody({ type: ArchiveDto, required: false })
   @ApiOkResponse({ type: StudentResponseDto })
   @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
+  @ApiConflictResponse({ type: ApiErrorDto, description: "STUDENT_HAS_ACTIVE_ENROLLMENTS" })
   archiveStudent(
     @Param("id", STUDENT_ID) id: string,
     @Body() dto: ArchiveDto,

@@ -1,0 +1,28 @@
+meta {
+  name: remove-enrollment
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/enrollments/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-0000000000f1
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Remove uma matrícula feita por engano (o "Remover" da tela de matrícula). O :id é o da matrícula.
+  Requer cookie tedi_session e a permissão enrollments.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Só matrícula active: desistente e concluída são histórico (RN-16) e respondem 409 ENROLLMENT_NOT_REMOVABLE; para elas, use a mudança de situação.
+  A exclusão é lógica (deleted_at): a matrícula sai da contagem e das listas, a linha fica, e o aluno pode ser matriculado de novo na turma (uma linha nova).
+  Retorna 204 sem corpo e registra ENROLLMENT_REMOVED. Remover de novo responde 404.
+  Erros possíveis, nesta ordem: 404 ENROLLMENT_NOT_FOUND (inexistente, mal formada ou já removida), 409 CLASS_ARCHIVED, 409 ENROLLMENT_NOT_REMOVABLE; 401; 403 FORBIDDEN.
+}

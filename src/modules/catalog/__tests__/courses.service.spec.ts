@@ -143,8 +143,8 @@ describe("CoursesService", () => {
     createQueryBuilder: jest.fn(),
     getRepository: jest.fn(),
   };
-  const courseRepository = { findOne: jest.fn() };
-  const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
+  const courseRepository = { findOne: jest.fn(), find: jest.fn() };
+  const dataSource = { transaction: jest.fn(), getRepository: jest.fn(), query: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
 
   function emittedEvents(): AuditableActionEvent[] {
@@ -1769,6 +1769,98 @@ describe("CoursesService", () => {
       ).rejects.toThrow("forShare needs the manager of a transaction");
       expect(courseRepository.findOne).not.toHaveBeenCalled();
       expect(dataSource.getRepository).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getCourseSummaries()", () => {
+    it("answers [] without querying for an empty list or only malformed ids", async () => {
+      await expect(service.getCourseSummaries([])).resolves.toEqual([]);
+      await expect(service.getCourseSummaries(["not-a-uuid", "", "123"])).resolves.toEqual([]);
+
+      expect(dataSource.getRepository).not.toHaveBeenCalled();
+      expect(courseRepository.find).not.toHaveBeenCalled();
+    });
+
+    it("answers one summary per course found, archived included, deduped", async () => {
+      courseRepository.find.mockResolvedValue([
+        buildBasic(),
+        buildAdvanced({ archive: { archivedAt: NOW, archivedById: ACTOR_ID } }),
+      ]);
+
+      const summaries = await service.getCourseSummaries([
+        BASIC_ID,
+        ADVANCED_ID,
+        BASIC_ID,
+        UNKNOWN_ID,
+        "not-a-uuid",
+      ]);
+
+      expect(courseRepository.find.mock.calls[0][0].where.id.value).toEqual([
+        BASIC_ID,
+        ADVANCED_ID,
+        UNKNOWN_ID,
+      ]);
+      expect(summaries).toEqual([
+        {
+          id: BASIC_ID,
+          name: "Informática Básica",
+          category: CourseCategory.BASIC,
+          status: CourseStatus.ACTIVE,
+        },
+        {
+          id: ADVANCED_ID,
+          name: "Informática Avançada",
+          category: CourseCategory.ADVANCED,
+          status: CourseStatus.ARCHIVED,
+        },
+      ]);
+
+      // With a manager it reads inside the transaction.
+      await service.getCourseSummaries(
+        [BASIC_ID],
+        manager as unknown as Parameters<CoursesService["getCourseSummaries"]>[1],
+      );
+      expect(manager.getRepository).toHaveBeenCalledWith(Course);
+    });
+  });
+
+  describe("findPrerequisiteRefs()", () => {
+    it("answers [] for a malformed id without querying", async () => {
+      await expect(service.findPrerequisiteRefs("not-a-uuid")).resolves.toEqual([]);
+
+      expect(dataSource.query).not.toHaveBeenCalled();
+    });
+
+    it("answers id and name of each prerequisite in name order, archived included", async () => {
+      dataSource.query.mockResolvedValue([
+        { id: ADVANCED_ID, name: "Informática Avançada" },
+        { id: BASIC_ID, name: "Informática Básica" },
+      ]);
+
+      const refs = await service.findPrerequisiteRefs(COURSE_ID);
+
+      expect(refs).toEqual([
+        { id: ADVANCED_ID, name: "Informática Avançada" },
+        { id: BASIC_ID, name: "Informática Básica" },
+      ]);
+      const [sql, parameters] = dataSource.query.mock.calls[0];
+      expect(parameters).toEqual([COURSE_ID]);
+      // Archived prerequisites are not filtered; removed courses and removed links are.
+      expect(sql).not.toContain("archived_at");
+      expect(sql).toContain("c.deleted_at IS NULL");
+      expect(sql).toContain("link.deleted_at IS NULL");
+      expect(sql).toContain("ORDER BY c.name, c.id");
+      expect(sql).not.toMatch(/FOR (SHARE|UPDATE)/);
+
+      // With a manager it reads inside the transaction.
+      manager.query.mockResolvedValue([]);
+      await service.findPrerequisiteRefs(
+        COURSE_ID,
+        manager as unknown as Parameters<CoursesService["findPrerequisiteRefs"]>[1],
+      );
+      expect(manager.query).toHaveBeenCalledWith(expect.stringContaining("course_prerequisites"), [
+        COURSE_ID,
+      ]);
     });
   });
 });

@@ -33,7 +33,7 @@ export class ClassListItemDto {
     type: Number,
     example: 12,
     minimum: 0,
-    description: "Active enrollments only (0 until the enrollments of GUS-108 exist).",
+    description: "Active enrollments only: dropped, completed and removed ones are left out.",
   })
   enrolledCount!: number;
 

@@ -49,6 +49,9 @@ import { LessonPlansService } from "./services/lesson-plans.service";
   // - lessons (GUS-154): the whole sequence of a course with the title, the objective and the
   //   duration of each plan, to generate the lessons of a class (CourseLessonPlansService.
   //   getSequenceSummaries);
+  // - classes (GUS-108): CoursesService.getCourseSummaries (the courses of the enrollment history of
+  //   a student) and CoursesService.findPrerequisiteRefs (the prerequisites of the course of a class,
+  //   for the warning of the enrollment);
   // - classes (GUS-103): the ids of the courses that match a name or a category, and the summary of
   //   the courses of a page of classes, in one query each (CourseLookupService).
   exports: [CoursesService, LessonPlansService, CourseLessonPlansService, CourseLookupService],

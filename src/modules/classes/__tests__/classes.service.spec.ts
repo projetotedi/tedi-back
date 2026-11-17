@@ -124,6 +124,7 @@ describe("ClassesService", () => {
     found: { edition: Edition; created: boolean };
     codeTaken: boolean;
     active: number;
+    live: number;
   };
 
   const builder = { where: jest.fn(), andWhere: jest.fn(), getExists: jest.fn() };
@@ -145,7 +146,7 @@ describe("ClassesService", () => {
   const clock = { now: jest.fn() };
   const courses = { getCourseSummary: jest.fn() };
   const editions = { findOrCreate: jest.fn() };
-  const enrollmentCounts = { countActive: jest.fn() };
+  const enrollmentCounts = { countActive: jest.fn(), countLive: jest.fn() };
 
   function emittedEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls.map((call) => call[1] as AuditableActionEvent);
@@ -161,6 +162,7 @@ describe("ClassesService", () => {
       found: { edition: buildEdition(), created: false },
       codeTaken: false,
       active: 0,
+      live: 0,
     };
 
     builder.where.mockReturnValue(builder);
@@ -216,6 +218,10 @@ describe("ClassesService", () => {
     enrollmentCounts.countActive.mockImplementation(async () => {
       order.push("count-active");
       return state.active;
+    });
+    enrollmentCounts.countLive.mockImplementation(async () => {
+      order.push("count-live");
+      return state.live;
     });
 
     const moduleRef = await Test.createTestingModule({
@@ -1064,17 +1070,20 @@ describe("ClassesService", () => {
 
         expect(order).toEqual([
           "load-class",
-          "count-active",
+          "count-live",
           "load-course",
           "load-edition",
           "save-class",
           "commit",
           "emit",
         ]);
-        expect(enrollmentCounts.countActive).toHaveBeenCalledWith(manager, CLASS_ID);
+        expect(enrollmentCounts.countLive).toHaveBeenCalledWith(manager, CLASS_ID);
+        // The change of course counts every enrollment that is not removed, not only the active.
+        expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
       });
 
-      it("refuses with 409 COURSE_CHANGE_NOT_ALLOWED when countActive > 0", async () => {
+      it("refuses with 409 COURSE_CHANGE_NOT_ALLOWED when countLive > 0", async () => {
+        state.live = 1;
         state.active = 1;
 
         const failure = await httpFailure(
@@ -1085,14 +1094,34 @@ describe("ClassesService", () => {
         expect(failure.getResponse()).toEqual({
           error: "COURSE_CHANGE_NOT_ALLOWED",
           message:
-            "The course of a class can only change while it is planned and has no active enrollments.",
+            "The course of a class can only change while it is planned and has no enrollments.",
         });
-        expect(enrollmentCounts.countActive).toHaveBeenCalledWith(manager, CLASS_ID);
+        expect(enrollmentCounts.countLive).toHaveBeenCalledWith(manager, CLASS_ID);
         // Refused before it reads the new course, and nothing is written.
         expect(courses.getCourseSummary).not.toHaveBeenCalled();
         expect(manager.save).not.toHaveBeenCalled();
         expect(eventEmitter.emit).not.toHaveBeenCalled();
       });
+
+      it.each(["completed", "dropped"])(
+        "refuses COURSE_CHANGE_NOT_ALLOWED when the class has a %s enrollment",
+        async () => {
+          // No active enrollment, one that is not removed: a completed course of a student (RN-16)
+          // or the history of a dropped one would move to the other course.
+          state.active = 0;
+          state.live = 1;
+
+          const failure = await httpFailure(
+            service.update(CLASS_ID, { courseId: OTHER_COURSE_ID }, ACTOR_ID),
+          );
+
+          expect(failure.getStatus()).toBe(409);
+          expect(failure.getResponse()).toMatchObject({ error: "COURSE_CHANGE_NOT_ALLOWED" });
+          expect(enrollmentCounts.countLive).toHaveBeenCalledWith(manager, CLASS_ID);
+          expect(manager.save).not.toHaveBeenCalled();
+          expect(eventEmitter.emit).not.toHaveBeenCalled();
+        },
+      );
 
       it("refuses with 409 COURSE_CHANGE_NOT_ALLOWED when the stored status is not planned, even if the body sends planned", async () => {
         for (const status of [
@@ -1116,6 +1145,7 @@ describe("ClassesService", () => {
 
         // The status is the first thing looked at: nobody counts, reads or writes.
         expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
+        expect(enrollmentCounts.countLive).not.toHaveBeenCalled();
         expect(courses.getCourseSummary).not.toHaveBeenCalled();
         expect(manager.save).not.toHaveBeenCalled();
         expect(eventEmitter.emit).not.toHaveBeenCalled();
@@ -1124,6 +1154,7 @@ describe("ClassesService", () => {
       it("treats the same courseId as no change: no check, no write, no event, even for a class in progress", async () => {
         state.row = buildClass({ status: ClassStatus.IN_PROGRESS });
         state.active = 5;
+        state.live = 5;
         state.course = buildCourse();
 
         const result = await service.update(
@@ -1136,6 +1167,7 @@ describe("ClassesService", () => {
         expect(result.course).toEqual(COURSE_RESPONSE);
         expect(result.updatedAt).toEqual(CREATED_AT);
         expect(enrollmentCounts.countActive).not.toHaveBeenCalled();
+        expect(enrollmentCounts.countLive).not.toHaveBeenCalled();
         // The course of the answer is read as in any other edit: no lock.
         expect(courses.getCourseSummary).toHaveBeenCalledTimes(1);
         expect(courses.getCourseSummary).toHaveBeenCalledWith(COURSE_ID, manager);
