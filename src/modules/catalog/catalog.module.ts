@@ -12,6 +12,7 @@ import { LessonPlanContent } from "./entities/lesson-plan-content.entity";
 import { LessonPlan } from "./entities/lesson-plan.entity";
 import { CourseDetailService } from "./services/course-detail.service";
 import { CourseLessonPlansService } from "./services/course-lesson-plans.service";
+import { CourseListService } from "./services/course-list.service";
 import { CoursesService } from "./services/courses.service";
 import { LessonPlanUsageService } from "./services/lesson-plan-usage.service";
 import { LessonPlansService } from "./services/lesson-plans.service";
@@ -35,6 +36,7 @@ import { LessonPlansService } from "./services/lesson-plans.service";
     CourseLessonPlansService,
     LessonPlanUsageService,
     CourseDetailService,
+    CourseListService,
     Clock,
   ],
   // What the other modules read from the catalog:

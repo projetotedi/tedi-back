@@ -292,6 +292,17 @@ describe("courses repository (e2e)", () => {
       expect(dataSource.getMetadata(Course).indices).toEqual([]);
     });
 
+    it("has the GIN index idx_courses_name_search on search_normalize(name) for the search of the list (GUS-99)", async () => {
+      // Expression index, created only by CreateCourseListIndexes: the expression must be the one
+      // the search of the list runs (docs/ARCHITECTURE.md section 12).
+      const definition = await indexDefinition("courses", "idx_courses_name_search");
+
+      expect(definition).toHaveLength(1);
+      expect(definition[0]).toContain("USING gin");
+      expect(definition[0]).toMatch(/search_normalize\(\(?name\)?(::text)?\)/);
+      expect(definition[0]).toContain("gin_trgm_ops");
+    });
+
     it("has the check constraint ck_course_prerequisites_not_self declared by the entity", async () => {
       const declared = dataSource
         .getMetadata(CoursePrerequisite)

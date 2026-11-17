@@ -9,6 +9,7 @@ import { CourseDetailDto } from "../dto/course-detail.response.dto";
 import { CourseResponseDto } from "../dto/course.response.dto";
 import { CourseCategory } from "../enums/course-category.enum";
 import { CourseDetailService } from "../services/course-detail.service";
+import { CourseListService } from "../services/course-list.service";
 import { CoursesService } from "../services/courses.service";
 
 const COURSE_ID = "01999a3e-7c1b-7000-8000-000000000001";
@@ -21,6 +22,7 @@ const ACTOR: AuthUser = {
 
 describe("CoursesController", () => {
   it.each([
+    ["listCourses", Permission.CATALOG_VIEW],
     ["createCourse", Permission.COURSES_MANAGE],
     ["getCourse", Permission.CATALOG_VIEW],
     ["updateCourse", Permission.COURSES_MANAGE],
@@ -45,15 +47,29 @@ describe("CoursesController", () => {
       unarchive: jest.fn(),
     };
     const detailService = { findDetail: jest.fn() };
+    const listService = { list: jest.fn() };
     const controller = new CoursesController(
       service as unknown as CoursesService,
       detailService as unknown as CourseDetailService,
+      listService as unknown as CourseListService,
     );
 
     beforeEach(() => {
       jest.clearAllMocks();
       for (const method of Object.values(service)) method.mockResolvedValue(course);
       detailService.findDetail.mockResolvedValue(detail);
+    });
+
+    it("delegates listCourses to CourseListService.list with the query", async () => {
+      const page = { data: [], total: 0, page: 1, limit: 20 };
+      listService.list.mockResolvedValue(page);
+      const query = { search: "informatica", hasPrerequisite: true };
+
+      await expect(controller.listCourses(query)).resolves.toBe(page);
+
+      expect(listService.list).toHaveBeenCalledTimes(1);
+      expect(listService.list).toHaveBeenCalledWith(query);
+      expect(detailService.findDetail).not.toHaveBeenCalled();
     });
 
     it("delegates createCourse to CoursesService.create with the actor id", async () => {

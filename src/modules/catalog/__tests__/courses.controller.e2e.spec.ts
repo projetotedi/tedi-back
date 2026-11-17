@@ -707,6 +707,305 @@ describe("CoursesController (e2e)", () => {
     });
   });
 
+  describe("GET /courses (listCourses)", () => {
+    interface ListItemBody {
+      id: string;
+      name: string;
+      category: string;
+      status: string;
+      lessonPlanCount: number;
+      plannedWorkloadMinutes: number;
+      prerequisites: Array<{ id: string; name: string }>;
+      createdAt: string;
+    }
+
+    interface ListBody {
+      data: ListItemBody[];
+      total: number;
+      page: number;
+      limit: number;
+    }
+
+    function listCourses(query: Record<string, string | number | boolean> = {}, actor = director) {
+      return request(app.getHttpServer()).get("/courses").query(query).set("Cookie", actor.cookie);
+    }
+
+    async function listBody(
+      query: Record<string, string | number | boolean> = {},
+    ): Promise<ListBody> {
+      const res = await listCourses(query).expect(200);
+      return res.body as ListBody;
+    }
+
+    function namesOf(body: ListBody): string[] {
+      return body.data.map((item) => item.name);
+    }
+
+    const ADVANCED = {
+      name: "Smartphones Avançado",
+      description: "Aplicativos, segurança e configurações do celular.",
+      category: "advanced",
+    };
+
+    it("CT1: with 3 courses and 1 archived, status=active answers the 2 active ones", async () => {
+      const basic = await createCourse(BASIC);
+      await createCourse(INTERMEDIATE);
+      await createCourse(ADVANCED);
+      await archiveCourse(basic.id);
+
+      const active = await listBody({ status: "active" });
+      expect(active.total).toBe(2);
+      expect(namesOf(active)).toEqual([INTERMEDIATE.name, ADVANCED.name]);
+      expect(active.data.every((item) => item.status === "active")).toBe(true);
+
+      const archived = await listBody({ status: "archived" });
+      expect(archived.total).toBe(1);
+      expect(archived.data[0]).toMatchObject({ id: basic.id, status: "archived" });
+    });
+
+    it("lists active and archived courses when status is omitted, ordered by name", async () => {
+      const basic = await createCourse(BASIC);
+      await createCourse(ADVANCED);
+      await createCourse(INTERMEDIATE);
+      await archiveCourse(basic.id);
+
+      const body = await listBody();
+
+      expect(body).toMatchObject({ total: 3, page: 1, limit: 20 });
+      expect(namesOf(body)).toEqual([BASIC.name, INTERMEDIATE.name, ADVANCED.name]);
+      expect(body.data.map((item) => item.status)).toEqual(["archived", "active", "active"]);
+    });
+
+    it("CT2: a course with plans of 90 and 120 minutes answers lessonPlanCount 2 and plannedWorkloadMinutes 210", async () => {
+      const course = await createCourse(BASIC);
+      const plans = await createPlans(90, 120);
+      await putSequence(
+        course.id,
+        plans.map((plan) => plan.id),
+      );
+      await createCourse(INTERMEDIATE);
+
+      const body = await listBody();
+
+      expect(body.data[0]).toEqual({
+        id: course.id,
+        name: BASIC.name,
+        category: "basic",
+        status: "active",
+        lessonPlanCount: 2,
+        plannedWorkloadMinutes: 210,
+        prerequisites: [],
+        createdAt: expect.any(String),
+      });
+      // A course without plans answers 0 and 0, never null.
+      expect(body.data[1]).toMatchObject({ lessonPlanCount: 0, plannedWorkloadMinutes: 0 });
+    });
+
+    it("counts an archived lesson plan of the sequence, as the page of the course does", async () => {
+      const course = await createCourse(BASIC);
+      const plans = await createPlans(60, 30);
+      await putSequence(
+        course.id,
+        plans.map((plan) => plan.id),
+      );
+      await dataSource.query(`UPDATE lesson_plans SET archived_at = now() WHERE id = $1`, [
+        plans[0].id,
+      ]);
+
+      const [item] = (await listBody()).data;
+      const detail = await detailOf(course.id);
+
+      expect(item).toMatchObject({ lessonPlanCount: 2, plannedWorkloadMinutes: 90 });
+      expect(item.lessonPlanCount).toBe(detail.lessonPlanCount);
+      expect(item.plannedWorkloadMinutes).toBe(detail.plannedWorkloadMinutes);
+    });
+
+    it("CT3: hasPrerequisite=true answers only the courses with a prerequisite, with prerequisites filled; false the others", async () => {
+      const basic = await createCourse(BASIC);
+      const advanced = await createCourse(ADVANCED);
+      const intermediate = await createCourse({
+        ...INTERMEDIATE,
+        prerequisiteIds: [basic.id, advanced.id],
+      });
+
+      const withPrerequisite = await listBody({ hasPrerequisite: true });
+      expect(withPrerequisite.total).toBe(1);
+      expect(withPrerequisite.data[0]).toMatchObject({
+        id: intermediate.id,
+        prerequisites: [
+          { id: basic.id, name: BASIC.name },
+          { id: advanced.id, name: ADVANCED.name },
+        ],
+      });
+
+      const without = await listBody({ hasPrerequisite: false });
+      expect(namesOf(without)).toEqual([BASIC.name, ADVANCED.name]);
+      expect(without.data.every((item) => item.prerequisites.length === 0)).toBe(true);
+    });
+
+    it("keeps an archived prerequisite in the list of the course that requires it", async () => {
+      const basic = await createCourse(BASIC);
+      await createCourse({ ...INTERMEDIATE, prerequisiteIds: [basic.id] });
+      await archiveCourse(basic.id);
+
+      const body = await listBody({ status: "active" });
+
+      expect(body.data[0].prerequisites).toEqual([{ id: basic.id, name: BASIC.name }]);
+    });
+
+    it("CT4: search=informatica finds 'Informática Básica', ignoring case and accents", async () => {
+      await createCourse(BASIC);
+      await createCourse(INTERMEDIATE);
+      await createCourse(ADVANCED);
+
+      for (const search of ["informatica", "INFORMÁTICA", "Informática", "  informat  "]) {
+        const body = await listBody({ search });
+        expect(namesOf(body)).toEqual([BASIC.name, INTERMEDIATE.name]);
+      }
+      expect(namesOf(await listBody({ search: "basica" }))).toEqual([BASIC.name]);
+      expect((await listBody({ search: "inexistente" })).total).toBe(0);
+    });
+
+    it("treats % and _ in the search as plain characters", async () => {
+      await createCourse(BASIC);
+
+      expect((await listBody({ search: "%" })).total).toBe(0);
+      expect((await listBody({ search: "_" })).total).toBe(0);
+    });
+
+    it("combines category, hasPrerequisite, status and search", async () => {
+      const basic = await createCourse(BASIC);
+      const intermediate = await createCourse({ ...INTERMEDIATE, prerequisiteIds: [basic.id] });
+      const archivedIntermediate = await createCourse({
+        name: "Informática Intermediária (2023)",
+        description: INTERMEDIATE.description,
+        category: "intermediate",
+        prerequisiteIds: [basic.id],
+      });
+      await createCourse({
+        name: "Smartphones Intermediário",
+        description: ADVANCED.description,
+        category: "intermediate",
+        prerequisiteIds: [basic.id],
+      });
+      await archiveCourse(archivedIntermediate.id);
+
+      const body = await listBody({
+        search: "informatica",
+        category: "intermediate",
+        hasPrerequisite: true,
+        status: "active",
+      });
+
+      expect(body.total).toBe(1);
+      expect(body.data[0].id).toBe(intermediate.id);
+      expect((await listBody({ search: "informatica", category: "intermediate" })).total).toBe(2);
+      expect((await listBody({ category: "basic" })).data.map((item) => item.id)).toEqual([
+        basic.id,
+      ]);
+    });
+
+    it("paginates: total counts every match, page and limit come back, a page past the end is empty", async () => {
+      const names = ["A", "B", "C", "D", "E"].map((letter) => `Curso ${letter}`);
+      for (const name of names) await createCourse({ ...BASIC, name });
+
+      const first = await listBody({ page: 1, limit: 2 });
+      const third = await listBody({ page: 3, limit: 2 });
+      const past = await listBody({ page: 4, limit: 2 });
+
+      expect(first).toMatchObject({ total: 5, page: 1, limit: 2 });
+      expect(namesOf(first)).toEqual(["Curso A", "Curso B"]);
+      expect(namesOf(third)).toEqual(["Curso E"]);
+      expect(past).toMatchObject({ data: [], total: 5, page: 4 });
+    });
+
+    it("sorts by createdAt with the newest first", async () => {
+      const first = await createCourse(BASIC);
+      const second = await createCourse(INTERMEDIATE);
+      await dataSource.query(
+        `UPDATE courses SET created_at = created_at - interval '1 day' WHERE id = $1`,
+        [first.id],
+      );
+
+      const body = await listBody({ sort: "createdAt" });
+
+      expect(body.data.map((item) => item.id)).toEqual([second.id, first.id]);
+    });
+
+    it("leaves out a deleted course", async () => {
+      const basic = await createCourse(BASIC);
+      await createCourse(INTERMEDIATE);
+      await dataSource.query(`UPDATE courses SET deleted_at = now() WHERE id = $1`, [basic.id]);
+
+      const body = await listBody();
+
+      expect(body.total).toBe(1);
+      expect(namesOf(body)).toEqual([INTERMEDIATE.name]);
+    });
+
+    it("reads with the same number of queries for 1 and for 12 courses with prerequisites and plans", async () => {
+      const plans = await createPlans(60, 45);
+      const base = await createCourse(BASIC);
+      await putSequence(
+        base.id,
+        plans.map((plan) => plan.id),
+      );
+
+      const countQueries = async () =>
+        (await queriesDuring(() => listCourses().expect(200))).filter((sql) =>
+          /^\s*SELECT/i.test(sql),
+        ).length;
+
+      const withOne = await countQueries();
+
+      for (let index = 0; index < 11; index++) {
+        const course = await createCourse({
+          ...INTERMEDIATE,
+          name: `Curso ${index}`,
+          prerequisiteIds: [base.id],
+        });
+        await putSequence(
+          course.id,
+          plans.map((plan) => plan.id),
+        );
+      }
+
+      expect(await countQueries()).toBe(withOne);
+      expect((await listBody()).total).toBe(12);
+    });
+
+    it("returns 200 for a member, a coordinator and a director", async () => {
+      await createCourse(BASIC);
+
+      for (const actor of [member, coordinator, director]) {
+        const res = await listCourses({}, actor).expect(200);
+        expect(res.body.total).toBe(1);
+      }
+    });
+
+    it("returns 401 without a session cookie", async () => {
+      await request(app.getHttpServer()).get("/courses").expect(401);
+    });
+
+    it("returns 400 VALIDATION_FAILED for invalid filters", async () => {
+      const cases: Array<[Record<string, string | number>, string]> = [
+        [{ category: "expert" }, "category"],
+        [{ status: "deleted" }, "status"],
+        [{ hasPrerequisite: "sim" }, "hasPrerequisite"],
+        [{ limit: 101 }, "limit"],
+        [{ page: 0 }, "page"],
+        [{ sort: "title" }, "sort"],
+        [{ search: "x".repeat(101) }, "search"],
+      ];
+
+      for (const [query, field] of cases) {
+        const res = await listCourses(query).expect(400);
+        expect(res.body.error).toBe("VALIDATION_FAILED");
+        expect(fieldsOf(res.body)).toEqual([field]);
+      }
+    });
+  });
+
   describe("GET /courses/:id (getCourse)", () => {
     it("answers data, prerequisites, requiredBy, the sequence and the workload in one call", async () => {
       const basic = await createCourse(BASIC);
