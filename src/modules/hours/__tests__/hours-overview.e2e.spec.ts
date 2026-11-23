@@ -721,6 +721,7 @@ describe("hours views (e2e)", () => {
         declaredMinutes: 240,
         bankMinutes: 120,
         pendingMinutes: 0,
+        note: null,
       });
       expect(categoryOf(hours.summary, "planning")).toMatchObject({ pendingMinutes: 90 });
       expect(hours.summary.byCategory).toHaveLength(7);

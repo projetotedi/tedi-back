@@ -108,6 +108,8 @@ export enum AuditableAction {
   HOUR_ENTRY_REJECTED = "HOUR_ENTRY_REJECTED",
   /** The hours of a presence were reversed, by a correction of the attendance to absent or by the cancellation of the lesson (RF-071, RN-07); the entry is soft-deleted, in any status. No free text in the payload (GUS-168). */
   HOUR_ENTRY_REVERSED = "HOUR_ENTRY_REVERSED",
+  /** Coordination wrote, changed or cleared the observation on the hours of a member in one category. Only whether there is an observation goes in the payload, never its text (RNF-13, GUS-173). */
+  HOUR_CATEGORY_NOTE_UPDATED = "HOUR_CATEGORY_NOTE_UPDATED",
   /** The attendance of a member at a lesson was signed for the first time, present or absent; a presence carries the hour entry it generated (GUS-168). */
   MEMBER_ATTENDANCE_CONFIRMED = "MEMBER_ATTENDANCE_CONFIRMED",
   /** A signed attendance changed status (present to absent or back), with who signed it before and after; there is no reason (GUS-168). */

@@ -15,6 +15,7 @@ import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import { EVERYONE, peoplePopulation } from "../services/hour-entry-queries";
+import { HourCategoryNotesService } from "../services/hour-category-notes.service";
 import { HoursScopeService } from "../services/hours-scope.service";
 import { HoursViewService } from "../services/hours-view.service";
 
@@ -137,9 +138,11 @@ describe("HoursViewService", () => {
   const scope = { populationOf: jest.fn() };
   const members = { findMemberRefs: jest.fn(), findAccessFacts: jest.fn() };
   const people = { findRefsByIds: jest.fn() };
+  const notes = { notesOf: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    notes.notesOf.mockResolvedValue(new Map([["meeting", "Reuniões de março conferidas."]]));
     for (const method of [
       builder.select,
       builder.addSelect,
@@ -181,6 +184,7 @@ describe("HoursViewService", () => {
         { provide: HoursScopeService, useValue: scope },
         { provide: MembersService, useValue: members },
         { provide: PeopleService, useValue: people },
+        { provide: HourCategoryNotesService, useValue: notes },
       ],
     }).compile();
     service = moduleRef.get(HoursViewService);
@@ -478,6 +482,11 @@ describe("HoursViewService", () => {
         to: "2026-03-31",
         bankMinutes: 120,
       });
+      expect(notes.notesOf).toHaveBeenCalledWith(ANA);
+      expect(hours.summary.byCategory.find((total) => total.category === "meeting")?.note).toBe(
+        "Reuniões de março conferidas.",
+      );
+      expect(hours.summary.byCategory.find((total) => total.category === "event")?.note).toBe(null);
       expect(hours.entries).toMatchObject({ total: 12, page: 2, limit: 5 });
       expect(hours.entries.data.map((entry) => entry.id)).toEqual([ENTRY_A, ENTRY_B]);
       expect(hours.entries.data[0]).not.toHaveProperty("deletedAt");

@@ -16,6 +16,29 @@ function row(overrides: Partial<HoursSummaryRow>): HoursSummaryRow {
 }
 
 describe("buildHoursSummary", () => {
+  it("puts the observation of each category that has one, and null in the others (GUS-173)", () => {
+    const summary = buildHoursSummary(
+      [row({ category: HourEntryCategory.PLANNING })],
+      OPEN_PERIOD,
+      new Map([
+        [HourEntryCategory.PLANNING, "Aguardando validação da coordenação."],
+        [HourEntryCategory.EVENT, "Sem lançamentos de evento neste semestre."],
+      ]),
+    );
+
+    expect(
+      Object.fromEntries(summary.byCategory.map((total) => [total.category, total.note])),
+    ).toEqual({
+      lesson: null,
+      planning: "Aguardando validação da coordenação.",
+      event: "Sem lançamentos de evento neste semestre.",
+      management: null,
+      meeting: null,
+      support: null,
+      other: null,
+    });
+  });
+
   it("returns every status and every category in enum order, with zeros, when there are no rows", () => {
     const summary = buildHoursSummary([], OPEN_PERIOD);
 
@@ -35,6 +58,7 @@ describe("buildHoursSummary", () => {
         declaredMinutes: 0,
         bankMinutes: 0,
         pendingMinutes: 0,
+        note: null,
       })),
     );
   });
@@ -126,6 +150,7 @@ describe("buildHoursSummary", () => {
       declaredMinutes: 710,
       bankMinutes: 180,
       pendingMinutes: 200,
+      note: null,
     });
     expect(
       summary.byCategory.find((total) => total.category === HourEntryCategory.MEETING)?.bankMinutes,
@@ -159,6 +184,7 @@ describe("buildHoursSummary", () => {
       declaredMinutes: 105,
       bankMinutes: 30,
       pendingMinutes: 75,
+      note: null,
     });
   });
 

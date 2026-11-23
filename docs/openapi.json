@@ -3205,6 +3205,12 @@
             "example": 3,
             "type": "integer"
           },
+          "note": {
+            "description": "The observation of coordination on this category of the member (GUS-173), whatever the period. Null when there is none, and always null in GET /hours/overview, which sums the team.",
+            "example": "Aguardando validação da coordenação.",
+            "nullable": true,
+            "type": "string"
+          },
           "pendingMinutes": {
             "description": "Declared minutes of the pending entries: what waits for review.",
             "example": 150,
@@ -3216,7 +3222,8 @@
           "entries",
           "declaredMinutes",
           "bankMinutes",
-          "pendingMinutes"
+          "pendingMinutes",
+          "note"
         ],
         "type": "object"
       },

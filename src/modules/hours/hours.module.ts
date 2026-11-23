@@ -5,13 +5,16 @@ import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
 import { HourEntriesController } from "./controllers/hour-entries.controller";
 import { HoursController } from "./controllers/hours.controller";
+import { MemberHourNotesController } from "./controllers/member-hour-notes.controller";
 import { MemberHoursViewController } from "./controllers/member-hours-view.controller";
 import { MemberHoursController } from "./controllers/member-hours.controller";
 import { MyHoursController } from "./controllers/my-hours.controller";
+import { HourCategoryNote } from "./entities/hour-category-note.entity";
 import { HourEntryEvent } from "./entities/hour-entry-event.entity";
 import { HourEntry } from "./entities/hour-entry.entity";
 import { HourEntryStatus } from "./enums/hour-entry-status.enum";
 import { LessonCancelledListener } from "./listeners/lesson-cancelled.listener";
+import { HourCategoryNotesService } from "./services/hour-category-notes.service";
 import { HoursExportService } from "./services/hours-export.service";
 import { HoursReviewService } from "./services/hours-review.service";
 import { HoursScopeService } from "./services/hours-scope.service";
@@ -35,17 +38,23 @@ import { LESSON_HOURS_INITIAL_STATUS, LessonHoursService } from "./services/less
  * them to the queue of the review, GUS-164).
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([HourEntry, HourEntryEvent]), PeopleModule, PermissionsModule],
+  imports: [
+    TypeOrmModule.forFeature([HourEntry, HourEntryEvent, HourCategoryNote]),
+    PeopleModule,
+    PermissionsModule,
+  ],
   controllers: [
     MyHoursController,
     MemberHoursController,
     MemberHoursViewController,
     HoursController,
     HourEntriesController,
+    MemberHourNotesController,
   ],
   providers: [
     HoursService,
     HoursViewService,
+    HourCategoryNotesService,
     HoursReviewService,
     HoursExportService,
     HoursScopeService,

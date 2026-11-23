@@ -23,6 +23,9 @@ export const BANK_STATUSES: ReadonlySet<string> = new Set([
  * Folds the grouped rows into the summary. Every status and every category starts at zero, in the
  * order of their enums, so a missing one reads 0 and never disappears from the answer.
  *
+ * `notes` are the observations of coordination of one member by category (GUS-173); a category
+ * without one, and every category of a reading of the team, gets null.
+ *
  * A row with a status or a category this code does not know, or with a total that is not a whole
  * number (a `bigint` the query forgot to cast arrives as a string, and `+=` would concatenate it),
  * throws instead of answering: a wrong bank of hours must not be published.
@@ -30,6 +33,7 @@ export const BANK_STATUSES: ReadonlySet<string> = new Set([
 export function buildHoursSummary(
   rows: readonly HoursSummaryRow[],
   period: { from: string | null; to: string | null },
+  notes: ReadonlyMap<string, string> = new Map(),
 ): HoursSummaryResponseDto {
   const byStatus = new Map<string, HoursStatusTotalDto>(
     Object.values(HourEntryStatus).map((status) => [
@@ -40,7 +44,14 @@ export function buildHoursSummary(
   const byCategory = new Map<string, HoursCategoryTotalDto>(
     Object.values(HourEntryCategory).map((category) => [
       category,
-      { category, entries: 0, declaredMinutes: 0, bankMinutes: 0, pendingMinutes: 0 },
+      {
+        category,
+        entries: 0,
+        declaredMinutes: 0,
+        bankMinutes: 0,
+        pendingMinutes: 0,
+        note: notes.get(category) ?? null,
+      },
     ]),
   );
   let bankMinutes = 0;

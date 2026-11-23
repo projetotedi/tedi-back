@@ -625,6 +625,7 @@ describe("MyHoursController (e2e)", () => {
         declaredMinutes: 180,
         bankMinutes: 0,
         pendingMinutes: 180,
+        note: null,
       });
       expect(categoryTotal(summary, "lesson")).toEqual({
         category: "lesson",
@@ -632,6 +633,7 @@ describe("MyHoursController (e2e)", () => {
         declaredMinutes: 0,
         bankMinutes: 0,
         pendingMinutes: 0,
+        note: null,
       });
       expect(summary).toMatchObject({ from: null, to: null, bankMinutes: 0 });
     });
@@ -669,6 +671,7 @@ describe("MyHoursController (e2e)", () => {
         declaredMinutes: 600,
         bankMinutes: 180,
         pendingMinutes: 90,
+        note: null,
       });
       expect(statusTotal(summary, "adjusted")).toMatchObject({ entries: 1, validatedMinutes: 120 });
       expect(statusTotal(summary, "rejected")).toMatchObject({ entries: 1, declaredMinutes: 300 });

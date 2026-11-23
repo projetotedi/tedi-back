@@ -85,5 +85,5 @@ Fonte única: `src/shared/permissions/permission-matrix.ts`. O `GET /auth/me` de
 | -- | -- | -- | -- | -- |
 | `hours.viewOthers` | Ver a tela Banco de horas (visão por membro) | ❌ | depto | ✅ |
 | `hours.logForOthers` | Lançar horas em nome de outro membro | ❌ | depto | ✅ |
-| `hours.review` | Validar, ajustar ou rejeitar lançamentos | ❌ | ❌ | ✅ |
+| `hours.review` | Validar, ajustar ou rejeitar lançamentos e escrever a observação por categoria | ❌ | ❌ | ✅ |
 | `hours.export` | Exportar relatório de horas | ❌ | depto | ✅ |

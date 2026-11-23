@@ -21,6 +21,7 @@ import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryEventType } from "../enums/hour-entry-event-type.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
+import { HourCategoryNotesService } from "../services/hour-category-notes.service";
 import { HourEntryDraft, HoursService } from "../services/hours.service";
 
 /** 22:30 of 2026-10-01 in America/Sao_Paulo, when the UTC date is already 2026-10-02. */
@@ -136,6 +137,7 @@ describe("HoursService", () => {
   const entryRepository = { createQueryBuilder: jest.fn() };
   const people = { findRefsByIds: jest.fn() };
   const members = { findAccessFacts: jest.fn() };
+  const notes = { notesOf: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -182,6 +184,7 @@ describe("HoursService", () => {
       return true;
     });
     clock.now.mockReturnValue(NOW);
+    notes.notesOf.mockResolvedValue(new Map());
     for (const method of [
       builder.where,
       builder.andWhere,
@@ -219,6 +222,7 @@ describe("HoursService", () => {
         { provide: Clock, useValue: clock },
         { provide: PeopleService, useValue: people },
         { provide: MembersService, useValue: members },
+        { provide: HourCategoryNotesService, useValue: notes },
         PermissionPolicy,
       ],
     }).compile();
@@ -913,7 +917,23 @@ describe("HoursService", () => {
       expect(summary).toMatchObject({ from: null, to: null, bankMinutes: 120 });
       expect(
         summary.byCategory.find((total) => total.category === HourEntryCategory.MEETING),
-      ).toMatchObject({ entries: 2, pendingMinutes: 90 });
+      ).toMatchObject({ entries: 2, pendingMinutes: 90, note: null });
+    });
+
+    it("puts the observations of coordination on the actor's categories in the summary (GUS-173)", async () => {
+      notes.notesOf.mockResolvedValue(
+        new Map([[HourEntryCategory.PLANNING, "Aguardando validação da coordenação."]]),
+      );
+
+      const summary = await service.getMySummary(MEMBER, {});
+
+      expect(notes.notesOf).toHaveBeenCalledWith(MEMBER.id);
+      expect(
+        summary.byCategory.find((total) => total.category === HourEntryCategory.PLANNING)?.note,
+      ).toBe("Aguardando validação da coordenação.");
+      expect(
+        summary.byCategory.find((total) => total.category === HourEntryCategory.MEETING)?.note,
+      ).toBeNull();
     });
   });
 
