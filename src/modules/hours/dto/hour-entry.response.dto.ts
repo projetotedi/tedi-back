@@ -88,7 +88,8 @@ export class HourEntryResponseDto {
     format: "uuid",
     nullable: true,
     example: null,
-    description: "The class of the lesson, for an entry created by the attendance.",
+    description:
+      "The class the entry is linked to: the class of the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
   })
   classId!: string | null;
 
@@ -97,7 +98,8 @@ export class HourEntryResponseDto {
     format: "uuid",
     nullable: true,
     example: null,
-    description: "The lesson, for an entry created by the attendance.",
+    description:
+      "The lesson the entry is linked to: the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
   })
   lessonId!: string | null;
 

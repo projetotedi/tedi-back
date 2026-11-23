@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
+import { ClassesModule } from "@modules/classes/classes.module";
+import { LessonsModule } from "@modules/lessons/lessons.module";
 import { PeopleModule } from "@modules/people/people.module";
 import { Clock } from "@shared/dates/clock";
 import { PermissionsModule } from "@shared/permissions/permissions.module";
@@ -27,6 +29,10 @@ import { LESSON_HOURS_INITIAL_STATUS, LessonHoursService } from "./services/less
  *   (MembersService.findMemberRefs) and who did each step of a history (PeopleService.findRefsByIds);
  * - PermissionsModule: the `department` scope of hours.logForOthers, hours.viewOthers and
  *   hours.export (PermissionPolicy).
+ * - LessonsModule and ClassesModule: the lesson and the class an entry logged through a route is
+ *   linked to (GUS-172), read FOR SHARE in its transaction (LessonsService.getLessonSummary and
+ *   ClassesService.getClassSummary). Neither of them imports this module: the arrows are
+ *   hours -> lessons -> classes, and the cancellation of a lesson still reaches here by event.
  *
  * It exports only the LessonHoursService (GUS-168): the attendance writes and reverses the lesson
  * hours inside its own transaction, because the row of the presence keeps the entry it generated
@@ -35,7 +41,13 @@ import { LESSON_HOURS_INITIAL_STATUS, LessonHoursService } from "./services/less
  * them to the queue of the review, GUS-164).
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([HourEntry, HourEntryEvent]), PeopleModule, PermissionsModule],
+  imports: [
+    TypeOrmModule.forFeature([HourEntry, HourEntryEvent]),
+    PeopleModule,
+    PermissionsModule,
+    LessonsModule,
+    ClassesModule,
+  ],
   controllers: [
     MyHoursController,
     MemberHoursController,

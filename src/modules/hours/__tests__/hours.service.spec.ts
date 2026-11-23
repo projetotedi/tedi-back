@@ -3,6 +3,8 @@ import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
 import { DataSource, EntityManager } from "typeorm";
+import { ClassesService } from "@modules/classes/services/classes.service";
+import { LessonsService, LessonStatus } from "@modules/lessons/services/lessons.service";
 import { MemberRegistrationStatus, MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Clock } from "@shared/dates/clock";
@@ -32,6 +34,7 @@ const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
 const EVENT_ID = "01999a3e-7c1b-7000-8000-000000000e01";
 const CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c1";
 const LESSON_ID = "01999a3e-7c1b-7000-8000-0000000000f1";
+const OTHER_CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c2";
 
 const TECH = "01999a3e-1111-7000-8000-000000000001";
 const COMMS = "01999a3e-1111-7000-8000-000000000002";
@@ -95,6 +98,24 @@ function draftOf(overrides: Partial<HourEntryDraft> = {}): HourEntryDraft {
   };
 }
 
+function lessonOf(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: LESSON_ID,
+    classId: CLASS_ID,
+    title: "Teclado, mouse e janelas",
+    date: "2026-03-10",
+    startTime: "14:00",
+    endTime: "15:30",
+    status: LessonStatus.PLANNED,
+    expectedMonitors: null,
+    ...overrides,
+  };
+}
+
+function classOf(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { id: CLASS_ID, code: "INFO-A", archivedAt: null, ...overrides };
+}
+
 async function httpFailure(promise: Promise<unknown>): Promise<HttpException> {
   try {
     await promise;
@@ -136,6 +157,8 @@ describe("HoursService", () => {
   const entryRepository = { createQueryBuilder: jest.fn() };
   const people = { findRefsByIds: jest.fn() };
   const members = { findAccessFacts: jest.fn() };
+  const classes = { getClassSummary: jest.fn() };
+  const lessons = { getLessonSummary: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -210,6 +233,14 @@ describe("HoursService", () => {
       order.push("find-access-facts");
       return { registrationStatus: MemberRegistrationStatus.APPROVED, departmentIds: [TECH] };
     });
+    lessons.getLessonSummary.mockImplementation(async () => {
+      order.push("find-lesson");
+      return lessonOf();
+    });
+    classes.getClassSummary.mockImplementation(async () => {
+      order.push("find-class");
+      return classOf();
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -219,6 +250,8 @@ describe("HoursService", () => {
         { provide: Clock, useValue: clock },
         { provide: PeopleService, useValue: people },
         { provide: MembersService, useValue: members },
+        { provide: ClassesService, useValue: classes },
+        { provide: LessonsService, useValue: lessons },
         PermissionPolicy,
       ],
     }).compile();
@@ -611,6 +644,150 @@ describe("HoursService", () => {
         updatedAt: NOW,
       });
       expect(response).not.toHaveProperty("deletedAt");
+    });
+  });
+
+  describe("the link to a class and a lesson (GUS-172)", () => {
+    it("reads nothing of classes and lessons when the body has no link, and stores null", async () => {
+      await service.logMyHours({ ...CARD_DTO, classId: null, lessonId: null }, MEMBER);
+
+      expect(lessons.getLessonSummary).not.toHaveBeenCalled();
+      expect(classes.getClassSummary).not.toHaveBeenCalled();
+      expect(savedEntries()[0]).toMatchObject({ classId: null, lessonId: null });
+    });
+
+    it("links a lesson and takes its class, reading the lesson and then its class FOR SHARE inside the transaction", async () => {
+      await service.logMyHours({ ...CARD_DTO, lessonId: LESSON_ID }, MEMBER);
+
+      expect(lessons.getLessonSummary).toHaveBeenCalledWith(LESSON_ID, manager, { forShare: true });
+      expect(classes.getClassSummary).toHaveBeenCalledWith(CLASS_ID, manager, { forShare: true });
+      expect(order).toEqual([
+        "find-lesson",
+        "find-class",
+        "insert-entry",
+        "insert-event",
+        "commit",
+        "emit-audit",
+      ]);
+      expect(savedEntries()[0]).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
+      expect(auditEvents()[0].after).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
+    });
+
+    it("links a lesson with the class it belongs to", async () => {
+      await service.logMyHours({ ...CARD_DTO, classId: CLASS_ID, lessonId: LESSON_ID }, MEMBER);
+
+      expect(savedEntries()[0]).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
+    });
+
+    it("links only a class", async () => {
+      await service.logMyHours({ ...CARD_DTO, classId: CLASS_ID }, MEMBER);
+
+      expect(lessons.getLessonSummary).not.toHaveBeenCalled();
+      expect(classes.getClassSummary).toHaveBeenCalledWith(CLASS_ID, manager, { forShare: true });
+      expect(savedEntries()[0]).toMatchObject({ classId: CLASS_ID, lessonId: null });
+    });
+
+    it("does not require the person to be assigned to the lesson, and links on behalf of a member too", async () => {
+      await service.logHoursForMember(MEMBER.id, { ...CARD_DTO, lessonId: LESSON_ID }, DIRECTOR);
+
+      expect(savedEntries()[0]).toMatchObject({
+        personId: MEMBER.id,
+        origin: HourEntryOrigin.ON_BEHALF,
+        classId: CLASS_ID,
+        lessonId: LESSON_ID,
+      });
+    });
+
+    it("throws LESSON_NOT_FOUND (400, on lessonId) for an unknown lesson, and writes nothing", async () => {
+      lessons.getLessonSummary.mockResolvedValueOnce(null);
+
+      const failure = await httpFailure(
+        service.logMyHours({ ...CARD_DTO, lessonId: LESSON_ID }, MEMBER),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toMatchObject({
+        error: "LESSON_NOT_FOUND",
+        details: [{ field: "lessonId" }],
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws LESSON_NOT_IN_CLASS (400, on lessonId) when the lesson is of another class, before reading the class", async () => {
+      const failure = await httpFailure(
+        service.logMyHours({ ...CARD_DTO, classId: OTHER_CLASS_ID, lessonId: LESSON_ID }, MEMBER),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toMatchObject({
+        error: "LESSON_NOT_IN_CLASS",
+        details: [{ field: "lessonId" }],
+      });
+      expect(classes.getClassSummary).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("throws LESSON_CANCELLED (409, on lessonId) for a cancelled lesson", async () => {
+      lessons.getLessonSummary.mockResolvedValueOnce(lessonOf({ status: LessonStatus.CANCELLED }));
+
+      const failure = await httpFailure(
+        service.logMyHours({ ...CARD_DTO, lessonId: LESSON_ID }, MEMBER),
+      );
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toMatchObject({
+        error: "LESSON_CANCELLED",
+        details: [{ field: "lessonId" }],
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("throws CLASS_NOT_FOUND (400, on classId) for an unknown class", async () => {
+      classes.getClassSummary.mockResolvedValueOnce(null);
+
+      const failure = await httpFailure(
+        service.logMyHours({ ...CARD_DTO, classId: CLASS_ID }, MEMBER),
+      );
+
+      expect(failure.getStatus()).toBe(400);
+      expect(failure.getResponse()).toMatchObject({
+        error: "CLASS_NOT_FOUND",
+        details: [{ field: "classId" }],
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("throws CLASS_ARCHIVED (409) on classId for an archived class, and on lessonId when the class is the lesson's", async () => {
+      const archived = classOf({ archivedAt: new Date("2026-07-01T12:00:00.000Z") });
+      classes.getClassSummary.mockResolvedValue(archived);
+
+      const byClass = await httpFailure(
+        service.logMyHours({ ...CARD_DTO, classId: CLASS_ID }, MEMBER),
+      );
+      const byLesson = await httpFailure(
+        service.logMyHours({ ...CARD_DTO, lessonId: LESSON_ID }, MEMBER),
+      );
+
+      expect(byClass.getStatus()).toBe(409);
+      expect(byClass.getResponse()).toMatchObject({
+        error: "CLASS_ARCHIVED",
+        details: [{ field: "classId" }],
+      });
+      expect(byLesson.getStatus()).toBe(409);
+      expect(byLesson.getResponse()).toMatchObject({
+        error: "CLASS_ARCHIVED",
+        details: [{ field: "lessonId" }],
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("stores the ids the database returns, not the ones of the body", async () => {
+      classes.getClassSummary.mockResolvedValueOnce(classOf({ id: CLASS_ID }));
+
+      await service.logMyHours({ ...CARD_DTO, classId: CLASS_ID.toUpperCase() }, MEMBER);
+
+      expect(savedEntries()[0].classId).toBe(CLASS_ID);
     });
   });
 

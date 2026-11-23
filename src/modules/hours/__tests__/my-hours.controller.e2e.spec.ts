@@ -10,6 +10,9 @@ import { join } from "node:path";
 import request from "supertest";
 import { DataSource } from "typeorm";
 import { AuthModule } from "@modules/auth/auth.module";
+import { CourseCategory, CoursesService } from "@modules/catalog/services/courses.service";
+import { ClassesService } from "@modules/classes/services/classes.service";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import {
   insertDepartment,
   insertMemberProfile,
@@ -128,6 +131,9 @@ describe("MyHoursController (e2e)", () => {
   let peopleService: PeopleService;
   let jwtService: JwtService;
   let eventEmitter: EventEmitter2;
+  let coursesService: CoursesService;
+  let classesService: ClassesService;
+  let lessonsService: LessonsService;
 
   let member: Actor;
   let otherMember: Actor;
@@ -165,6 +171,9 @@ describe("MyHoursController (e2e)", () => {
     peopleService = module.get(PeopleService);
     jwtService = module.get(JwtService);
     eventEmitter = module.get(EventEmitter2);
+    coursesService = module.get(CoursesService);
+    classesService = module.get(ClassesService);
+    lessonsService = module.get(LessonsService);
   });
 
   afterAll(async () => {
@@ -173,7 +182,9 @@ describe("MyHoursController (e2e)", () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      `TRUNCATE TABLE hour_entry_events, hour_entries, invites, departments, people
+      `TRUNCATE TABLE hour_entry_events, hour_entries, lessons, classes, editions,
+                      course_lesson_plans, lesson_plan_contents, lesson_plans,
+                      course_prerequisites, courses, invites, departments, people
        RESTART IDENTITY CASCADE`,
     );
 
@@ -402,15 +413,13 @@ describe("MyHoursController (e2e)", () => {
       expect(accepted.date).toBe(today);
     });
 
-    it("ignores personId, status, origin, validatedMinutes, classId and lessonId sent in the body: the entry is the logged-in person's, pending and manual", async () => {
+    it("ignores personId, status, origin and validatedMinutes sent in the body: the entry is the logged-in person's, pending and manual", async () => {
       const entry = await logEntry(member, {
         personId: otherMember.id,
         createdById: otherMember.id,
         status: "approved",
         origin: "attendance",
         validatedMinutes: 150,
-        classId: CLASS_ID,
-        lessonId: LESSON_ID,
         reviewedById: director.id,
       });
 
@@ -442,6 +451,153 @@ describe("MyHoursController (e2e)", () => {
     it("answers 401 without a session cookie", async () => {
       await request(app.getHttpServer()).post("/me/hour-entries").send(hourEntryBody()).expect(401);
 
+      expect(await countEntries(dataSource)).toBe(0);
+    });
+  });
+
+  describe("POST /me/hour-entries with a link to a class and a lesson (GUS-172)", () => {
+    interface Scenery {
+      classId: string;
+      otherClassId: string;
+      lessonId: string;
+    }
+
+    /** Two classes of a course and a lesson in the first, through the services of the other modules. */
+    async function setUpClasses(): Promise<Scenery> {
+      const course = await coursesService.create(
+        {
+          name: "Informática Básica",
+          description: "Fundamentos do uso do computador.",
+          category: CourseCategory.BASIC,
+        },
+        coordinator.id,
+      );
+      const classOf = (code: string) =>
+        classesService.create(
+          {
+            courseId: course.id,
+            code,
+            editionName: "2026.1",
+            startDate: "2026-03-03",
+            endDate: "2026-06-27",
+            capacity: 15,
+          },
+          coordinator.id,
+        );
+      const schoolClass = await classOf("INFO-A");
+      const otherClass = await classOf("INFO-B");
+      const lesson = await lessonsService.create(
+        {
+          classId: schoolClass.id,
+          title: "Teclado, mouse e janelas",
+          date: "2026-03-10",
+          startTime: "14:00",
+          endTime: "15:30",
+        },
+        coordinator.id,
+      );
+      return { classId: schoolClass.id, otherClassId: otherClass.id, lessonId: lesson.id };
+    }
+
+    it("links a lesson and takes its class, and the link comes back in the statement", async () => {
+      const scenery = await setUpClasses();
+
+      const entry = await logEntry(member, { lessonId: scenery.lessonId });
+
+      expect(entry).toMatchObject({ classId: scenery.classId, lessonId: scenery.lessonId });
+      expect((await statement(member)).data[0]).toMatchObject({
+        id: entry.id,
+        classId: scenery.classId,
+        lessonId: scenery.lessonId,
+      });
+    });
+
+    it("links a lesson with its class, and only a class, in any letter case", async () => {
+      const scenery = await setUpClasses();
+
+      const both = await logEntry(member, {
+        classId: scenery.classId.toUpperCase(),
+        lessonId: scenery.lessonId.toUpperCase(),
+      });
+      const onlyClass = await logEntry(member, { classId: scenery.classId });
+
+      expect(both).toMatchObject({ classId: scenery.classId, lessonId: scenery.lessonId });
+      expect(onlyClass).toMatchObject({ classId: scenery.classId, lessonId: null });
+    });
+
+    it("links without the person being assigned to the lesson, and logs without a link as before", async () => {
+      await setUpClasses();
+
+      const entry = await logEntry(member, { classId: null, lessonId: null });
+
+      expect(entry).toMatchObject({ classId: null, lessonId: null, status: "pending" });
+    });
+
+    it("answers 400 LESSON_NOT_IN_CLASS on lessonId when the lesson is of another class, and writes nothing", async () => {
+      const scenery = await setUpClasses();
+
+      const res = await postEntry(
+        member,
+        hourEntryBody({ classId: scenery.otherClassId, lessonId: scenery.lessonId }),
+      ).expect(400);
+
+      expect(res.body).toMatchObject({ error: "LESSON_NOT_IN_CLASS" });
+      expect(fieldsOf(res.body)).toEqual(["lessonId"]);
+      expect(await countEntries(dataSource)).toBe(0);
+    });
+
+    it("answers 400 LESSON_NOT_FOUND and CLASS_NOT_FOUND for ids that do not exist", async () => {
+      await setUpClasses();
+
+      const lesson = await postEntry(member, hourEntryBody({ lessonId: LESSON_ID })).expect(400);
+      const schoolClass = await postEntry(member, hourEntryBody({ classId: CLASS_ID })).expect(400);
+
+      expect(lesson.body).toMatchObject({ error: "LESSON_NOT_FOUND" });
+      expect(fieldsOf(lesson.body)).toEqual(["lessonId"]);
+      expect(schoolClass.body).toMatchObject({ error: "CLASS_NOT_FOUND" });
+      expect(fieldsOf(schoolClass.body)).toEqual(["classId"]);
+      expect(await countEntries(dataSource)).toBe(0);
+    });
+
+    it("answers 400 VALIDATION_FAILED for a classId or a lessonId that is not a UUID", async () => {
+      const res = await postEntry(
+        member,
+        hourEntryBody({ classId: "abc", lessonId: "abc" }),
+      ).expect(400);
+
+      expect(res.body).toMatchObject({ error: "VALIDATION_FAILED" });
+      expect(fieldsOf(res.body)).toEqual(["classId", "lessonId"]);
+    });
+
+    it("answers 409 LESSON_CANCELLED on lessonId for a cancelled lesson", async () => {
+      const scenery = await setUpClasses();
+      await lessonsService.cancel(scenery.lessonId, { reason: "Feriado" }, coordinator.id);
+
+      const res = await postEntry(member, hourEntryBody({ lessonId: scenery.lessonId })).expect(
+        409,
+      );
+
+      expect(res.body).toMatchObject({ error: "LESSON_CANCELLED" });
+      expect(fieldsOf(res.body)).toEqual(["lessonId"]);
+      expect(await countEntries(dataSource)).toBe(0);
+    });
+
+    it("answers 409 CLASS_ARCHIVED for an archived class, on classId or on lessonId", async () => {
+      const scenery = await setUpClasses();
+      await classesService.archive(scenery.classId, undefined, coordinator.id);
+
+      const byClass = await postEntry(member, hourEntryBody({ classId: scenery.classId })).expect(
+        409,
+      );
+      const byLesson = await postEntry(
+        member,
+        hourEntryBody({ lessonId: scenery.lessonId }),
+      ).expect(409);
+
+      expect(byClass.body).toMatchObject({ error: "CLASS_ARCHIVED" });
+      expect(fieldsOf(byClass.body)).toEqual(["classId"]);
+      expect(byLesson.body).toMatchObject({ error: "CLASS_ARCHIVED" });
+      expect(fieldsOf(byLesson.body)).toEqual(["lessonId"]);
       expect(await countEntries(dataSource)).toBe(0);
     });
   });
