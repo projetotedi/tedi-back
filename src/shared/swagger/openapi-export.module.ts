@@ -42,6 +42,7 @@ import { MyHoursController } from "@modules/hours/controllers/my-hours.controlle
 import { HourEntriesController } from "@modules/hours/controllers/hour-entries.controller";
 import { HoursController } from "@modules/hours/controllers/hours.controller";
 import { MemberHoursViewController } from "@modules/hours/controllers/member-hours-view.controller";
+import { MemberHourNotesController } from "@modules/hours/controllers/member-hour-notes.controller";
 import { LessonMemberAttendanceController } from "@modules/attendance/controllers/lesson-member-attendance.controller";
 import { MemberAttendanceController } from "@modules/attendance/controllers/member-attendance.controller";
 import { LessonStudentAttendanceController } from "@modules/attendance/controllers/lesson-student-attendance.controller";
@@ -75,6 +76,7 @@ import { LessonGenerationService } from "@modules/lessons/services/lesson-genera
 import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { HoursService } from "@modules/hours/services/hours.service";
+import { HourCategoryNotesService } from "@modules/hours/services/hour-category-notes.service";
 import { HoursExportService } from "@modules/hours/services/hours-export.service";
 import { HoursReviewService } from "@modules/hours/services/hours-review.service";
 import { HoursViewService } from "@modules/hours/services/hours-view.service";
@@ -123,6 +125,7 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     MemberHoursViewController,
     HoursController,
     HourEntriesController,
+    MemberHourNotesController,
     LessonMemberAttendanceController,
     MemberAttendanceController,
     LessonStudentAttendanceController,
@@ -339,6 +342,12 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         listMyEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
         getMySummary: async () => ({}),
         removeMyEntry: async () => undefined,
+      },
+    },
+    {
+      provide: HourCategoryNotesService,
+      useValue: {
+        setNote: async () => ({}),
       },
     },
     {

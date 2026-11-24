@@ -2878,6 +2878,47 @@
         ],
         "type": "object"
       },
+      "HourCategoryNoteResponseDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryCategory"
+              }
+            ],
+            "example": "planning"
+          },
+          "note": {
+            "description": "The observation. Null when it was cleared.",
+            "example": "Aguardando validação da coordenação.",
+            "nullable": true,
+            "type": "string"
+          },
+          "personId": {
+            "description": "The member (the person).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "When it was last written.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedById": {
+            "description": "Who wrote or cleared it last.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "personId",
+          "category",
+          "note",
+          "updatedById",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "HourEntriesPageDto": {
         "properties": {
           "data": {
@@ -6720,6 +6761,31 @@
           "none"
         ],
         "type": "string"
+      },
+      "SetHourCategoryNoteDto": {
+        "properties": {
+          "category": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HourEntryCategory"
+              }
+            ],
+            "description": "The category the observation is about. Every category takes one, lesson included.",
+            "example": "planning"
+          },
+          "note": {
+            "description": "Free text of coordination, trimmed, up to 500 characters. Null or blank clears the observation.",
+            "example": "Aguardando validação da coordenação.",
+            "maxLength": 500,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "note"
+        ],
+        "type": "object"
       },
       "SignStudentAttendanceDto": {
         "description": "The attendance of enrollments of the roll call of the lesson of the URL, from 1 to 100 entries, all or none, signed by the actor at one instant. The same status of an attendance already signed is a no-op; another status is 409 STUDENT_ATTENDANCE_ALREADY_SIGNED: a signed attendance changes through correctStudentAttendance, with a reason.",
@@ -17427,6 +17493,98 @@
               }
             },
             "description": "FORBIDDEN | FORBIDDEN_SCOPE"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "MEMBER_NOT_FOUND: malformed or unknown id, a deleted person, or a person with neither an access role nor a member registration (a student)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "hours"
+        ]
+      }
+    },
+    "/members/{id}/hours/notes": {
+      "put": {
+        "operationId": "setNote",
+        "parameters": [
+          {
+            "description": "Id of the member (the person).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetHourCategoryNoteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HourCategoryNoteResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "FORBIDDEN: hours.review, only coordination and the superadmin."
           },
           "404": {
             "content": {
