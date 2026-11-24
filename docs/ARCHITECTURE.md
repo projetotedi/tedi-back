@@ -690,7 +690,7 @@ O módulo `hours` guarda o **lançamento de horas** (minutos de trabalho de uma 
 | H12 | Resumo                                     | Uma consulta agrupada com `::int`; todo status e toda categoria com zero; banco = validado de `approved` + `adjusted`.                                                                        |
 | H13 | Vínculo: turma e aula                      | Com `lessonId`, a turma vem da aula; com os dois, precisam bater (400 `LESSON_NOT_IN_CLASS`); só a turma também vale (GUS-172).                                                               |
 | H14 | Precisa estar alocado na aula?             | Não: o lançamento passa pela revisão da coordenação (GUS-172).                                                                                                                                |
-| H15 | Aula cancelada, turma arquivada            | 409 `LESSON_CANCELLED`, como pede o card, e 409 `CLASS_ARCHIVED` (RN-27); as duas em aberto com o PO na GUS-172.                                                                              |
+| H15 | Aula cancelada, turma arquivada            | Aula cancelada: 409 `LESSON_CANCELLED`, confirmado pelo PO na GUS-172. Turma arquivada: 409 `CLASS_ARCHIVED` (RN-27), em aberto com o PO.                                                     |
 
 ## 17. Banco de horas: visão geral, validação e exportação (GUS-164)
 
