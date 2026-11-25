@@ -1,7 +1,14 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { isUUID } from "class-validator";
-import { DataSource, EntityManager, In, IsNull, QueryFailedError } from "typeorm";
+import {
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  QueryFailedError,
+  SelectQueryBuilder,
+} from "typeorm";
 import { ArchiveDto } from "@shared/dto/archive.dto";
 import { Clock } from "@shared/dates/clock";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
@@ -429,21 +436,7 @@ export class StudentsService {
     const { page, limit } = normalizePagination(pagination);
     if (onlyIds !== undefined && onlyIds.length === 0) return { data: [], total: 0, page, limit };
 
-    const builder = this.dataSource
-      .getRepository(Person)
-      .createQueryBuilder("person")
-      .innerJoin(
-        StudentProfile,
-        "student_profile",
-        "student_profile.person_id = person.id AND student_profile.deleted_at IS NULL",
-      )
-      .select("person.id", "id")
-      .addSelect("person.name", "name")
-      .addSelect("person.birth_date::text", "birthDate")
-      .addSelect("person.phone", "phone")
-      .addSelect("student_profile.accessibility_need", "accessibilityNeed")
-      .where("person.deleted_at IS NULL");
-
+    const builder = this.studentListQuery();
     if (filter.includeArchived !== true) builder.andWhere("student_profile.archived_at IS NULL");
     if (onlyIds !== undefined) builder.andWhere("person.id = ANY(:onlyIds::uuid[])", { onlyIds });
     if (excludeIds.length > 0) {
@@ -452,17 +445,7 @@ export class StudentsService {
     applyTextSearch(builder, ["person.name"], filter.search, "studentListSearch");
     builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
 
-    const [rows, total] = await Promise.all([
-      builder
-        .clone()
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .getRawMany<StudentListEntryRow>(),
-      builder.clone().getCount(),
-    ]);
-
-    const today = todayInAppTimeZone(this.clock.now());
-    return { data: rows.map((row) => toStudentListEntry(row, today)), total, page, limit };
+    return this.studentListPage(builder, page, limit);
   }
 
   /**
@@ -497,6 +480,50 @@ export class StudentsService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * The students and the columns of a list of students (`StudentListEntryRow`): a person not
+   * removed with a student profile not removed, archived or not. The caller adds the filters and the
+   * order.
+   */
+  private studentListQuery(): SelectQueryBuilder<Person> {
+    return this.dataSource
+      .getRepository(Person)
+      .createQueryBuilder("person")
+      .innerJoin(
+        StudentProfile,
+        "student_profile",
+        "student_profile.person_id = person.id AND student_profile.deleted_at IS NULL",
+      )
+      .select("person.id", "id")
+      .addSelect("person.name", "name")
+      .addSelect("person.birth_date::text", "birthDate")
+      .addSelect("person.phone", "phone")
+      .addSelect("student_profile.accessibility_need", "accessibilityNeed")
+      .where("person.deleted_at IS NULL");
+  }
+
+  /**
+   * One page of `builder` (filtered and ordered by the caller) and the total of its filter, counted
+   * in SQL. Every student is aged against the same day, today in America/Sao_Paulo.
+   */
+  private async studentListPage(
+    builder: SelectQueryBuilder<Person>,
+    page: number,
+    limit: number,
+  ): Promise<PaginatedResult<StudentListEntry>> {
+    const [rows, total] = await Promise.all([
+      builder
+        .clone()
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany<StudentListEntryRow>(),
+      builder.clone().getCount(),
+    ]);
+
+    const today = todayInAppTimeZone(this.clock.now());
+    return { data: rows.map((row) => toStudentListEntry(row, today)), total, page, limit };
+  }
 
   /**
    * Loads the student of a Person id inside a transaction, locking the profile row so
