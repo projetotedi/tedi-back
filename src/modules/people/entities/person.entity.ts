@@ -38,6 +38,13 @@ export class Person extends BaseEntity {
   accessEnabled: boolean;
 
   /**
+   * GUS-93. True while the account still holds a password someone else knows (the one the seed
+   * takes from ADMIN_PASSWORD). The guard blocks the session until the person replaces it.
+   */
+  @Column({ name: "must_change_password", type: "boolean", default: false })
+  mustChangePassword: boolean;
+
+  /**
    * RF-001. Calendar date "YYYY-MM-DD" (TypeORM hydrates `date` as string, never a Date).
    * Required for students; members get it in GUS-91, so existing people have none.
    */

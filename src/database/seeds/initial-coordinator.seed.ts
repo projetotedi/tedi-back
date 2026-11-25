@@ -1,9 +1,13 @@
 /**
  * Seed: Initial Coordinator
  *
- * Creates the first coordinator (SUPERADMIN role) from environment variables.
- * Idempotent: if a Person with ADMIN_RA already exists, returns without
- * overwriting the password or role.
+ * Creates the first coordinator (SUPERADMIN role) from environment variables, with
+ * mustChangePassword = true: ADMIN_PASSWORD is known to whoever configured the environment,
+ * so the first access has to replace it (GUS-93, decision 16 of E9.a).
+ * Only the creation turns the flag on. Idempotent: if a Person with ADMIN_RA already exists, the
+ * seed returns without touching it, so an existing account is never changed (password, role and
+ * flag stay as they are). To require the change on an account that already exists, set
+ * must_change_password on it in the database.
  *
  * Required env vars:
  *   ADMIN_RA       — registration number (e.g. "a1234567")
@@ -81,6 +85,7 @@ export async function seedInitialCoordinator(ds: DataSource): Promise<void> {
     passwordHash,
     role: Role.SUPERADMIN,
     accessEnabled: true,
+    mustChangePassword: true,
   });
 
   await repo.save(person);
