@@ -469,6 +469,11 @@ describe("people repository (e2e)", () => {
       // The expression of each query is the one of its index (section 12).
       const plans = await dataSource.transaction(async (manager) => {
         await manager.query("SET LOCAL enable_seqscan = off");
+        // On a near-empty table, walking the whole uq_people_email (a constraint, it cannot be
+        // dropped) is cheaper than the GIN. With plain and index-only scans off, the GIN is still
+        // there through a bitmap scan, the only way a GIN index is ever read.
+        await manager.query("SET LOCAL enable_indexscan = off");
+        await manager.query("SET LOCAL enable_indexonlyscan = off");
         const explain = async (sql: string, term: string): Promise<string> => {
           const rows: Array<{ "QUERY PLAN": string }> = await manager.query(`EXPLAIN ${sql}`, [
             term,
