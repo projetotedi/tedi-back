@@ -11,8 +11,8 @@ import { MigrationInterface, QueryRunner } from "typeorm";
  * - `down()` drops everything in the reverse order, with no IF EXISTS: a broken revert must fail
  *   loudly in CI.
  */
-export class CreateHourCategoryNotes1795000001100 implements MigrationInterface {
-  name = "CreateHourCategoryNotes1795000001100";
+export class CreateHourCategoryNotes1795000001300 implements MigrationInterface {
+  name = "CreateHourCategoryNotes1795000001300";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
