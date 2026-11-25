@@ -33,6 +33,21 @@ describe("ListStudentsQueryDto", () => {
     expect(fields).toEqual([]);
     expect(dto.accessibilityNeed).toBeUndefined();
     expect(dto.ids).toBeUndefined();
+
+    // A key that comes as undefined stays undefined: the transforms never turn it into NaN or [].
+    const undefinedKeys = await parse({
+      page: undefined,
+      limit: undefined,
+      accessibilityNeed: undefined,
+      ids: undefined,
+    });
+    expect(undefinedKeys.fields).toEqual([]);
+    expect(undefinedKeys.dto).toMatchObject({
+      page: undefined,
+      limit: undefined,
+      accessibilityNeed: undefined,
+      ids: undefined,
+    });
   });
 
   it("turns the query strings into numbers, a boolean, the sort and the lists of accessibilityNeed and ids", async () => {
