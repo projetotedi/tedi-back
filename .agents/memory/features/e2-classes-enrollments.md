@@ -1,0 +1,128 @@
+---
+feature: E2 Turmas e matrículas
+epico: E2 Turmas e matrículas
+modulo: classes (back; o front entra na GUS-133)
+status: GUS-101 implementada no back em 2026-10-27; GUS-102 (vínculo curso x turma) implementada no back em 2026-11-11; GUS-104 (detalhe da turma) implementada no back em 2026-11-15; GUS-108 (matrícula) implementada no back em 2026-11-16; GUS-103, 133, 134, 136, 138, 151, 166 e 170 destravadas
+cards: GUS-101 (back), GUS-102 (back), GUS-104 (back), GUS-108 (back, matrícula). Dependentes: GUS-103 (listagem), GUS-138 (front da matrícula), GUS-166 (chamada de alunos, entregue: §18.1 da ARCHITECTURE), GUS-133, GUS-134 e GUS-136 (front), GUS-151 (aulas), GUS-170
+atualizado: 2026-11-16
+---
+
+# E2 — Turmas e matrículas
+
+## Contexto
+
+A turma é a oferta de um curso dentro de uma edição (semestre), com período, local, vagas e situação. Este arquivo nasce com a GUS-101, o primeiro card do módulo `classes`: edição, entidade, criar, editar, arquivar e reativar. Serve ao objetivo **O3** (turma completa criada em menos de 15 min), épico **E2**, funcionalidades F2.1 e F2.6, e atende RF-024, RF-034, RN-10, RN-13, RN-21, RN-22 e RN-27.
+
+Valem também as decisões do card: a edição vem no próprio formulário da turma (30/09) e a turma é arquivada em vez de excluída, sem responsável (01/10).
+
+A GUS-104 entrega a ficha da turma, `GET /classes/:id`: os dados da oferta, o curso de origem com a categoria atual e a carga planejada, a ocupação e uma prévia dos alunos, em uma chamada (F2.4 e F2.6; RF-029, RF-035, RF-018, RN-24, RN-27 e RF-028). Atende ao objetivo **O3**.
+
+A GUS-102 fecha o vínculo entre turma e curso: só se cria turma de um curso existente e ativo (RF-020, RN-27), a turma mostra a categoria do curso, que ela não pode contrariar (RN-13, RN-14, RF-029), e o catálogo ganha as turmas de cada curso sem N+1 (F2.1, F2.4 e F12.7). Atende ao objetivo **O3**.
+
+## Posição no roadmap
+
+- **Depende de:** GUS-97 (cursos): `classes` aponta para `courses` por FK e, desde a GUS-102, valida o curso pelo `CoursesService.getCourseSummary`. A GUS-102 depende também da GUS-98 (sequência do curso), já em develop. A GUS-104 lê a carga do curso pela sequência da GUS-98 (`CourseLessonPlansService.readSequence`) e os nomes pelo `PeopleService.findRefsByIds`.
+- **Bloqueia:** GUS-103 (listagem), GUS-108 (matrícula, que troca o `EnrollmentCountsService`), GUS-133, GUS-134 e GUS-136 (telas; a GUS-136 é o detalhe e consome `getClass`), GUS-151 (geração de aulas a partir da turma) e GUS-170.
+
+## Escopo
+
+### Dentro
+
+- `POST /classes`, `PATCH /classes/:id`, `PATCH /classes/:id/archive`, `PATCH /classes/:id/unarchive` e `GET /editions`.
+- Entidades `Edition` e `SchoolClass` (tabela `classes`), migration `CreateClasses` e o e2e de schema do módulo.
+- Eventos `CLASS_CREATED`, `CLASS_UPDATED`, `CLASS_ARCHIVED` e `CLASS_UNARCHIVED`.
+
+### Fora (explicitamente)
+
+- Listagem com busca, filtros e paginação (GUS-103) e detalhe `GET /classes/:id` (GUS-104).
+- Tabela de matrícula e a regra real de matriculados ativos (GUS-108).
+- Geração de aulas (GUS-151), edição encerrada somente leitura (RN-11, RF-028), CRUD de edição, regras de transição de status (F2.6), turno (RN-22), responsável pela turma e persistência da auditoria (E9.b).
+
+### GUS-102 (vínculo curso e turma)
+
+**Dentro:** validação do curso na criação e na troca (existe e não está arquivado, com `FOR SHARE`); `PATCH` com `courseId` condicionado; `course { id, name, category, status }` em toda resposta de turma; `GET /courses/:id/classes` e `GET /classes/summary-by-course`; `getCourseSummary` com `forShare` e os enums reexportados pelo service do catalog; `countActiveByClass` no `EnrollmentCountsService`. **Sem migration**: a turma não ganhou coluna de categoria.
+
+**Fora:** listagem e detalhe de turmas (GUS-103 e GUS-104) e o método em lote `CoursesService.getCourseSummaries` (GUS-103); matrícula (GUS-108); a rota de arquivar curso (outro card do catálogo; o e2e arquiva o curso por SQL); a coluna "Turmas" da listagem de cursos (GUS-99) e o front (GUS-134); regras de transição de status (F2.6); efeito da troca de curso sobre aulas já geradas (GUS-151); mudanças na matriz de permissões.
+
+### GUS-104 (detalhe)
+
+**Dentro:** `GET /classes/:id` (`getClass`, `classes.view`) com o `ClassDetailDto` (dados da turma, `edition`, `createdBy`, `course { id, name, category, status, lessonPlanCount, plannedWorkloadMinutes }`, `summary { enrolledCount, capacity, occupancyRate, lessonsDone, lessonsTotal, averageAttendance }`, `enrollmentsPreview` e `enrollmentsTotal`); `ClassDetailService` e `class-detail.mapper.ts`; `occupancyRateOf`; `EnrollmentCountsService.listActivePreview` (devolve `[]` até a GUS-108) e `CLASS_ENROLLMENTS_PREVIEW_LIMIT = 5`; o e2e `class-detail.e2e.spec.ts`, com override do `EnrollmentCountsService`; o stub do `ClassDetailService` no `OpenApiExportModule` e o `docs/openapi.json`. **Sem migration.**
+
+**Fora:** tabela, rotas e regras de matrícula, inclusive `GET /classes/:id/enrollments` e o `FOR UPDATE` na matrícula (GUS-108); a listagem `GET /classes` e o `CoursesService.getCourseSummaries` em lote (GUS-103); preencher `lessonsDone`, `lessonsTotal` e `averageAttendance` e qualquer import de `lessons` ou `attendance` em `classes` (F2.6, E4, E6); membros alocados na turma (E5); método novo no `catalog` para a carga (P22); mudanças na matriz de permissões; regras de transição de status, edição encerrada somente leitura (RN-11) e turno (RN-22); o front (GUS-136).
+
+## Decisões
+
+Decisões P1 a P10 do plano da GUS-101, propostas pelo planejador e **aprovadas em 2026-10-27** como propostas. A justificativa vai junto de cada uma. As decisões P21 a P26 são do plano da GUS-104, também propostas pelo planejador e **aprovadas em 2026-11-15**.
+
+| #   | Data       | Pergunta                                              | Decisão                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --- | ---------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | 2026-10-27 | `@Roles` ou `@RequirePermission` nas rotas de turma?  | **`@RequirePermission(CLASSES_MANAGE / CLASSES_VIEW)`.** A seção 9.1 da arquitetura manda usar `@RequirePermission` nas rotas novas; as duas permissões já existem na matriz (membro `none`/`all`, diretoria e coordenação `all`) com a semântica do card, e a GUS-97 fez igual.                                                                                                                                                                                     |
+| P2  | 2026-10-27 | Nome da entidade TypeScript                           | **`SchoolClass` em `class.entity.ts`** (tabela `classes`); os DTOs seguem `*Class*`. `Class` é um identificador válido, mas confunde ao lado da palavra-chave `class` e impede variáveis legíveis. O nome da entidade não entra no contrato do Orval.                                                                                                                                                                                                                |
+| P3  | 2026-10-27 | A GUS-101 expõe `GET /classes` e `GET /classes/:id`?  | **Não.** O CA4 é provado no banco (`archived_at` preenchido, `deleted_at` nulo, PATCH 409 e reativar por id), que é o filtro que a seção 10.3 obriga a GUS-103 a aplicar; a prova por HTTP fica para a GUS-103 e a GUS-104. Um `getClass` mínimo fixaria cedo o contrato da GUS-104.                                                                                                                                                                                 |
+| P4  | 2026-10-27 | Como tratar a matrícula, que ainda não existe?        | **`EnrollmentCountsService.countActive` devolve 0 hoje.** `CLASS_HAS_ACTIVE_ENROLLMENTS` e `CAPACITY_BELOW_ENROLLED` já estão no Swagger ("a partir da GUS-108") porque o front já mapeia os códigos, e o e2e prova as duas regras com override do provider. **Risco para a GUS-108:** a matrícula precisa travar a linha da turma (`FOR UPDATE`).                                                                                                                   |
+| P5  | 2026-10-27 | Ordem e formato de `GET /editions`                    | **Por `name` decrescente, devolvendo `EditionResponseDto[]` (`{ id, name }`).** O padrão de P6 torna a ordem alfabética igual à cronológica, e ordenar por `createdAt` falharia com edição cadastrada depois. A resposta é DTO por regra do repositório, não `string[]`. **Risco:** se P6 afrouxar, a ordem quebra.                                                                                                                                                  |
+| P6  | 2026-10-27 | Formato de `editionName`                              | **Aparado e `^\d{4}\.[1-9]$`, na coluna `varchar(20)`.** O Figma e o plano usam `2026.1` e `2026.2`; o padrão evita duplicata por digitação ("2026-1", "2026.01"). **A confirmar:** se existe edição de verão ou curso livre fora desse padrão.                                                                                                                                                                                                                      |
+| P7  | 2026-10-27 | Resposta para `courseId` que não existe               | **400 `COURSE_NOT_FOUND`, pelo mapeamento da 23503 em `fk_classes_course_id`; mal formado responde 400 `VALIDATION_FAILED`.** Evita um 500 sem antecipar a GUS-102, que deve manter o código, acrescentar a pré-checagem e o erro de curso arquivado. O código colide em texto com o 404 `COURSE_NOT_FOUND` de `/courses/:id`; alternativa: `CLASS_COURSE_NOT_FOUND`.                                                                                                |
+| P8  | 2026-10-27 | Escopo da unicidade do código                         | **Com trim, único por edição, sem diferenciar caixa e com as arquivadas incluídas** (índice de expressão sobre `LOWER(code)`, sem filtro por `deleted_at`). Mesmo padrão de `uq_courses_name`; contar as arquivadas impede o conflito ao reativar.                                                                                                                                                                                                                   |
+| P9  | 2026-10-27 | O que o PATCH aceita                                  | **Substituída por P11 (GUS-102).** Era: todos os campos menos `courseId`, inclusive `editionName` (find-or-create) e `status` (sem regra de transição). Continua valendo para os outros campos: as datas (o risco de aulas fora do período, que a GUS-151 chama de "P9", segue aberto), `editionName` (mudar a edição corrige erro de digitação) e `status` (as regras de transição ficam para a F2.6). O `courseId` passou a ser aceito, com condição (P11).        |
+| P10 | 2026-10-27 | O POST aceita `status`?                               | **Sim, opcional, padrão `planned`.** O modal do Figma tem o seletor de status.                                                                                                                                                                                                                                                                                                                                                                                       |
+| P11 | 2026-11-11 | O PATCH aceita `courseId`? (substitui P9)             | **Sim, só enquanto a turma está `planned` e sem matrícula ativa; senão 409 `COURSE_CHANGE_NOT_ALLOWED`.** Segue o card, que é mais novo que a P9. Vale o status **gravado**, não o do corpo (a regra protege a turma que já começou), e mandar o mesmo curso é no-op, porque o front reenvia o formulário inteiro.                                                                                                                                                   |
+| P12 | 2026-11-11 | `@Roles` ou `@RequirePermission` nas leituras?        | **`@RequirePermission(CLASSES_VIEW)`, não `@Roles(Role.MEMBER)`.** A seção 9.1 manda usar `@RequirePermission` nas rotas novas, e a P1 e o `GET /editions` já fazem assim. O efeito hoje é o mesmo do card (todos os perfis, escopo `all`), e uma mudança futura fica na matriz. Aplicada também ao `GET /classes/:id` (GUS-104). **Avisar o autor do card.**                                                                                                        |
+| P13 | 2026-11-11 | O que contam `total` e `active` do resumo por curso   | **`total` = turmas não arquivadas; `active` = não arquivadas com status `planned` ou `in_progress`.** O `total` bate com o de `GET /courses/:id/classes` sem filtro (RN-27). `active` separa as ofertas correntes do histórico (`completed` e `cancelled`). **A confirmar com o PO e o front (GUS-134).**                                                                                                                                                            |
+| P14 | 2026-11-11 | O que é "sem matrícula" e de onde vem `enrolledCount` | **`countActive === 0`, e `enrolledCount` vem de `countActiveByClass`, uma chamada por página.** Uma matrícula cancelada numa turma `planned` não amarra o conteúdo. As duas devolvem vazio/0 até a GUS-108, e o e2e prova o 409 com override do provider. **Risco para a GUS-108:** a matrícula precisa travar a linha da turma (`FOR UPDATE`, já na P4), também contra a troca de curso.                                                                            |
+| P15 | 2026-11-11 | Ordem dos erros e concorrência                        | **Criação: `COURSE_NOT_FOUND`, `COURSE_ARCHIVED`, `CLASS_CODE_TAKEN`. PATCH: `CLASS_NOT_FOUND`, `CLASS_ARCHIVED`, `INVALID_PERIOD`, `COURSE_CHANGE_NOT_ALLOWED`, `COURSE_NOT_FOUND`, `COURSE_ARCHIVED`, `CLASS_CODE_TAKEN`, `CAPACITY_BELOW_ENROLLED`.** O curso de destino é lido `FOR SHARE` na transação, que conflita com o `FOR UPDATE` de quem edita ou arquiva o curso. **Risco:** o card de arquivar curso precisa travar a linha do curso com `FOR UPDATE`. |
+| P16 | 2026-11-11 | Regras de `GET /courses/:id/classes`                  | **Curso desconhecido ou id mal formado: 404 `COURSE_NOT_FOUND`; curso arquivado: 200; turmas arquivadas ficam fora, sem flag; `status` de valor único; ordem: edição decrescente, código sem diferenciar caixa, id.** **Risco:** se a GUS-103 criar um filtro de arquivadas em `GET /classes`, replicar aqui com o mesmo nome.                                                                                                                                       |
+| P17 | 2026-11-11 | Regras de `courseIds`                                 | **De 1 a 100 UUIDs (CSV no contrato; o parâmetro repetido também vale); duplicados saem sem erro; a resposta segue a ordem pedida; id que não é curso responde zeros, sem consultar o catalog.** O CSV, e não array, porque o cliente `fetch` do Orval escreve array como parâmetro repetido.                                                                                                                                                                        |
+| P18 | 2026-11-11 | Onde nasce `course` na resposta                       | **Cada mutação chama `CoursesService.getCourseSummary` na própria transação.** Não há método em lote agora, porque nenhuma rota deste card lista turmas com curso (fica para a GUS-103). `courseId` continua na resposta. Os enums `CourseCategory` e `CourseStatus` são reexportados por `courses.service.ts`, para o `classes` não importar `catalog/enums/*`.                                                                                                     |
+| P19 | 2026-11-11 | `COURSE_ARCHIVED` com id no corpo: 400 ou 409?        | **409.** Exceção à seção 10.3, que pede 400 para `<ENTITY>_ARCHIVED` com id no corpo; segue o card (CA1) e está registrada nas seções 10.3 e 13. A mensagem é própria: "An archived course cannot receive new classes."                                                                                                                                                                                                                                              |
+| P20 | 2026-11-11 | RN-18 contra o CA2 do card                            | **A categoria é sempre a viva do curso: mudar a categoria do curso muda o que as turmas dele mostram.** O texto antigo da RN-18 ("nunca muda as turmas que já existem") dizia o contrário e foi corrigido no enum, no `CoursesService.update` e nas descrições do Swagger. **A confirmar com o PO** se a RN-18 pedia uma foto da categoria na criação da turma: se pedia, o card muda antes do merge (coluna e migration).                                           |
+| P21 | 2026-11-15 | Onde mora o detalhe?                                  | **`ClassDetailService` e `class-detail.mapper.ts`, separados do `ClassesService`, no padrão do `CourseDetailService`.** Leitura sem transação, sem lock e sem evento: um valor que muda entre duas consultas pode aparecer misturado, o que vale para uma ficha. O `ClassesService` (cerca de 600 linhas, só mutações e `getClassSummary`) não cresce.                                                                                                               |
+| P22 | 2026-11-15 | De onde vem a carga do curso na ficha?                | **`CourseLessonPlansService.readSequence`, já exportado, sem mexer no `catalog`.** Os números são idênticos aos do `GET /courses/:id` (plano arquivado que ficou na sequência conta). O custo é carregar também os conteúdos dos planos (um curso tem cerca de 6 a 20); se pesar, a alternativa é um método agregado enxuto no `catalog`, em outro card.                                                                                                             |
+| P23 | 2026-11-15 | Como o CA4 trata aulas e frequência?                  | **`lessonsDone`, `lessonsTotal` e `averageAttendance` são obrigatórios e anuláveis (nunca `required: false`) e saem `null`:** o "opcionais" do card vira "anuláveis", e o Orval gera `number \| null`. `lessons` depende de `classes`, então ler `lessons` aqui criaria ciclo; o caminho futuro (interface com token em `classes`, ou projeção por evento) fica para o card de F2.6 (RF-035).                                                                        |
+| P24 | 2026-11-15 | Formato da prévia de matrículas                       | **Array `enrollmentsPreview`, e o `total` do card vira o irmão `enrollmentsTotal`** (um `total` solto na raiz é ambíguo). Até 5 matrículas ativas, da mais antiga para a mais nova (`enrolledAt`, depois o id); item `{ id, student: PersonRefDto, enrolledAt }`, sem `status` (nasce na GUS-108); nomes pelo `PeopleService`, sem JOIN, e quem não é encontrado fica de fora. **A confirmar com o front (GUS-136):** a alternativa é `{ items, total }`.            |
+| P25 | 2026-11-15 | Arredondamento da ocupação                            | **`occupancyRate = Math.round(enrolled * 100 / capacity) / 100`, sem teto:** a sobre-matrícula aparece acima de 1. Multiplicar por 100 antes de dividir evita o erro de ponto flutuante de `(a / b) * 100`. Vagas menores que 1 devolvem 0, mas é inalcançável (`ck_classes_capacity_positive` e `@Min(1)`), então não há divisão por zero nem `NaN` no JSON.                                                                                                        |
+| P26 | 2026-11-15 | Campos da resposta                                    | **Exatamente a lista do card: sem `courseId`, `archivedById`, `archiveReason` e `updatedAt`.** Se a GUS-136 precisar do motivo do arquivamento para o aviso de somente leitura, acrescentar depois é uma mudança compatível.                                                                                                                                                                                                                                         |
+
+## Regras de negócio confirmadas
+
+- RN-13: a turma é a oferta de exatamente um curso. O curso só pode mudar enquanto a turma está `planned` e sem matrícula ativa (GUS-102, P11); antes da GUS-102 valia "o curso não muda depois de criada a turma".
+- RN-14, RF-029: a turma herda a categoria do curso e não pode alterá-la. Ela não guarda categoria: mostra sempre a atual do curso (P20).
+- RF-020, RN-27: curso arquivado não recebe turma nova, nem por criação nem por troca de curso (409 `COURSE_ARCHIVED`); as turmas que ele já tem continuam editáveis e legíveis.
+- RN-24, RF-018: a carga planejada na ficha da turma é a do curso (a soma das durações da sequência de planos), nunca digitada nem guardada na turma (GUS-104).
+- RN-21: o término não pode ser antes do início; início e término no mesmo dia valem.
+- RN-27: a turma é arquivada, não excluída; arquivada sai da listagem padrão, continua por id e vira somente leitura. O `status` é coluna e independe do arquivamento (RF-034).
+- RN-10 e RN-22 (turno) são citadas pelo card; o turno não entra nesta feature.
+
+## Permissões
+
+| Ação                                                            | Membro | Diretor | Coordenadora |
+| --------------------------------------------------------------- | ------ | ------- | ------------ |
+| Criar, editar, arquivar e reativar turma (`classes.manage`)     | ❌     | ✅      | ✅           |
+| Listar edições (`classes.view`)                                 | ✅     | ✅      | ✅           |
+| Ver as turmas de um curso e o resumo por curso (`classes.view`) | ✅     | ✅      | ✅           |
+| Ver a ficha de uma turma (`classes.view`)                       | ✅     | ✅      | ✅           |
+
+Superadmin passa em tudo. A matriz de permissões não mudou nesta feature.
+
+## Riscos e pendências
+
+- **GUS-108:** feito, ver a seção 19 da ARCHITECTURE (contagens reais, lock da turma na matrícula, overrides removidos, `enrollmentsTotal` = `total` de `GET /classes/:id/enrollments?status=active`).
+- Decisões M1–M20 da GUS-108: ver docs/ARCHITECTURE.md §19.
+- **Card de arquivar curso:** travar a linha do curso com `FOR UPDATE`, como o `CoursesService.update` já faz. É isso que faz o `FOR SHARE` da criação de turma segurar a regra do curso arquivado (P15). O e2e de `classes` arquiva o curso por SQL (`archiveCourse`) até a rota existir.
+- **GUS-103:** criar o método em lote `CoursesService.getCourseSummaries` para a listagem de turmas com `course`; se a listagem ganhar um filtro de arquivadas, replicá-lo em `GET /courses/:id/classes` com o mesmo nome (P16).
+- **GUS-104 (feito):** o `GET /classes/:id` ficou no `ClassesController`, que o módulo registra depois do `CourseClassesController`, para não capturar `summary-by-course`; o teste de `course-classes.controller.spec.ts` e o e2e `class-detail` guardam a ordem. Qualquer rota literal nova sob `/classes/` fica no `CourseClassesController` ou antes do `:id` (a GUS-103 pode criar `GET /classes`, que não conflita). Turma de curso arquivado responde 200 com `course.status: "archived"` (RN-27). O `getClass` é declarado depois das mutações para o `CreateClassDto.status` continuar a nomear o schema compartilhado `ClassStatus` no contrato.
+- **F2.6 (RF-035):** preencher `lessonsDone`, `lessonsTotal` e `averageAttendance` (P23). `lessons` importa `classes`, então o caminho é uma interface com token definida em `classes` e implementada pelo `lessons`, ou uma projeção alimentada por evento; importar `lessons` em `classes` cria ciclo.
+- **A confirmar com o front (GUS-136):** o formato da prévia (P24), `enrollmentsPreview` mais `enrollmentsTotal`, contra `enrollmentsPreview: { items, total }`.
+- **A confirmar com o PO:** P20 (se a RN-18 pedia foto da categoria na criação da turma; se pedia, o card muda antes do merge, porque passaria a existir uma coluna e uma migration), P13 (definição de `active`) e P6 (formato da edição).
+- **Avisar o autor dos cards da GUS-102 e da GUS-104:** P12 trocou `@Roles(Role.MEMBER)` por `@RequirePermission(CLASSES_VIEW)` (mesmo efeito hoje).
+- **Edições órfãs:** uma edição criada por engano fica para sempre, porque não há rota para excluir nem para renomear. Aceitável no MVP.
+- **Formato da edição (P6):** confirmar com o PO se há edição fora do padrão `AAAA.N`; afrouxar o padrão quebra a ordenação de P5.
+
+## Issues no Linear
+
+GUS-101 Turmas: módulo, entidade, edição e CRUD (back). GUS-102 Vínculo curso e turma: validação, nível herdado e turmas por curso (back). Destravadas pela GUS-102: GUS-103, GUS-104, GUS-134 (front) e GUS-170. GUS-104 Turmas: detalhe da turma (back). Destravada pela GUS-104: GUS-136 (front, o detalhe).
+
+## Referências
+
+- Arquitetura: `docs/ARCHITECTURE.md` seção 3 (`catalog ← classes`, `people ← classes`), seção 10 (arquivar em vez de excluir, e a exceção do 409 na 10.3) e seção 13 (turmas, edições, vínculo com o curso e detalhe da turma).
+- Memória vizinha: `e9a-acesso-ao-sistema.md` (decisão 6: módulos não importam `auth`; decisão 35: código em inglês).

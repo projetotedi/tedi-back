@@ -74,6 +74,57 @@ export function textSearchCondition(
   };
 }
 
+/**
+ * Word search: every word of the term has to show up, each one in ANY of the columns, in any
+ * order. "senhas privacidade" finds the title "Senhas e privacidade" and also a lesson titled
+ * "Segurança" whose subject is "Privacidade e senhas", because the words do not have to be next to
+ * each other nor in the same column. `textSearchCondition` is the other one: it looks for the term
+ * as a single stretch of text, so it does not find "senhas privacidade" in "Senhas e privacidade".
+ *
+ * The term is normalized (trimmed, spaces collapsed, `%` `_` and `\` escaped) and split on spaces.
+ * A word that comes twice is looked for once. Word `i` gets the parameter `<parameterPrefix><i>`,
+ * counted from 0, and the words are joined with AND. The SQL is the same expression that
+ * `textSearchCondition` builds and the same one the GIN index covers, so the trigram indexes keep
+ * serving each word (a word of fewer than three characters has no trigram and scans).
+ *
+ * With more than one word the result is wrapped in one more pair of parentheses, so it is a single
+ * boolean group wherever it goes. Returns undefined for a blank term.
+ */
+export function textSearchAllWordsCondition(
+  columns: readonly string[],
+  term: string | null | undefined,
+  parameterPrefix = "textSearchWord",
+): SearchCondition | undefined {
+  assertColumns(columns);
+  assertParameterName(parameterPrefix);
+
+  const normalized = normalizeSearchTerm(term);
+
+  if (normalized === undefined) {
+    return undefined;
+  }
+
+  const words = [...new Set(normalized.split(" "))];
+  const parameters: Record<string, string> = {};
+
+  const wordConditions = words.map((word, index) => {
+    const parameterName = `${parameterPrefix}${index}`;
+    parameters[parameterName] = `%${word}%`;
+
+    const predicates = columns.map(
+      (column) =>
+        `public.search_normalize(${column}) LIKE public.search_normalize(:${parameterName}) ESCAPE '\\'`,
+    );
+
+    return `(${predicates.join(" OR ")})`;
+  });
+
+  return {
+    sql: wordConditions.length === 1 ? wordConditions[0] : `(${wordConditions.join(" AND ")})`,
+    parameters,
+  };
+}
+
 export function digitsSearchCondition(
   column: string,
   term: string | null | undefined,
@@ -110,6 +161,27 @@ export function applyTextSearch<T extends ObjectLiteral>(
   return qb;
 }
 
+/**
+ * Adds `textSearchAllWordsCondition` to the query with `andWhere`. Throws when any of the
+ * parameters it needs (`<parameterPrefix>0`, `<parameterPrefix>1`...) is already in the query, and
+ * does nothing for a blank term.
+ */
+export function applyTextSearchAllWords<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
+  columns: readonly string[],
+  term: string | null | undefined,
+  parameterPrefix?: string,
+): SelectQueryBuilder<T> {
+  const condition = textSearchAllWordsCondition(columns, term, parameterPrefix);
+
+  if (condition) {
+    assertParametersAvailable(qb, condition.parameters);
+    qb.andWhere(condition.sql, condition.parameters);
+  }
+
+  return qb;
+}
+
 export function applyDigitsSearch<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   column: string,
@@ -126,7 +198,11 @@ export function applyDigitsSearch<T extends ObjectLiteral>(
   return qb;
 }
 
-function assertParametersAvailable<T extends ObjectLiteral>(
+/**
+ * Throws when any of `parameters` is already in the query: two searches never share a parameter.
+ * For a search built by hand (conditions in a `Brackets`), before adding it to the query.
+ */
+export function assertParametersAvailable<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   parameters: Record<string, string>,
 ): void {

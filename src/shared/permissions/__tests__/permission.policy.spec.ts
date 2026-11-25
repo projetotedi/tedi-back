@@ -100,6 +100,30 @@ describe("PermissionPolicy", () => {
         false,
       );
     });
+
+    it("hours.logForOthers: allows a director in the own department, FORBIDDEN_SCOPE in another, and nothing for a member", () => {
+      const ownDepartment = { personId: member.id, departmentIds: ["tech"] };
+      const otherDepartment = { personId: otherMember.id, departmentIds: ["comms"] };
+
+      expect(policy.can(techDirector, Permission.HOURS_LOG_FOR_OTHERS, ownDepartment)).toBe(true);
+      expect(
+        errorCodeOf(() =>
+          policy.assertCan(techDirector, Permission.HOURS_LOG_FOR_OTHERS, otherDepartment),
+        ),
+      ).toBe(FORBIDDEN_SCOPE);
+      expect(
+        errorCodeOf(() =>
+          policy.assertCan(lonelyDirector, Permission.HOURS_LOG_FOR_OTHERS, ownDepartment),
+        ),
+      ).toBe(FORBIDDEN_SCOPE);
+      expect(
+        errorCodeOf(() => policy.assertCan(member, Permission.HOURS_LOG_FOR_OTHERS, ownDepartment)),
+      ).toBe(FORBIDDEN_SCOPE);
+      expect(policy.can(coordinator, Permission.HOURS_LOG_FOR_OTHERS, otherDepartment)).toBe(true);
+      expect(policy.can(superadmin, Permission.HOURS_LOG_FOR_OTHERS, { departmentIds: [] })).toBe(
+        true,
+      );
+    });
   });
 
   describe("allocated", () => {

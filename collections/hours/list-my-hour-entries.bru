@@ -1,0 +1,34 @@
+meta {
+  name: list-my-hour-entries
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/me/hour-entries
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  page: 1
+  limit: 20
+  ~status: pending
+  ~category: planning
+  ~from: 2026-03-01
+  ~to: 2026-03-31
+}
+
+docs {
+  Extrato de horas da pessoa logada (F7.3): só os lançamentos dela, nunca os de outra pessoa (nem para o superadmin).
+  Requer cookie tedi_session e a permissão account.manageOwn (@RequirePermission; todos os perfis).
+  Ordem: o dia mais recente primeiro e, no mesmo dia, o lançamento mais recente primeiro. Lançamentos removidos não aparecem.
+  Filtros opcionais: ?page, ?limit (até 100), ?status (pending | approved | adjusted | rejected), ?category (inclui lesson), ?from e ?to (AAAA-MM-DD a partir de 2000-01-01, extremos incluídos).
+  Cada item traz declaredMinutes (declarado), validatedMinutes (validado; null até a coordenação revisar), status e reviewNote (justificativa do ajuste ou motivo da rejeição).
+  Retorna { data: HourEntryResponseDto[], total, page, limit }.
+  Erros possíveis: 400 VALIDATION_FAILED (filtro inválido), 400 INVALID_PERIOD (from depois de to, details[].field = "to"), 401.
+}

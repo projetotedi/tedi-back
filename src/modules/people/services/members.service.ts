@@ -1,7 +1,9 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { DataSource, EntityManager, In, QueryFailedError } from "typeorm";
+import { isUUID } from "class-validator";
+import { DataSource, EntityManager, In, QueryFailedError, SelectQueryBuilder } from "typeorm";
 import { Clock } from "@shared/dates/clock";
+import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Role } from "@shared/enums/role.enum";
 import {
   AUDITABLE_ACTION_EVENT,
@@ -9,23 +11,36 @@ import {
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
-import { applyTextSearch } from "@shared/search/search.util";
+import { Permission } from "@shared/permissions/permission.enum";
+import { OwnAccountException } from "@shared/permissions/permission.errors";
+import { PermissionPolicy } from "@shared/permissions/permission.policy";
+import { applyTextSearch, normalizeSearchTerm } from "@shared/search/search.util";
 import { ApproveMemberRegistrationDto } from "../dto/approve-member-registration.dto";
+import { DeactivateMemberDto } from "../dto/deactivate-member.dto";
 import { ListMemberRegistrationsQueryDto } from "../dto/list-member-registrations-query.dto";
+import { MemberDetailResponseDto } from "../dto/member-detail.response.dto";
 import { MemberRegistrationFormDto } from "../dto/member-registration-form.dto";
 import { MemberRegistrationListItemDto } from "../dto/member-registration-list-item.dto";
 import { MemberRegistrationResponseDto } from "../dto/member-registration.response.dto";
+import { ListMembersQueryDto } from "../dto/list-members-query.dto";
+import { MemberListItemResponseDto } from "../dto/member-list-item.response.dto";
+import { MemberRefDto } from "../dto/member-ref.response.dto";
 import { RejectMemberRegistrationDto } from "../dto/reject-member-registration.dto";
+import { UpdateMemberDto } from "../dto/update-member.dto";
 import { Department } from "../entities/department.entity";
 import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 import { DepartmentsService } from "./departments.service";
 import { buildMemberEvent } from "./member-audit";
+import { applyMemberEdit, MemberChanges } from "./member-changes";
+import { toMemberDetail } from "./member-detail.mapper";
 import {
   toMemberRegistrationListItem,
   toMemberRegistrationResponse,
 } from "./member-registration.mapper";
+import { PeopleService } from "./people.service";
 
 /**
  * What the AuthGuard and the login need to know about the member registration of a person.
@@ -37,6 +52,43 @@ import {
 export interface MemberAccessFacts {
   registrationStatus: MemberRegistrationStatus | null;
   departmentIds: string[];
+}
+
+/**
+ * What another module needs to know about a member to give her work (the assignments of the
+ * lessons, GUS-158): who she is, whether she can receive it today and her department. The shape is
+ * the contract of `getMemberSummary`: the Person and the member profile never leave this module.
+ *  - active: she has an access role, her access is enabled and, if she has a member profile, it is
+ *    approved and active (`isActiveMember`). A pending or rejected registration is a member, but
+ *    not active; neither is an inactivated member (GUS-147).
+ *  - departmentIds: the department of the APPROVED profile, or [] (the same rule as
+ *    `findAccessFacts`): what the `department` scope of the member record is checked against.
+ */
+export interface MemberSummary {
+  id: string;
+  name: string;
+  active: boolean;
+  departmentIds: string[];
+}
+
+/**
+ * Which members findMemberRefs answers. Every filter that comes narrows the answer; at least one
+ * of them is required.
+ *  - ids: these people (ids that are not uuids are left out: Postgres would answer 22P02);
+ *  - departmentIds: the members whose APPROVED registration is in one of these departments;
+ *  - search: name or RA, ignoring case and accents (section 12); blank is no filter.
+ */
+export interface MemberRefFilter {
+  ids?: readonly string[];
+  departmentIds?: readonly string[];
+  search?: string;
+}
+
+interface MemberRefRow {
+  id: string;
+  name: string;
+  departmentId: string | null;
+  departmentName: string | null;
 }
 
 /**
@@ -55,6 +107,29 @@ export interface MemberRegistrationSubmission {
   auditEvent: AuditableActionEvent;
 }
 
+interface MemberListRawRow {
+  id: string;
+  name: string;
+  ra: string | null;
+  role: Role | null;
+  accessEnabled: boolean;
+  departmentId: string | null;
+  departmentName: string | null;
+  mainFunction: string | null;
+  joinedAt: string | null;
+  registrationStatus: MemberRegistrationStatus | null;
+  status: MemberStatus;
+  exitDate: string | null;
+  exitReason: string | null;
+}
+
+/**
+ * Situation of a row of GET /members: the participation of the member profile, and `active` for a
+ * person without one, who was never deactivated. It interpolates a constant of the code, never
+ * input.
+ */
+const MEMBER_STATUS_SQL = `COALESCE(member_profile.status, '${MemberStatus.ACTIVE}')`;
+
 /**
  * The one place that builds the "member registration not found" error: an unknown id, a
  * malformed id and a person without a member profile all answer the same
@@ -67,14 +142,58 @@ export function memberRegistrationNotFound(): HttpException {
   );
 }
 
-function raAlreadyInUse(): HttpException {
-  return new HttpException({ error: "RA_ALREADY_IN_USE", message: "RA already in use." }, 409);
+/**
+ * The one place that builds the "member not found" error of the member record (GUS-144): an
+ * unknown id, a malformed id, a deleted person and a person with neither an access role nor a
+ * member profile all answer the same 404 MEMBER_NOT_FOUND. Used by this service and by the id
+ * pipe of the controller.
+ */
+export function memberNotFound(): HttpException {
+  return new HttpException({ error: "MEMBER_NOT_FOUND", message: "Member not found." }, 404);
 }
 
-function emailAlreadyInUse(): HttpException {
+/**
+ * A 409 of a unique value. With `field` (the edit, whose body names the field), `details` points
+ * at it so the form anchors the error there; the sign-up (a nested `registration`) passes none.
+ */
+function alreadyInUse(error: string, message: string, field?: string): HttpException {
+  const body = { error, message };
   return new HttpException(
-    { error: "EMAIL_ALREADY_IN_USE", message: "Email already in use." },
+    field === undefined
+      ? body
+      : { ...body, details: [{ field, message: `${field} is already in use` }] },
     409,
+  );
+}
+
+function raAlreadyInUse(field?: string): HttpException {
+  return alreadyInUse("RA_ALREADY_IN_USE", "RA already in use.", field);
+}
+
+function emailAlreadyInUse(field?: string): HttpException {
+  return alreadyInUse("EMAIL_ALREADY_IN_USE", "Email already in use.", field);
+}
+
+/** Body fields that the 409 of a unique violation points at (see alreadyInUse). */
+interface UniqueFields {
+  ra: string;
+  email: string;
+}
+
+/**
+ * 403 DEPARTMENT_SCOPE: a director cannot move a member to a department outside the own scope (the
+ * director would lose access to the member). `details` points at departmentId.
+ */
+function departmentScope(): HttpException {
+  return new HttpException(
+    {
+      error: "DEPARTMENT_SCOPE",
+      message: "You cannot move a member to a department outside your scope.",
+      details: [
+        { field: "departmentId", message: "departmentId must be a department of your scope" },
+      ],
+    },
+    403,
   );
 }
 
@@ -86,7 +205,96 @@ function departmentNotFound(): HttpException {
 }
 
 /**
- * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011).
+ * The one place that builds the 409 MEMBER_INACTIVE: a write that needs an active member answers
+ * it for an inactive one (a second deactivation, and the edit of the member record, GUS-146).
+ */
+export function memberInactive(): HttpException {
+  return new HttpException({ error: "MEMBER_INACTIVE", message: "The member is inactive." }, 409);
+}
+
+/**
+ * 409 NO_MEMBER_PROFILE: a person with an access role and no member profile is not deactivated
+ * nor edited.
+ */
+function noMemberProfile(): HttpException {
+  return new HttpException(
+    { error: "NO_MEMBER_PROFILE", message: "This person has no member profile." },
+    409,
+  );
+}
+
+/**
+ * 409 REGISTRATION_NOT_APPROVED: a pending or rejected registration is not a member that leaves
+ * nor one whose record is edited (it is validated in /member-registrations).
+ */
+function registrationNotApproved(action: "deactivated" | "edited"): HttpException {
+  return new HttpException(
+    {
+      error: "REGISTRATION_NOT_APPROVED",
+      message: `Only members with an approved registration can be ${action}.`,
+    },
+    409,
+  );
+}
+
+/** 400 EXIT_DATE_BEFORE_JOINED_AT, with the field in `details` so the front anchors it on exitDate. */
+function exitDateBeforeJoinedAt(): HttpException {
+  return new HttpException(
+    {
+      error: "EXIT_DATE_BEFORE_JOINED_AT",
+      message: "exitDate must be on or after the join date.",
+      details: [{ field: "exitDate", message: "exitDate must be on or after the join date" }],
+    },
+    400,
+  );
+}
+
+/**
+ * Department scope that a member profile gives to its person: the department of an APPROVED
+ * profile, or nothing. The department suggested at sign-up (pending) and the one kept after a
+ * rejection never give scope (ARCHITECTURE section 9.1).
+ *
+ * The one rule behind both sides of the `department` scope: the scope of the ACTOR (the
+ * AuthGuard reads it through findAccessFacts on every request, decision 19) and the scope of the
+ * TARGET of the member record (getMember).
+ */
+function departmentScopeOf(
+  profile: Pick<MemberProfile, "registrationStatus" | "departmentId"> | null,
+): string[] {
+  return profile !== null &&
+    profile.registrationStatus === MemberRegistrationStatus.APPROVED &&
+    profile.departmentId
+    ? [profile.departmentId]
+    : [];
+}
+
+/**
+ * Whether a member can be given work today: she has an access role, her access is enabled and, if
+ * she has a member profile, it is approved and the member has not left the project (GUS-147). A
+ * person without a profile (the seeded admin, the coordinators, the accounts that predate GUS-91)
+ * is not subject to the validation.
+ *
+ * It is the ONE place that says "active member": whoever asks `getMemberSummary` follows it. The
+ * deactivation already disables the access, but PATCH /access/:id/enabled can enable it again
+ * while the member is still inactive; the status keeps her inactive here.
+ */
+function isActiveMember(
+  person: Pick<Person, "role" | "accessEnabled">,
+  profile: Pick<MemberProfile, "registrationStatus" | "status"> | null,
+): boolean {
+  return (
+    person.role !== null &&
+    person.accessEnabled &&
+    (profile === null ||
+      (profile.registrationStatus === MemberRegistrationStatus.APPROVED &&
+        profile.status === MemberStatus.ACTIVE))
+  );
+}
+
+/**
+ * Member registration and its validation by coordination (GUS-91, RN-08, RF-004, RF-011), the
+ * member record that reads it back (GUS-144), the deactivation and reactivation of a member
+ * (GUS-147) and the edit of the member record (GUS-146).
  *
  * The registration is born from an access invite (submitFromInvite, called by the invites in
  * the transaction of the accept) as PENDING with no access: Person.role stays null and
@@ -104,7 +312,376 @@ export class MembersService {
     private readonly eventEmitter: EventEmitter2,
     private readonly clock: Clock,
     private readonly departments: DepartmentsService,
+    private readonly permissions: PermissionPolicy,
+    private readonly people: PeopleService,
   ) {}
+
+  /**
+   * Lists people with an access role and all people with a member profile, including pending
+   * and rejected registrations whose role is null. Sensitive registration fields are not selected.
+   * The `status` filter is the participation (GUS-147): omitted lists every status, and a person
+   * without member profile counts as active.
+   */
+  async listMembers(
+    query: ListMembersQueryDto,
+  ): Promise<PaginatedResult<MemberListItemResponseDto>> {
+    const { page, limit } = normalizePagination(query);
+    const builder = this.buildMembersListQuery(query);
+
+    const [rows, total] = await Promise.all([
+      builder
+        .clone()
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany<MemberListRawRow>(),
+      builder.clone().getCount(),
+    ]);
+
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        ra: row.ra,
+        role: row.role,
+        accessEnabled: row.accessEnabled,
+        department:
+          row.departmentId !== null && row.departmentName !== null
+            ? { id: row.departmentId, name: row.departmentName }
+            : null,
+        mainFunction: row.mainFunction,
+        joinedAt: row.joinedAt,
+        registrationStatus: row.registrationStatus,
+        status: row.status,
+        exitDate: row.exitDate,
+        exitReason: row.exitReason,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  private buildMembersListQuery(query: ListMembersQueryDto): SelectQueryBuilder<Person> {
+    const builder = this.dataSource
+      .getRepository(Person)
+      .createQueryBuilder("person")
+      .leftJoin(MemberProfile, "member_profile", "member_profile.person_id = person.id")
+      .leftJoin(Department, "department", "department.id = member_profile.department_id")
+      .select("person.id", "id")
+      .addSelect("person.name", "name")
+      .addSelect("person.ra", "ra")
+      .addSelect("person.role", "role")
+      .addSelect("person.access_enabled", "accessEnabled")
+      .addSelect("department.id", "departmentId")
+      .addSelect("department.name", "departmentName")
+      .addSelect("member_profile.main_function", "mainFunction")
+      .addSelect("member_profile.joined_at::text", "joinedAt")
+      .addSelect("member_profile.registration_status", "registrationStatus")
+      .addSelect(MEMBER_STATUS_SQL, "status")
+      .addSelect("member_profile.exit_date::text", "exitDate")
+      .addSelect("member_profile.exit_reason", "exitReason")
+      .where("(person.role IS NOT NULL OR member_profile.id IS NOT NULL)");
+
+    applyTextSearch(builder, ["person.name", "person.ra"], query.search);
+    this.applyMembersListFilters(builder, query);
+    return builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
+  }
+
+  private applyMembersListFilters(
+    builder: SelectQueryBuilder<Person>,
+    query: ListMembersQueryDto,
+  ): void {
+    if (query.role !== undefined) {
+      builder.andWhere("person.role = :role", { role: query.role });
+    }
+    if (query.departmentId !== undefined) {
+      builder.andWhere("member_profile.department_id = :departmentId", {
+        departmentId: query.departmentId,
+      });
+    }
+    if (query.registrationStatus !== undefined) {
+      builder.andWhere("member_profile.registration_status = :registrationStatus", {
+        registrationStatus: query.registrationStatus,
+      });
+    }
+    if (query.enabled !== undefined) {
+      builder.andWhere("person.access_enabled = :enabled", { enabled: query.enabled });
+    }
+    if (query.status !== undefined) {
+      builder.andWhere(`${MEMBER_STATUS_SQL} = :status`, { status: query.status });
+    }
+  }
+
+  /**
+   * The member record (GUS-144): the Person joined with her member profile, the department of
+   * that profile and who reviewed the registration. Allocations, attendance and the hours bank
+   * are not here.
+   *
+   * 404 MEMBER_NOT_FOUND for an id that is not a uuid, an unknown or deleted person, and a person
+   * with neither an access role nor a member profile. That is the predicate of `listMembers`, so
+   * every row of the list opens its record: pending and rejected registrations, and the seeded
+   * admin and the coordinators without a profile (member fields null, registrationStatus null).
+   * The 404 comes BEFORE the scope check.
+   *
+   * Scope (`members.view`): coordination reads anyone; a director only a member of the own
+   * department, otherwise 403 FORBIDDEN_SCOPE. The department of the TARGET is the one of the
+   * APPROVED profile (departmentScopeOf, the same rule as findAccessFacts), so a pending or
+   * rejected registration, a person without a profile and a target without department are
+   * outside the scope of every director.
+   *
+   * The CPF only leaves masked (RNF-14). Personal data: this service has no Logger and the errors
+   * carry no value.
+   */
+  async getMember(id: string, actor: AuthUser): Promise<MemberDetailResponseDto> {
+    // The service is exported: an id that is not a uuid must not reach Postgres (22P02 -> 500).
+    if (!isUUID(id)) throw memberNotFound();
+
+    const person = await this.dataSource.getRepository(Person).findOne({ where: { id } });
+    const profile =
+      person === null
+        ? null
+        : await this.dataSource.getRepository(MemberProfile).findOne({ where: { personId: id } });
+    if (person === null || (person.role === null && profile === null)) {
+      throw memberNotFound();
+    }
+
+    this.permissions.assertCan(actor, Permission.MEMBERS_VIEW, {
+      personId: id,
+      departmentIds: departmentScopeOf(profile),
+    });
+
+    return this.toMemberRecord(person, profile);
+  }
+
+  /**
+   * Ends the participation of a member (RF-011, GUS-147): status inactive, exit date, reason and
+   * note, who and when, and Person.accessEnabled false, in ONE transaction. Emits
+   * MEMBER_DEACTIVATED after the commit, without the note. Allocations (E5) are not touched yet.
+   *
+   * Order: 404 MEMBER_NOT_FOUND for a malformed id (the service is exported: a value that is not a
+   * uuid must not reach Postgres, 22P02 -> 500) and 403 OWN_ACCOUNT, both before the transaction as
+   * in /access; then, inside it, 404 MEMBER_NOT_FOUND, 409 NO_MEMBER_PROFILE, 409
+   * REGISTRATION_NOT_APPROVED, 409 MEMBER_INACTIVE (a second exit would silently overwrite the
+   * first one), 400 EXIT_DATE_BEFORE_JOINED_AT and 409 LAST_COORDINATOR.
+   *
+   * The id is used in lower case, the canonical text of a uuid and the form actor.id comes from
+   * Postgres: the id pipe accepts upper case and Postgres compares uuid ignoring case, so with the
+   * raw path id an actor could pass OWN_ACCOUNT by sending her own id in upper case.
+   *
+   * The exit may be on the join date ("YYYY-MM-DD" compares chronologically as text); a profile
+   * approved by the backfill has no join date, so only the floor of the DTO applies.
+   * LAST_COORDINATOR is the rule of /access with the same superadmin bypass (decision 10 of E9.a,
+   * GUS-81), but it only runs when the target coordinator still has the access enabled: a target
+   * that is already disabled is not in the count, so deactivating her does not change the set of
+   * active coordinators, and checking would refuse the legitimate "disable the access, then
+   * register the exit" flow. With a coordinator as the actor (active, and never the target) the
+   * count is then always 2 or more, so the 409 does not show up in sequence; the check stays as
+   * the read that lets SERIALIZABLE catch two coordinators removing each other at the same time.
+   *
+   * SERIALIZABLE, like PATCH /access/:id/role and /enabled: LAST_COORDINATOR counts the active
+   * coordinators, and two coordinators removing each other at the same time (one here, one in
+   * /access) is a write skew that only Postgres SSI catches, and only when both sides are
+   * SERIALIZABLE. The price is the one /access already pays: an overlapping duplicate request may
+   * answer 500 (40001) instead of 409.
+   */
+  async deactivateMember(
+    id: string,
+    dto: DeactivateMemberDto,
+    actor: AuthUser,
+  ): Promise<MemberDetailResponseDto> {
+    if (!isUUID(id)) throw memberNotFound();
+    const personId = id.toLowerCase();
+    if (actor.id === personId) throw new OwnAccountException();
+
+    const result = await this.dataSource.transaction("SERIALIZABLE", async (manager) => {
+      const { person, profile } = await this.loadMemberForUpdate(manager, personId);
+      if (profile === null) throw noMemberProfile();
+      if (profile.registrationStatus !== MemberRegistrationStatus.APPROVED) {
+        throw registrationNotApproved("deactivated");
+      }
+      if (profile.status === MemberStatus.INACTIVE) throw memberInactive();
+      if (profile.joinedAt !== null && dto.exitDate < profile.joinedAt) {
+        throw exitDateBeforeJoinedAt();
+      }
+      if (
+        person.role === Role.COORDINATOR &&
+        person.accessEnabled &&
+        actor.role !== Role.SUPERADMIN
+      ) {
+        await this.people.assertNotLastActiveCoordinator(manager);
+      }
+
+      const before = { status: profile.status, accessEnabled: person.accessEnabled };
+      profile.status = MemberStatus.INACTIVE;
+      profile.exitDate = dto.exitDate;
+      profile.exitReason = dto.reason;
+      profile.exitNote = dto.note ?? null;
+      profile.deactivatedAt = this.clock.now();
+      profile.deactivatedById = actor.id;
+      person.accessEnabled = false;
+
+      const savedProfile = await manager.save(MemberProfile, profile);
+      const savedPerson = await manager.save(Person, person);
+      return { person: savedPerson, profile: savedProfile, before };
+    });
+
+    this.emit(
+      buildMemberEvent(
+        AuditableAction.MEMBER_DEACTIVATED,
+        actor.id,
+        personId,
+        result.before,
+        {
+          status: MemberStatus.INACTIVE,
+          accessEnabled: false,
+          exitDate: result.profile.exitDate,
+          exitReason: result.profile.exitReason,
+        },
+        this.clock.now(),
+      ),
+    );
+
+    return this.toMemberRecord(result.person, result.profile);
+  }
+
+  /**
+   * The member is active again and the exit is cleared (GUS-147). The access is NOT enabled: that
+   * stays with PATCH /access/:id/enabled. An active member, a pending or rejected registration and
+   * a person without member profile answer unchanged (200, no write, no event: section 10.3 of
+   * ARCHITECTURE). The old exit only survives in the MEMBER_DEACTIVATED event. Same 404, same 403
+   * OWN_ACCOUNT and same lower-case id as deactivateMember. Default isolation: nothing here
+   * reduces the coordinators nor touches the access, and the row locks serialize two reactivations
+   * of the same member.
+   *
+   * `reactivated` carries the `before` only when something changed, so an event can never go out
+   * with an empty `before`, and there are no two flags that could disagree.
+   */
+  async reactivateMember(id: string, actor: AuthUser): Promise<MemberDetailResponseDto> {
+    if (!isUUID(id)) throw memberNotFound();
+    const personId = id.toLowerCase();
+    if (actor.id === personId) throw new OwnAccountException();
+
+    const result = await this.dataSource.transaction(async (manager) => {
+      const { person, profile } = await this.loadMemberForUpdate(manager, personId);
+      if (profile === null || profile.status === MemberStatus.ACTIVE) {
+        return { person, profile, reactivated: null };
+      }
+
+      const before = {
+        status: profile.status,
+        exitDate: profile.exitDate,
+        exitReason: profile.exitReason,
+      };
+      profile.status = MemberStatus.ACTIVE;
+      profile.exitDate = null;
+      profile.exitReason = null;
+      profile.exitNote = null;
+      profile.deactivatedAt = null;
+      profile.deactivatedById = null;
+
+      const savedProfile = await manager.save(MemberProfile, profile);
+      return { person, profile: savedProfile, reactivated: { before } };
+    });
+
+    if (result.reactivated !== null) {
+      this.emit(
+        buildMemberEvent(
+          AuditableAction.MEMBER_REACTIVATED,
+          actor.id,
+          personId,
+          result.reactivated.before,
+          { status: MemberStatus.ACTIVE, exitDate: null, exitReason: null },
+          this.clock.now(),
+        ),
+      );
+    }
+
+    return this.toMemberRecord(result.person, result.profile);
+  }
+
+  /**
+   * Edits the data of a member (GUS-146): the Person fields (name, ra, email, birthDate, phone)
+   * and the member profile ones, in ONE transaction with both rows locked (Person first). Omitted
+   * keeps; null clears only what the DTO lets be null. The access profile, the access and the
+   * participation are not here (PATCH /access/:id/role and /enabled, /members/:id/deactivate).
+   *
+   * Order: 404 MEMBER_NOT_FOUND for a malformed id, before the transaction; then, inside it,
+   * 404 MEMBER_NOT_FOUND (the predicate of the record), 403 FORBIDDEN_SCOPE (a director outside the
+   * department of the APPROVED profile of the target, read from the locked row), 403
+   * DEPARTMENT_SCOPE (a director moving the member to a department outside the own scope), 409
+   * NO_MEMBER_PROFILE, 409 REGISTRATION_NOT_APPROVED, 409 MEMBER_INACTIVE and 400
+   * DEPARTMENT_NOT_FOUND. A RA or e-mail of another person (soft-deleted ones included) is caught by
+   * the unique index on the save: 409 RA_ALREADY_IN_USE / EMAIL_ALREADY_IN_USE with `details` on
+   * the field, and nothing is written.
+   *
+   * After the lookup only `person.id` is used: the id pipe accepts upper case, and the id read
+   * from Postgres is the canonical lower-case one.
+   *
+   * There is no OWN_ACCOUNT here: editing the own data does not change role, access nor
+   * participation. Emits MEMBER_UPDATED after the commit, only when a value changed, with the
+   * allow-listed values and every changed field by name (personal data never has its value there).
+   */
+  async updateMember(
+    id: string,
+    dto: UpdateMemberDto,
+    actor: AuthUser,
+  ): Promise<MemberDetailResponseDto> {
+    if (!isUUID(id)) throw memberNotFound();
+
+    let updated: { person: Person; profile: MemberProfile; changes: MemberChanges };
+    try {
+      updated = await this.dataSource.transaction(async (manager) => {
+        const { person, profile } = await this.loadMemberForUpdate(manager, id);
+        this.permissions.assertCan(actor, Permission.MEMBERS_EDIT, {
+          personId: person.id,
+          departmentIds: departmentScopeOf(profile),
+        });
+        if (
+          dto.departmentId !== undefined &&
+          !this.permissions.can(actor, Permission.MEMBERS_EDIT, {
+            departmentIds: [dto.departmentId],
+          })
+        ) {
+          throw departmentScope();
+        }
+        if (profile === null) throw noMemberProfile();
+        if (profile.registrationStatus !== MemberRegistrationStatus.APPROVED) {
+          throw registrationNotApproved("edited");
+        }
+        if (profile.status === MemberStatus.INACTIVE) throw memberInactive();
+        if (
+          dto.departmentId !== undefined &&
+          dto.departmentId !== profile.departmentId &&
+          !(await this.departments.exists(manager, dto.departmentId))
+        ) {
+          throw departmentNotFound();
+        }
+
+        const edit = applyMemberEdit(person, profile, dto);
+        if (edit.personChanged) await manager.save(Person, person);
+        if (edit.profileChanged) await manager.save(MemberProfile, profile);
+        return { person, profile, changes: edit.changes };
+      });
+    } catch (error) {
+      throw this.mapUniqueViolation(error, { ra: "ra", email: "email" });
+    }
+
+    const { changes } = updated;
+    if (changes.fields.length > 0) {
+      this.emit(
+        buildMemberEvent(
+          AuditableAction.MEMBER_UPDATED,
+          actor.id,
+          updated.person.id,
+          changes.before,
+          { ...changes.after, changedFields: changes.fields },
+          this.clock.now(),
+        ),
+      );
+    }
+
+    return this.toMemberRecord(updated.person, updated.profile);
+  }
 
   /**
    * Creates (or recreates) the pending registration of a person from an invite.
@@ -214,6 +791,52 @@ export class MembersService {
   }
 
   /**
+   * Summary of a member for another module (the assignments of the lessons, GUS-158). Null when the
+   * id is not a uuid, when there is no such person and when she is neither a member with an access
+   * role nor has a member profile: the predicate of `getMember`, so a student is not a member. A
+   * pending or rejected registration IS returned, with `active` false, so the caller can say
+   * "inactive" apart from "not a member". Whoever calls decides the error.
+   *
+   * Pass the `manager` of a transaction to read inside it. `forShare` locks the row of the person
+   * FOR SHARE until the end of that transaction (it needs the `manager` of one: Postgres only keeps
+   * a row lock inside a transaction). That lock conflicts with the FOR UPDATE that the approval of
+   * the registration and the change of access take on the person, so assigning a member and
+   * disabling her at the same time are serialized: either the assignment sees her inactive, or the
+   * change waits for it. Shared locks do not conflict with each other, so two assignments of the
+   * same member do not wait for one another. Without `forShare` it is a plain read.
+   *
+   * It writes nothing and emits no event. Personal data: only the id, the name, the flag and the
+   * department leave.
+   */
+  async getMemberSummary(
+    id: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<MemberSummary | null> {
+    // The service is exported: an id that is not a uuid must not reach Postgres (22P02 -> 500).
+    if (!isUUID(id)) return null;
+
+    const source = manager ?? this.dataSource.manager;
+    const person = await source.findOne(Person, {
+      where: { id },
+      ...(options.forShare ? { lock: { mode: "pessimistic_read" as const } } : {}),
+    });
+    if (person === null) return null;
+
+    // After the lock of the person: the approval and the rejection take the person first, so the
+    // profile read here is never one that is changing under it.
+    const profile = await source.findOne(MemberProfile, { where: { personId: person.id } });
+    if (person.role === null && profile === null) return null;
+
+    return {
+      id: person.id,
+      name: person.name,
+      active: isActiveMember(person, profile),
+      departmentIds: departmentScopeOf(profile),
+    };
+  }
+
+  /**
    * Situation of the registration and department scope of a person, in one query.
    * Used by the AuthGuard (every request) and by the login. Domain services use it to load
    * the departments of the TARGET before PermissionPolicy.assertCan.
@@ -224,17 +847,77 @@ export class MembersService {
       select: { registrationStatus: true, departmentId: true },
     });
 
-    if (profile === null) {
-      return { registrationStatus: null, departmentIds: [] };
+    return {
+      registrationStatus: profile?.registrationStatus ?? null,
+      departmentIds: departmentScopeOf(profile),
+    };
+  }
+
+  /**
+   * Id, name and department of the members that match the filter, ordered by name and id. Part of
+   * the contract for other modules (hours, GUS-164), like PeopleService.findRefsByIds: ids come in,
+   * data comes out, and no entity leaves `people`.
+   *
+   * A member is a row of `GET /members`: a person (not deleted) with an access role or a member
+   * profile, so a student is never one. The department is the one of the APPROVED profile, the
+   * rule of departmentScopeOf written in SQL: whoever changes one changes the other.
+   *
+   * Throws when no filter is given, so the whole team is never read by accident. An empty `ids`
+   * or `departmentIds` answers [] without querying.
+   */
+  async findMemberRefs(filter: MemberRefFilter): Promise<MemberRefDto[]> {
+    if (
+      filter.ids === undefined &&
+      filter.departmentIds === undefined &&
+      normalizeSearchTerm(filter.search) === undefined
+    ) {
+      throw new Error("findMemberRefs needs ids, departmentIds or search.");
     }
 
-    return {
-      registrationStatus: profile.registrationStatus,
-      departmentIds:
-        profile.registrationStatus === MemberRegistrationStatus.APPROVED && profile.departmentId
-          ? [profile.departmentId]
-          : [],
-    };
+    const ids = filter.ids?.filter((id) => isUUID(id));
+    if (ids?.length === 0 || filter.departmentIds?.length === 0) return [];
+
+    const approved = MemberRegistrationStatus.APPROVED;
+    const builder = this.dataSource
+      .getRepository(Person)
+      .createQueryBuilder("person")
+      .leftJoin(MemberProfile, "member_profile", "member_profile.person_id = person.id")
+      .leftJoin(
+        Department,
+        "department",
+        "department.id = member_profile.department_id AND member_profile.registration_status = :approved",
+        { approved },
+      )
+      .select("person.id", "id")
+      .addSelect("person.name", "name")
+      .addSelect("department.id", "departmentId")
+      .addSelect("department.name", "departmentName")
+      .where("(person.role IS NOT NULL OR member_profile.id IS NOT NULL)");
+
+    if (ids !== undefined) {
+      builder.andWhere("person.id IN (:...ids)", { ids });
+    }
+    if (filter.departmentIds !== undefined) {
+      builder.andWhere(
+        "member_profile.registration_status = :approved AND member_profile.department_id IN (:...departmentIds)",
+        { approved, departmentIds: [...filter.departmentIds] },
+      );
+    }
+    applyTextSearch(builder, ["person.name", "person.ra"], filter.search);
+
+    const rows = await builder
+      .orderBy("person.name", "ASC")
+      .addOrderBy("person.id", "ASC")
+      .getRawMany<MemberRefRow>();
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      department:
+        row.departmentId !== null && row.departmentName !== null
+          ? { id: row.departmentId, name: row.departmentName }
+          : null,
+    }));
   }
 
   /**
@@ -486,19 +1169,76 @@ export class MembersService {
   }
 
   /**
-   * Turns the unique violations of the sign-up into 409, by constraint name (the `detail` of
-   * Postgres carries the duplicated value and must never be logged). Any other error is kept.
+   * Person and member profile of a member-record id inside a transaction, both rows locked,
+   * Person first (the order of submitFromInvite and loadPending). 404 MEMBER_NOT_FOUND with the
+   * predicate of getMember: an unknown or deleted person, or one with no role and no profile.
+   * `profile` is null for a person with a role and no member profile. Two reads and no relation:
+   * FOR UPDATE cannot lock the nullable side of an outer join.
    */
-  private mapUniqueViolation(error: unknown): unknown {
+  private async loadMemberForUpdate(
+    manager: EntityManager,
+    id: string,
+  ): Promise<{ person: Person; profile: MemberProfile | null }> {
+    const person = await manager.findOne(Person, {
+      where: { id },
+      lock: { mode: "pessimistic_write" },
+    });
+    const profile =
+      person === null
+        ? null
+        : await manager.findOne(MemberProfile, {
+            where: { personId: id },
+            lock: { mode: "pessimistic_write" },
+          });
+    if (person === null || (person.role === null && profile === null)) {
+      throw memberNotFound();
+    }
+    return { person, profile };
+  }
+
+  /**
+   * The member record (MemberDetailResponseDto) of a Person and her member profile, null without
+   * one: reads the department of the profile and who reviewed the registration, through the
+   * DataSource. Shared by getMember and by the writes that answer the record.
+   *
+   * The department shown is the one of the profile, even a pending one's suggestion (as in
+   * GET /members): only the scope of getMember uses "approved". A reviewer that was deleted is
+   * null.
+   */
+  private async toMemberRecord(
+    person: Person,
+    profile: MemberProfile | null,
+  ): Promise<MemberDetailResponseDto> {
+    const [department, reviewer] = await Promise.all([
+      profile?.departmentId
+        ? this.dataSource.getRepository(Department).findOne({ where: { id: profile.departmentId } })
+        : null,
+      profile?.reviewedById
+        ? this.dataSource.getRepository(Person).findOne({ where: { id: profile.reviewedById } })
+        : null,
+    ]);
+
+    return toMemberDetail(person, profile, department, reviewer);
+  }
+
+  /**
+   * Turns the unique violations of the sign-up and of the edit into 409, by constraint name (the
+   * `detail` of Postgres carries the duplicated value and must never be logged). `fields`: the
+   * body fields the 409 points at in `details` (the edit); the sign-up passes none. Any other
+   * error is kept.
+   */
+  private mapUniqueViolation(error: unknown, fields?: UniqueFields): unknown {
     if (error instanceof QueryFailedError) {
       const driverError = error.driverError as { code?: string; constraint?: string } | undefined;
       if (driverError?.code === "23505") {
-        if (driverError.constraint === "uq_people_email") return emailAlreadyInUse();
+        if (driverError.constraint === "uq_people_email") {
+          return emailAlreadyInUse(fields?.email);
+        }
         if (
           driverError.constraint === "uq_people_ra" ||
           driverError.constraint === "uq_member_profiles_person_id"
         ) {
-          return raAlreadyInUse();
+          return raAlreadyInUse(fields?.ra);
         }
       }
     }
@@ -510,3 +1250,10 @@ export class MembersService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+/**
+ * The enum of `MemberAccessFacts.registrationStatus`, the contract of `findAccessFacts`,
+ * re-exported so that other modules (`hours`) import it from the service PeopleModule exports and
+ * never from `people/enums/*` (module is a closed box).
+ */
+export { MemberRegistrationStatus } from "../enums/member-registration-status.enum";

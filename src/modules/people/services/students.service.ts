@@ -1,7 +1,14 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { isUUID } from "class-validator";
-import { DataSource, EntityManager, In, IsNull, QueryFailedError } from "typeorm";
+import {
+  DataSource,
+  EntityManager,
+  In,
+  IsNull,
+  QueryFailedError,
+  SelectQueryBuilder,
+} from "typeorm";
 import { ArchiveDto } from "@shared/dto/archive.dto";
 import { Clock } from "@shared/dates/clock";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
@@ -11,16 +18,34 @@ import {
   AuditableAction,
   AuditableActionEvent,
 } from "@shared/events/auditable-action.event";
+import {
+  normalizePagination,
+  PaginatedResult,
+  PaginationParams,
+} from "@shared/pagination/pagination.util";
 import { CreateStudentDto } from "../dto/create-student.dto";
+import {
+  ANY_ACCESSIBILITY_NEED,
+  AccessibilityNeedFilter,
+  ListStudentsQueryDto,
+} from "../dto/list-students-query.dto";
 import { StudentDetailDto } from "../dto/student-detail.response.dto";
+import { StudentListItemResponseDto } from "../dto/student-list-item.response.dto";
 import { StudentResponseDto } from "../dto/student.response.dto";
 import { UpdateStudentDto } from "../dto/update-student.dto";
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
+import { StudentListSort } from "../enums/student-list-sort.enum";
 import { auditSnapshot } from "./student-audit";
 import { toStudentDetail } from "./student-detail.mapper";
-import { toStudentResponse } from "./student-response.mapper";
+import { StudentEnrollmentsRegistry } from "./student-enrollments.registry";
+import {
+  StudentListEntryRow,
+  toStudentListEntry,
+  toStudentResponse,
+} from "./student-response.mapper";
+import { applyStudentSearch } from "./student-search";
 
 /** Fields of the student that live on Person. */
 const PERSON_FIELDS = ["name", "birthDate", "email", "phone"] as const;
@@ -41,12 +66,99 @@ const PROFILE_FIELDS = [
 const STUDENT_TARGET_TYPE = "student";
 
 /**
+ * The categories of the `accessibilityNeed` filter of `GET /students`: the union of the values, with
+ * `any` as every category but `none` (derived from the enum, so a new category joins `any` by
+ * itself). Empty for an empty filter, which then filters nothing.
+ */
+function accessibilityNeedsOf(filters: readonly AccessibilityNeedFilter[]): AccessibilityNeed[] {
+  const needs = new Set<AccessibilityNeed>();
+  for (const filter of filters) {
+    if (filter === ANY_ACCESSIBILITY_NEED) {
+      for (const need of Object.values(AccessibilityNeed)) {
+        if (need !== AccessibilityNeed.NONE) needs.add(need);
+      }
+    } else {
+      needs.add(filter);
+    }
+  }
+  return [...needs];
+}
+
+/**
  * The one place that builds the "student not found" error: an unknown id, a malformed id and a
  * person without a student profile all answer the same 404 STUDENT_NOT_FOUND. Used by this
  * service, by the id pipe of the controller and by the read route of GUS-107.
  */
 export function studentNotFound(): HttpException {
   return new HttpException({ error: "STUDENT_NOT_FOUND", message: "Student not found." }, 404);
+}
+
+/** 409: a student with an active enrollment stays a student (section 10.3, GUS-108). */
+export function studentHasActiveEnrollments(): HttpException {
+  return new HttpException(
+    {
+      error: "STUDENT_HAS_ACTIVE_ENROLLMENTS",
+      message: "A student with active enrollments cannot be archived.",
+    },
+    409,
+  );
+}
+
+/**
+ * The most ids `listStudentEntries` takes in `onlyIds` or in `excludeIds`. They are the students of
+ * the enrollments of a class or of the active enrollments of the school (hundreds today): more
+ * than this is a bug or a school far beyond its size, and it fails loudly instead of truncating.
+ */
+export const STUDENT_LIST_FILTER_MAX_IDS = 10_000;
+
+/**
+ * What another module needs to know about a student to enroll it (classes, GUS-108): who it is and
+ * whether it is archived. Nothing personal beyond the name.
+ */
+export interface StudentSummary {
+  id: string;
+  name: string;
+  archivedAt: Date | null;
+}
+
+/**
+ * One student of a list of students: the item of `GET /students` (GUS-106) and of the lists of
+ * another module (classes, GUS-108); `StudentListItemResponseDto` implements it. Not a "ref" (id and
+ * name): it carries `birthDate`, `phone`, `email` and `accessibilityNeed`, personal data (RNF-13)
+ * that whoever shows it decides about (the list of a class hides the contact without students.view
+ * and never shows the birth date nor the e-mail). `createdAt` is when the person was registered as a
+ * student (the student profile), not when the person was created.
+ */
+export interface StudentListEntry {
+  id: string;
+  name: string;
+  birthDate: string;
+  age: number;
+  phone: string | null;
+  email: string | null;
+  accessibilityNeed: AccessibilityNeed;
+  createdAt: Date;
+}
+
+/** Which students `listStudentEntries` lists. Every field narrows the list; none is required. */
+export interface StudentListFilter {
+  /** Only these students. Empty answers an empty page. */
+  onlyIds?: readonly string[];
+  /** Every student but these. */
+  excludeIds?: readonly string[];
+  /**
+   * Part of the name, ignoring case and accents (section 12); with `searchContact`, also the e-mail
+   * and, for a phone-shaped term, the digits of the phone.
+   */
+  search?: string;
+  /**
+   * The search also looks at the e-mail and, for a phone-shaped term, the digits of the phone
+   * (`applyStudentSearch`). Personal data (RNF-13): only for a caller under students.view, that
+   * shows the contact it matched.
+   */
+  searchContact?: boolean;
+  /** Archived students are left out unless this is true (an enrollment history keeps them). */
+  includeArchived?: boolean;
 }
 
 /** Values changed by an update. Raw values stay local: events only get the allow-listed ones. */
@@ -70,6 +182,7 @@ export class StudentsService {
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly clock: Clock,
+    private readonly enrollments: StudentEnrollmentsRegistry,
   ) {}
 
   /**
@@ -174,24 +287,33 @@ export class StudentsService {
 
   /**
    * Archives a student instead of deleting (RN-27). Archiving twice keeps the first archive,
-   * answers 200 and emits nothing. Emits STUDENT_ARCHIVED after the commit.
+   * answers 200 and emits nothing, and does not even ask the enrollments.
+   * Emits STUDENT_ARCHIVED after the commit.
+   *
+   * A student with an active enrollment answers 409 STUDENT_HAS_ACTIVE_ENROLLMENTS, after the 404
+   * (section 19, M1). The count comes from the port `StudentEnrollmentsRegistry`, which `classes`
+   * implements, inside this transaction and AFTER the profile is locked FOR UPDATE: an enrollment
+   * reads the profile FOR SHARE, so the two serialize, and the count, a new statement, sees an
+   * enrollment that committed while the archive waited.
    */
   async archive(
     id: string,
     dto: ArchiveDto | undefined,
     actorId: string,
   ): Promise<StudentResponseDto> {
-    // TODO(GUS-108): reject with 409 STUDENT_HAS_ACTIVE_ENROLLMENTS when the student has an
-    // active enrollment. people cannot import classes (classes -> people); suggested hook:
-    // `await this.eventEmitter.emitAsync(STUDENT_ARCHIVING_EVENT, { personId: id })` with a
-    // classes listener that throws the 409. Not implemented here: there are no enrollments yet.
     const now = this.clock.now();
 
     const result = await this.dataSource.transaction(async (manager) => {
       const { person, profile } = await this.loadStudent(manager, id);
 
-      const changed = markArchived(profile.archive, actorId, dto?.reason ?? null, now);
-      if (changed) await manager.save(profile);
+      let changed = false;
+      if (!isArchived(profile.archive)) {
+        const active = await this.enrollments.countActiveEnrollments(manager, profile.personId);
+        if (active > 0) throw studentHasActiveEnrollments();
+
+        changed = markArchived(profile.archive, actorId, dto?.reason ?? null, now);
+        await manager.save(profile);
+      }
 
       return { person, profile, changed };
     });
@@ -279,6 +401,141 @@ export class StudentsService {
   }
 
   /**
+   * Id, name and archive date of the students among `ids`, for another module (classes, GUS-108:
+   * the students of an enrollment). Ids are lower-cased and deduped; an id that is not a uuid, a
+   * person without a student profile, and a removed person or profile are left out. The order is
+   * the person id, ascending. It writes nothing and emits nothing.
+   *
+   * `forShare` locks the student profiles `FOR SHARE` until the end of the transaction of the
+   * `manager` (so it needs one: without it this throws, as a bug of the caller), in person id
+   * order. The lock is on the PROFILE and not on `people`: `archive`, `update` and `unarchive` lock
+   * the profile `FOR UPDATE` and read the person without a lock, so only a lock on the profile
+   * conflicts with them (section 19, M2). An enrollment then never lands on a student that is being
+   * archived: whoever locks first wins, and the other one sees what it committed.
+   *
+   * There is no cap here: the ids come from a body of at most 100 ids or from one enrollment.
+   */
+  async findStudentSummaries(
+    ids: readonly string[],
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<StudentSummary[]> {
+    if (options.forShare === true && manager === undefined) {
+      throw new Error("forShare needs the manager of a transaction");
+    }
+    // A value that is not a uuid cannot be a student; sending it to Postgres would fail (22P02).
+    const unique = [...new Set(ids.filter((id) => isUUID(id)).map((id) => id.toLowerCase()))];
+    if (unique.length === 0) return [];
+
+    const reader = manager ?? this.dataSource.manager;
+    const profiles = await reader.find(StudentProfile, {
+      where: { personId: In(unique) },
+      order: { personId: "ASC" },
+      lock: options.forShare === true ? { mode: "pessimistic_read" } : undefined,
+    });
+    if (profiles.length === 0) return [];
+
+    const people = await reader.find(Person, {
+      where: { id: In(profiles.map((profile) => profile.personId)) },
+      select: { id: true, name: true },
+    });
+    const namesById = new Map(people.map((person) => [person.id, person.name]));
+
+    return profiles.flatMap((profile) => {
+      const name = namesById.get(profile.personId);
+      return name === undefined
+        ? []
+        : [{ id: profile.personId, name, archivedAt: profile.archive.archivedAt }];
+    });
+  }
+
+  /**
+   * A page of students for another module (classes, GUS-108: the lists of the enrollments), so it
+   * never reads the tables of `people`. Ordered by name and then person id, with the total of the
+   * filter counted in SQL. A student is a person (not removed) with a student profile (not
+   * removed); the archived ones are left out unless `includeArchived`. `search` is the name, plus the
+   * e-mail and the phone only with `searchContact` (`applyStudentSearch`).
+   *
+   * The ids go to Postgres as ONE array parameter (`= ANY(:ids::uuid[])`), never one parameter per
+   * id. Ids that are not uuids are skipped; an empty `onlyIds` answers an empty page without
+   * querying. More than STUDENT_LIST_FILTER_MAX_IDS ids throws (a 500 that is logged), instead of
+   * truncating the filter. The age is computed against one day, today in America/Sao_Paulo.
+   */
+  async listStudentEntries(
+    filter: StudentListFilter,
+    pagination: PaginationParams,
+  ): Promise<PaginatedResult<StudentListEntry>> {
+    for (const ids of [filter.onlyIds, filter.excludeIds]) {
+      if (ids !== undefined && ids.length > STUDENT_LIST_FILTER_MAX_IDS) {
+        throw new Error(
+          `listStudentEntries takes at most ${STUDENT_LIST_FILTER_MAX_IDS} ids, got ${ids.length}.`,
+        );
+      }
+    }
+    const onlyIds = filter.onlyIds?.filter((id) => isUUID(id));
+    const excludeIds = filter.excludeIds?.filter((id) => isUUID(id)) ?? [];
+    const { page, limit } = normalizePagination(pagination);
+    if (onlyIds !== undefined && onlyIds.length === 0) return { data: [], total: 0, page, limit };
+
+    const builder = this.studentListQuery();
+    if (filter.includeArchived !== true) builder.andWhere("student_profile.archived_at IS NULL");
+    if (onlyIds !== undefined) builder.andWhere("person.id = ANY(:onlyIds::uuid[])", { onlyIds });
+    if (excludeIds.length > 0) {
+      builder.andWhere("NOT (person.id = ANY(:excludeIds::uuid[]))", { excludeIds });
+    }
+    applyStudentSearch(builder, filter.search, { contact: filter.searchContact === true });
+    builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
+
+    return this.studentListPage(builder, page, limit);
+  }
+
+  /**
+   * The list of students (GUS-106, `GET /students`). Read-only: no transaction, no lock, no event
+   * and no log (RNF-13: the items carry personal data). The filters combine with AND:
+   *
+   * - `archived=true` lists only the archived students; omitted or false, only the others (RN-27).
+   * - `ids` lists only these students among the ones the other filters keep: an id that is not a
+   *   student, an archived one (without `archived=true`) or a removed one is simply not there. The
+   *   order is the one of `sort`, not the one of `ids`.
+   * - `accessibilityNeed` is the union of its values, `any` being every category but `none`.
+   * - `search` is the name or the e-mail, or the digits of the phone for a phone-shaped term
+   *   (`applyStudentSearch`).
+   * - `sort=name` (the default) is alphabetical; `sort=createdAt` puts the student registered last
+   *   first (`createdAt` is the one of the student profile). Both break ties by id.
+   */
+  async listStudents(
+    query: ListStudentsQueryDto,
+  ): Promise<PaginatedResult<StudentListItemResponseDto>> {
+    const { page, limit } = normalizePagination(query);
+    const builder = this.studentListQuery();
+
+    builder.andWhere(
+      query.archived === true
+        ? "student_profile.archived_at IS NOT NULL"
+        : "student_profile.archived_at IS NULL",
+    );
+    if (query.ids !== undefined) {
+      builder.andWhere("person.id = ANY(:ids::uuid[])", { ids: query.ids });
+    }
+    const accessibilityNeeds = accessibilityNeedsOf(query.accessibilityNeed ?? []);
+    if (accessibilityNeeds.length > 0) {
+      builder.andWhere("student_profile.accessibility_need IN (:...accessibilityNeeds)", {
+        accessibilityNeeds,
+      });
+    }
+    applyStudentSearch(builder, query.search, { contact: true });
+
+    if (query.sort === StudentListSort.CREATED_AT) {
+      builder.orderBy("student_profile.created_at", "DESC");
+    } else {
+      builder.orderBy("person.name", "ASC");
+    }
+    builder.addOrderBy("person.id", "ASC");
+
+    return this.studentListPage(builder, page, limit);
+  }
+
+  /**
    * Student record page (GUS-107). Archived students stay readable (RN-27).
    * Read-only: no transaction, no lock, no audit event, no log (RNF-13).
    * createdBy is null when the Person who registered the student was soft-deleted:
@@ -310,6 +567,52 @@ export class StudentsService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * The students and the columns of a list of students (`StudentListEntryRow`): a person not
+   * removed with a student profile not removed, archived or not. The caller adds the filters and the
+   * order.
+   */
+  private studentListQuery(): SelectQueryBuilder<Person> {
+    return this.dataSource
+      .getRepository(Person)
+      .createQueryBuilder("person")
+      .innerJoin(
+        StudentProfile,
+        "student_profile",
+        "student_profile.person_id = person.id AND student_profile.deleted_at IS NULL",
+      )
+      .select("person.id", "id")
+      .addSelect("person.name", "name")
+      .addSelect("person.birth_date::text", "birthDate")
+      .addSelect("person.phone", "phone")
+      .addSelect("person.email", "email")
+      .addSelect("student_profile.accessibility_need", "accessibilityNeed")
+      .addSelect("student_profile.created_at", "createdAt")
+      .where("person.deleted_at IS NULL");
+  }
+
+  /**
+   * One page of `builder` (filtered and ordered by the caller) and the total of its filter, counted
+   * in SQL. Every student is aged against the same day, today in America/Sao_Paulo.
+   */
+  private async studentListPage(
+    builder: SelectQueryBuilder<Person>,
+    page: number,
+    limit: number,
+  ): Promise<PaginatedResult<StudentListEntry>> {
+    const [rows, total] = await Promise.all([
+      builder
+        .clone()
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany<StudentListEntryRow>(),
+      builder.clone().getCount(),
+    ]);
+
+    const today = todayInAppTimeZone(this.clock.now());
+    return { data: rows.map((row) => toStudentListEntry(row, today)), total, page, limit };
+  }
 
   /**
    * Loads the student of a Person id inside a transaction, locking the profile row so
@@ -397,3 +700,10 @@ export class StudentsService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+/**
+ * The enum of `StudentListEntry.accessibilityNeed`, the contract of `listStudentEntries`, re-exported so that
+ * other modules (classes) import it from the service PeopleModule exports and never from
+ * `people/enums/*` (module is a closed box).
+ */
+export { AccessibilityNeed } from "../enums/accessibility-need.enum";

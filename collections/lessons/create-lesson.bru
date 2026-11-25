@@ -1,0 +1,45 @@
+meta {
+  name: create-lesson
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/lessons
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "classId": "01952ef7-0000-7000-8000-000000000003",
+    "lessonPlanId": "01952ef7-0000-7000-8000-000000000001",
+    "sequenceOrder": 1,
+    "date": "2026-03-10",
+    "startTime": "14:00",
+    "endTime": "15:30",
+    "location": "Laboratório 3, bloco B",
+    "expectedStudents": 15,
+    "expectedMonitors": 2
+  }
+}
+
+docs {
+  Cria uma aula numa turma, avulsa ou a partir de um plano de aula (F4.1). A aula nasce com status planned.
+  Requer cookie tedi_session e a permissão lessons.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Obrigatórios: classId (turma que existe), date (AAAA-MM-DD), startTime e endTime (HH:mm, 24 horas, como 14:00; "9:00", "14:00:00" e "24:00" são recusados). title é obrigatório quando não há lessonPlanId.
+  Opcionais: lessonPlanId, sequenceOrder, title, objective, location, expectedStudents (inteiro de 0 a 1000), expectedMonitors (inteiro de 0 a 100) e subject (null ou "" significa "não informado"). status e postNotes não entram no POST: a aula nasce planned, e as notas pós-aula vêm pelo PATCH.
+  Com lessonPlanId, title e objective omitidos são COPIADOS do plano (RN-18): a aula passa a ter o texto dela, e editar ou arquivar o plano depois não muda aulas já criadas. title ou objective enviados valem mais que a cópia; objective null deixa o objetivo vazio em vez de copiar. O plano precisa estar ativo: plano arquivado não origina aula nova (400 LESSON_PLAN_ARCHIVED).
+  sequenceOrder é a posição do plano na sequência do curso da turma, e só vale com lessonPlanId (senão 400 VALIDATION_FAILED, field sequenceOrder). Quando vem, o plano precisa estar exatamente nessa posição da sequência, senão 400 LESSON_PLAN_NOT_IN_COURSE_SEQUENCE. Sem sequenceOrder, qualquer plano ativo vale: é uma aula extra. A posição é uma fotografia: reordenar a sequência depois não muda a aula.
+  A data precisa cair no período da turma, extremos incluídos (RN-21): 400 LESSON_OUTSIDE_CLASS_PERIOD, com details[].field = "date". O fim precisa ser depois do início (a aula não atravessa a meia-noite): 400 INVALID_TIME_RANGE, com details[].field = "endTime". A duração (durationMinutes) é calculada na resposta, não gravada.
+  classId que não existe responde 400 CLASS_NOT_FOUND (o id está no corpo, não na URL). Turma arquivada é somente leitura (RN-27): 409 CLASS_ARCHIVED. Turma em andamento ou encerrada (status) não bloqueia: o status da turma é independente. Duas aulas da mesma turma no mesmo dia e horário são aceitas: não há regra de conflito.
+  A turma e o plano ficam travados (FOR SHARE) até o fim da transação: criar a aula e arquivar a turma (ou mudar o período dela) ao mesmo tempo são feitos uma depois da outra.
+  Retorna 201 LessonResponseDto: a aula com class, course, edition e lessonPlan (null para aula avulsa), durationMinutes e createdById de quem criou. Registra o evento LESSON_CREATED.
+  Ordem dos erros: 400 VALIDATION_FAILED, 400 INVALID_TIME_RANGE, 400 CLASS_NOT_FOUND, 409 CLASS_ARCHIVED, 400 LESSON_OUTSIDE_CLASS_PERIOD, 400 LESSON_PLAN_NOT_FOUND, 400 LESSON_PLAN_ARCHIVED, 400 LESSON_PLAN_NOT_IN_COURSE_SEQUENCE.
+  Erros possíveis: 400 (os códigos acima), 401, 403 FORBIDDEN, 409 CLASS_ARCHIVED.
+}

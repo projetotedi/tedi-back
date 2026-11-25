@@ -1,0 +1,38 @@
+meta {
+  name: create-course
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/courses
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Informática Intermediária",
+    "description": "Planilhas, textos e apresentações para o dia a dia.",
+    "objective": "Preparar o aluno para as ferramentas de escritório.",
+    "category": "intermediate",
+    "prerequisiteIds": [
+      "01952ef7-0000-7000-8000-000000000001"
+    ]
+  }
+}
+
+docs {
+  Cria um curso: o plano de ensino reutilizável, com categoria e pré-requisitos. Toda turma é a oferta de um curso.
+  Requer cookie tedi_session e a permissão courses.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Obrigatórios: name (até 200 caracteres), description (até 2000 caracteres) e category (basic, intermediate ou advanced; outro valor responde 400). name é único entre todos os cursos, arquivados inclusive, sem diferenciar maiúsculas de minúsculas ("INFORMÁTICA BÁSICA" e "Informática Básica" são o mesmo nome; o acento diferencia).
+  Opcionais: objective (até 2000 caracteres; null ou "" significa "não informado") e prerequisiteIds (até 20 ids de cursos, sem repetir; omitir significa nenhum). Os textos são aparados.
+  Cada pré-requisito precisa existir e não pode estar arquivado. Um curso novo não tem quem o exija, então não há ciclo a checar na criação.
+  Retorna 201 CourseResponseDto: status "active" (derivado de archivedAt), prerequisites [{ id, name }] ordenados por nome e createdById de quem criou. Registra o evento COURSE_CREATED. Não existe DELETE de curso.
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 400 PREREQUISITE_NOT_FOUND, 400 PREREQUISITE_ARCHIVED, 401, 403 FORBIDDEN, 409 COURSE_NAME_TAKEN.
+}

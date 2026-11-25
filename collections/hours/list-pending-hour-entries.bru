@@ -1,0 +1,33 @@
+meta {
+  name: list-pending-hour-entries
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/hour-entries
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  status: pending
+  page: 1
+  limit: 20
+  ~personId: 01952ef7-0000-7000-8000-000000000020
+  ~from: 2026-03-01
+  ~to: 2026-03-31
+}
+
+docs {
+  Fila de validação (F7.3): lançamentos de um status (pending quando omitido) dos membros do escopo, do dia mais antigo, cada item com member (nome e departamento).
+  Requer cookie tedi_session e a permissão hours.viewOthers (@RequirePermission). Membro recebe 403 FORBIDDEN. A diretoria vê a fila do próprio departamento, mas não valida (hours.review); diretor sem departamento recebe página vazia.
+  Filtros: ?status (pending | approved | adjusted | rejected), ?personId, ?from e ?to (extremos incluídos), ?page e ?limit (até 100). Lançamentos removidos ficam fora.
+  A fila inclui os lançamentos de quem consulta, que ela não pode validar (409 SELF_REVIEW_NOT_ALLOWED); o front os marca pelo personId da sessão.
+  Retorna { data: MemberHourEntryResponseDto[], total, page, limit }.
+  Erros possíveis: 400 VALIDATION_FAILED, 400 INVALID_PERIOD, 401, 403 FORBIDDEN.
+}

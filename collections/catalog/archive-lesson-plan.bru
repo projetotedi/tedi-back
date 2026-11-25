@@ -1,0 +1,36 @@
+meta {
+  name: archive-lesson-plan
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/lesson-plans/:id/archive
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "Conteúdo revisado."
+  }
+}
+
+docs {
+  Arquiva um plano de aula em vez de excluir (RN-27). Não existe DELETE de plano de aula.
+  Requer cookie tedi_session e a permissão lessonPlans.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Corpo opcional: reason (até 500 caracteres).
+  O plano arquivado continua acessível por id (GET /lesson-plans/:id) e vira somente leitura. A partir da GUS-95, a listagem padrão não mostra arquivados.
+  Arquivar de novo um plano já arquivado responde 200 sem alterar nada: vale o primeiro arquivamento.
+  Retorna 200 LessonPlanResponseDto com archivedAt, archivedById e archiveReason preenchidos.
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 LESSON_PLAN_NOT_FOUND.
+}

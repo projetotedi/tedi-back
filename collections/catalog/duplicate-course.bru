@@ -1,0 +1,40 @@
+meta {
+  name: duplicate-course
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/courses/:id/duplicate
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000002
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Redes Sociais com Segurança (2026.2)"
+  }
+}
+
+docs {
+  Duplica um curso para a próxima edição: cria um curso novo já com a sequência de planos de aula montada (RF-019). O corpo só leva o name do curso novo, e o front abre o curso pelo id devolvido.
+  Requer cookie tedi_session e a permissão courses.duplicateArchive (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  name é obrigatório (até 200 caracteres, aparado) e único entre todos os cursos, arquivados inclusive, sem diferenciar maiúsculas de minúsculas. Vale também para o nome do próprio curso de origem: duplicar com o mesmo nome responde 409. Qualquer outro campo do corpo é ignorado.
+  O que copia: descrição, objetivo, categoria e a sequência de planos de aula, na mesma ordem (posições 1 a n). Os planos não são copiados: o curso novo aponta para os mesmos planos (RN-17), então mudar a duração de um plano muda a carga horária dos dois cursos (RN-24). Um plano arquivado que continua na sequência também é copiado, e a duração dele continua contando.
+  O que não copia: pré-requisitos (a cópia nasce com prerequisites [] e ninguém a exige), turmas e histórico.
+  O curso novo nasce sempre ativo (archivedAt, archivedById e archiveReason null), mesmo que o original esteja arquivado, e createdById é quem duplicou. O original não é alterado.
+  Tudo numa transação. O original é lido com FOR SHARE: uma troca da sequência dele em andamento termina antes, e a cópia sai da versão gravada. Duplicações do mesmo curso não esperam umas pelas outras. Dois pedidos ao mesmo tempo com o mesmo nome: um responde 201 e o outro 409, e nada do segundo é gravado.
+  Emite o evento de auditoria COURSE_DUPLICATED, com a cópia como alvo e sourceCourseId (o id do curso de origem) no after, junto com name, description, objective, category e lessonPlanIds em ordem.
+  Retorna 201 CourseResponseDto do curso novo. A carga horária prevista e a contagem de planos vêm em GET /courses/:id.
+  Ordem dos erros: o corpo é validado antes de tudo (400), depois a origem é procurada (404) e só então o nome é checado (409): uma origem que não existe responde 404 mesmo com o nome repetido.
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 401, 403 FORBIDDEN, 404 COURSE_NOT_FOUND (id inexistente, mal formado ou excluído), 409 COURSE_NAME_TAKEN.
+}

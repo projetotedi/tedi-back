@@ -1,0 +1,41 @@
+meta {
+  name: enroll-students
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/classes/:id/enrollments
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000003
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "studentIds": [
+      "01952ef7-0000-7000-8000-000000000001",
+      "01952ef7-0000-7000-8000-000000000002"
+    ]
+  }
+}
+
+docs {
+  Matricula um ou vários alunos na turma (RF-026). O :id é o da turma; studentIds são os ids das Person dos alunos, de 1 a 100.
+  Requer cookie tedi_session e a permissão enrollments.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Tudo ou nada nos erros: nenhum erro grava nada. A turma é travada (FOR UPDATE) antes de contar as vagas, então dois lotes ao mesmo tempo não passam da capacidade.
+  O aluno que já tem matrícula não removida nesta turma, em qualquer situação, vem em skipped ({ studentId, reason: ALREADY_ENROLLED, enrollmentId, status }) e não é matriculado de novo; o desistente volta pela mudança de situação (update-enrollment-status).
+  Só os novos contam contra as vagas: passar das vagas restantes responde 409 CLASS_FULL, com as vagas restantes na mensagem e em details[0].message (texto decimal, field = studentIds).
+  Pré-requisito do curso que o aluno não concluiu (matrícula completed numa turma do curso pré-requisito) é alerta e não bloqueia: vem em warnings ({ studentId, code: PREREQUISITE_NOT_COMPLETED, courseId, courseName }).
+  Cada matrícula nasce active, com enrolledAt = o instante da requisição e statusChangedAt = o dia em America/Sao_Paulo, e registra um evento ENROLLMENT_CREATED.
+  Retorna 201 { enrolled, skipped, warnings } (as três listas sempre presentes, enrolled na ordem do corpo), mesmo quando todos foram pulados.
+  Erros possíveis, nesta ordem: 400 VALIDATION_FAILED, 400 DUPLICATE_STUDENT (o mesmo aluno duas vezes, em qualquer caixa; details studentIds.<i>), 404 CLASS_NOT_FOUND (id inexistente ou mal formado), 409 CLASS_ARCHIVED, 409 CLASS_CLOSED (turma completed ou cancelled), 400 STUDENT_NOT_FOUND (details studentIds.<i>), 409 STUDENT_ARCHIVED (details studentIds.<i>; só para quem seria matriculado: o arquivado que já tem matrícula na turma vem em skipped), 409 CLASS_FULL; 401; 403 FORBIDDEN.
+}

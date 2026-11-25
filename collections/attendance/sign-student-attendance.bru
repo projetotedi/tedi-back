@@ -1,0 +1,40 @@
+meta {
+  name: sign-student-attendance
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/lessons/:id/attendance/students
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "entries": [
+      { "enrollmentId": "01952ef7-0000-7000-8000-000000000010", "status": "present" },
+      { "enrollmentId": "01952ef7-0000-7000-8000-000000000011", "status": "absent" }
+    ]
+  }
+}
+
+docs {
+  Assina a chamada de alunos de uma aula, em lote ("Assinar presença" e "Marcar ausência" para os selecionados; F6.1, GUS-166). O :id é o id da aula; cada entrada é uma matrícula da chamada da aula (o enrollment.id da lista) e o status (present ou absent). De 1 a 100 entradas, tudo ou nada, numa transação.
+  Requer cookie tedi_session e a permissão attendance.takeStudents (todos os perfis); o escopo é checado uma vez por requisição: o membro só assina na aula em que é o professor ou um monitor CONFIRMADO (alocação pendente, recusada ou cancelada não conta), diretoria e coordenação em qualquer aula. Membro não alocado recebe 403 FORBIDDEN_SCOPE.
+  A primeira assinatura grava a presença com quem assinou (o ator) e o mesmo instante para todas as linhas do lote. Mandar o mesmo status de novo não muda nada (sem escrita, sem evento): o front pode reenviar a seleção. Mandar o outro status de uma presença já assinada responde 409 STUDENT_ATTENDANCE_ALREADY_SIGNED: a troca é a correção (correct-student-attendance), com motivo e histórico.
+  Aluno não gera horas, e a chamada não marca a aula como done.
+  Aula de hoje vale (durante ou depois dela); aula depois de hoje (fuso America/Sao_Paulo) responde 409 LESSON_IN_FUTURE; aula cancelada responde 409 LESSON_CANCELLED; turma arquivada responde 409 CLASS_ARCHIVED (somente leitura).
+  Retorna 200 com a chamada da aula depois do commit (a mesma de list-student-attendance). Depois do commit registra um STUDENT_ATTENDANCE_SIGNED por presença nova, na ordem do corpo, só com ids, status e instante.
+  Dois envios ao mesmo tempo para a mesma aula são feitos um depois do outro: o segundo vira no-op ou 409.
+  Erros, nesta ordem: 401; 404 LESSON_NOT_FOUND (id mal formado); 400 VALIDATION_FAILED (entries.<i>.enrollmentId, entries.<i>.status, entries); 400 DUPLICATE_ENROLLMENT (a mesma matrícula duas vezes, em qualquer caixa, com details); 404 LESSON_NOT_FOUND; 409 LESSON_CANCELLED; 409 LESSON_IN_FUTURE; 409 CLASS_ARCHIVED; 403 FORBIDDEN_SCOPE; 400 ENROLLMENT_NOT_IN_ROLL_CALL (matrícula de outra turma, removida, feita depois do fim da aula, desistente ou concluída antes do dia dela, reativada só depois dele, ou desconhecida; details nas posições); 409 STUDENT_ATTENDANCE_ALREADY_SIGNED (details nas posições).
+}

@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from "@nestjs/common";
 import {
+  ApiBadRequestResponse,
   ApiBody,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -12,11 +13,15 @@ import { AuthUser } from "@shared/decorators/auth-user.type";
 import { CurrentUser } from "@shared/decorators/current-user.decorator";
 import { ApiErrorDto } from "@shared/dto/api-error.dto";
 import { ArchiveDto } from "@shared/dto/archive.dto";
+import { ApiOkResponsePaginated } from "@shared/pagination/api-paginated-response.decorator";
+import { PaginatedResult } from "@shared/pagination/pagination.util";
 import { Permission } from "@shared/permissions/permission.enum";
 import { RequirePermission } from "@shared/permissions/require-permission.decorator";
 import { ApiStandardErrors } from "@shared/swagger/api-standard-errors.decorator";
 import { CreateStudentDto } from "../dto/create-student.dto";
+import { ListStudentsQueryDto } from "../dto/list-students-query.dto";
 import { StudentDetailDto } from "../dto/student-detail.response.dto";
+import { StudentListItemResponseDto } from "../dto/student-list-item.response.dto";
 import { StudentResponseDto } from "../dto/student.response.dto";
 import { UpdateStudentDto } from "../dto/update-student.dto";
 import { StudentsService, studentNotFound } from "../services/students.service";
@@ -32,10 +37,12 @@ const STUDENT_NOT_FOUND_RESPONSE = { type: ApiErrorDto, description: "STUDENT_NO
 const STUDENT_ID_PARAM = { name: "id", format: "uuid", description: "Person id of the student." };
 
 /**
- * StudentsController — student registration (GUS-105) and the student record (GUS-107).
- * The list comes in GUS-106; enrollments in GUS-108.
+ * StudentsController — student registration (GUS-105), the student record (GUS-107) and the list
+ * of students (GUS-106). The enrollments of a student live in `classes`
+ * (`GET /students/:id/enrollments`, GUS-108), because the enrollments are a table of that module.
  *
  *  POST  /students                 — createStudent    (students.manage: director, coordinator)
+ *  GET   /students                 — listStudents     (students.view: every role)
  *  GET   /students/:id             — getStudent       (students.view: every role)
  *  PATCH /students/:id             — updateStudent    (students.manage)
  *  PATCH /students/:id/archive     — archiveStudent   (students.archive: coordinator)
@@ -60,6 +67,17 @@ export class StudentsController {
     @CurrentUser() actor: AuthUser,
   ): Promise<StudentResponseDto> {
     return this.studentsService.create(dto, actor.id);
+  }
+
+  /** The list of students (GUS-106): search, filters and pages. Sensitive data (RNF-13): never logged. */
+  @Get()
+  @RequirePermission(Permission.STUDENTS_VIEW)
+  @ApiOkResponsePaginated(StudentListItemResponseDto)
+  @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
+  listStudents(
+    @Query() query: ListStudentsQueryDto,
+  ): Promise<PaginatedResult<StudentListItemResponseDto>> {
+    return this.studentsService.listStudents(query);
   }
 
   /**
@@ -98,8 +116,8 @@ export class StudentsController {
 
   /**
    * Archives a student instead of deleting (RN-27). The first archive wins: archiving again
-   * answers 200 without changes. From GUS-108 on, a student with an active enrollment
-   * answers 409 STUDENT_HAS_ACTIVE_ENROLLMENTS.
+   * answers 200 without changes. A student with an active enrollment answers 409
+   * STUDENT_HAS_ACTIVE_ENROLLMENTS.
    */
   @Patch(":id/archive")
   @RequirePermission(Permission.STUDENTS_ARCHIVE)
@@ -107,6 +125,7 @@ export class StudentsController {
   @ApiBody({ type: ArchiveDto, required: false })
   @ApiOkResponse({ type: StudentResponseDto })
   @ApiNotFoundResponse(STUDENT_NOT_FOUND_RESPONSE)
+  @ApiConflictResponse({ type: ApiErrorDto, description: "STUDENT_HAS_ACTIVE_ENROLLMENTS" })
   archiveStudent(
     @Param("id", STUDENT_ID) id: string,
     @Body() dto: ArchiveDto,

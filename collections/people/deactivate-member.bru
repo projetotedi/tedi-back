@@ -1,0 +1,38 @@
+meta {
+  name: deactivate-member
+  type: http
+  seq: 15
+}
+
+patch {
+  url: {{baseUrl}}/members/:id/deactivate
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01999a3e-7c1b-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "exitDate": "2026-06-30",
+    "reason": "Formou-se.",
+    "note": "Vai fazer mestrado em outra cidade."
+  }
+}
+
+docs {
+  Inativa um membro (GUS-147, RF-011): encerra a participação no projeto e desativa o acesso na mesma operação. O :id é o id da Person. Desativar só o acesso (update-access-enabled) é outra coisa: só bloqueia o login.
+  Requer cookie tedi_session e a permissão members.deactivate (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  Corpo: exitDate (AAAA-MM-DD, entre 2000-01-01 e hoje, não antes da data de entrada do membro), reason (obrigatório, até 200 caracteres) e note (opcional, até 2000). A note é gravada e nunca devolvida, nem no evento de auditoria. Não registre informação de saúde ou diagnóstico em reason nem em note (RNF-13).
+  Só membro com cadastro aprovado e ativo. Inativar de novo responde 409 MEMBER_INACTIVE e mantém a primeira saída.
+  Retorna 200 MemberDetailResponseDto com status inactive, exitDate, exitReason e accessEnabled false.
+  Erros possíveis, na ordem: 400 VALIDATION_FAILED; 403 OWN_ACCOUNT (a própria conta); 404 MEMBER_NOT_FOUND; 409 NO_MEMBER_PROFILE (pessoa com perfil de acesso e sem perfil de membro), 409 REGISTRATION_NOT_APPROVED, 409 MEMBER_INACTIVE; 400 EXIT_DATE_BEFORE_JOINED_AT; 409 LAST_COORDINATOR (última coordenação ativa; o superadmin passa). Também 401 e 403 FORBIDDEN.
+  Alocações futuras (E5) ainda não são canceladas: fica para a GUS-158.
+}

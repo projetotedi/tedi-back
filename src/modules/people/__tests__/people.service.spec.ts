@@ -1,12 +1,19 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { getRepositoryToken } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { HttpException } from "@nestjs/common";
+import { EntityManager, In, Repository } from "typeorm";
+import { Role } from "@shared/enums/role.enum";
 import { Person } from "../entities/person.entity";
 import { PeopleService } from "../services/people.service";
 
+const FIRST_ID = "01999a3e-7c1b-7000-8000-000000000001";
+const SECOND_ID = "01999a3e-7c1b-7000-8000-000000000002";
+
 const mockRepository = (): Partial<Repository<Person>> => ({
   findOne: jest.fn(),
+  find: jest.fn(),
   save: jest.fn(),
+  query: jest.fn(),
   // The service uses repository.create() so the @BeforeInsert hook fires
   // on the real entity; for unit tests we just echo the input back.
   create: jest.fn((data) => data) as unknown as Repository<Person>["create"],
@@ -80,6 +87,120 @@ describe("PeopleService", () => {
 
       expect(repo.findOne).toHaveBeenCalledWith({ where: { id: "uuid-1" } });
       expect(result).toBe(person);
+    });
+  });
+
+  describe("recordLogin", () => {
+    it("updates only the row of the given person id", async () => {
+      (repo.query as jest.Mock).mockResolvedValue([[], 1]);
+
+      await service.recordLogin("uuid-1");
+
+      expect(repo.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = (repo.query as jest.Mock).mock.calls[0] as [string, unknown[]];
+      const statement = sql.replace(/\s+/g, " ").trim();
+      // One statement, one row, the id as a bound parameter (never concatenated into the SQL).
+      expect(statement).toMatch(/^UPDATE "people" SET /);
+      expect(statement).toContain('WHERE "id" = $1');
+      expect(statement).not.toContain("uuid-1");
+      expect(params).toEqual(["uuid-1"]);
+      // The last login becomes the previous one and the last one is now; nothing else moves.
+      expect(statement).toContain('"previous_login_at" = "last_login_at"');
+      expect(statement).toContain('"last_login_at" = now()');
+      expect(statement).not.toContain("updated_at");
+    });
+
+    it("does not go through repository.save, which would bump updated_at", async () => {
+      (repo.query as jest.Mock).mockResolvedValue([[], 1]);
+
+      await service.recordLogin("uuid-1");
+
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("findRefsByIds", () => {
+    it("returns id and name of each person found, never the entity", async () => {
+      const found = [
+        Object.assign(new Person(), {
+          id: FIRST_ID,
+          name: "Carla Menezes",
+          email: "carla@example.com",
+          ra: "a2210001",
+          passwordHash: "hash",
+          role: Role.DIRECTOR,
+          phone: "43999990000",
+        }),
+        Object.assign(new Person(), { id: SECOND_ID, name: "Marcos Vieira" }),
+      ];
+      (repo.find as jest.Mock).mockResolvedValue(found);
+
+      const result = await service.findRefsByIds([FIRST_ID, SECOND_ID]);
+
+      expect(result).toEqual([
+        { id: FIRST_ID, name: "Carla Menezes" },
+        { id: SECOND_ID, name: "Marcos Vieira" },
+      ]);
+      expect(Object.keys(result[0]).sort()).toEqual(["id", "name"]);
+      expect(result[0]).not.toBeInstanceOf(Person);
+    });
+
+    it("returns [] without calling the repository for an empty list or only malformed ids", async () => {
+      await expect(service.findRefsByIds([])).resolves.toEqual([]);
+      await expect(service.findRefsByIds(["not-a-uuid", "", "123"])).resolves.toEqual([]);
+
+      expect(repo.find).not.toHaveBeenCalled();
+    });
+
+    it("asks the repository once with the unique ids", async () => {
+      (repo.find as jest.Mock).mockResolvedValue([]);
+
+      await service.findRefsByIds([FIRST_ID, "not-a-uuid", SECOND_ID, FIRST_ID]);
+
+      expect(repo.find).toHaveBeenCalledTimes(1);
+      expect(repo.find).toHaveBeenCalledWith({
+        select: { id: true, name: true },
+        where: { id: In([FIRST_ID, SECOND_ID]) },
+      });
+    });
+  });
+
+  describe("assertNotLastActiveCoordinator", () => {
+    function managerCounting(count: number): { count: jest.Mock } {
+      return { count: jest.fn().mockResolvedValue(count) };
+    }
+
+    it("counts coordinators with access enabled on the given manager and passes with two", async () => {
+      const manager = managerCounting(2);
+
+      await expect(
+        service.assertNotLastActiveCoordinator(manager as unknown as EntityManager),
+      ).resolves.toBeUndefined();
+
+      expect(manager.count).toHaveBeenCalledTimes(1);
+      expect(manager.count).toHaveBeenCalledWith(Person, {
+        where: { role: Role.COORDINATOR, accessEnabled: true },
+      });
+      expect(repo.findOne).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 LAST_COORDINATOR with one or no active coordinator", async () => {
+      for (const count of [1, 0]) {
+        const failure: unknown = await service
+          .assertNotLastActiveCoordinator(managerCounting(count) as unknown as EntityManager)
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+
+        expect(failure).toBeInstanceOf(HttpException);
+        if (!(failure instanceof HttpException)) continue;
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "LAST_COORDINATOR",
+          message: "Cannot demote or disable the last active coordinator.",
+        });
+      }
     });
   });
 });

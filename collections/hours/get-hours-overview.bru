@@ -1,0 +1,33 @@
+meta {
+  name: get-hours-overview
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/hours/overview
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  from: 2026-03-01
+  to: 2026-03-31
+  page: 1
+  limit: 20
+  ~search: Ana
+}
+
+docs {
+  Visão geral do banco de horas no período (F7.4).
+  Requer cookie tedi_session e a permissão hours.viewOthers (@RequirePermission). Membro recebe 403 FORBIDDEN.
+  Escopo: a diretoria vê só os membros do próprio departamento (o departamento atual, do cadastro aprovado); coordenação e superadmin veem todos. Diretor sem departamento recebe a visão vazia (totais zerados, página vazia).
+  summary é o mesmo formato de GET /me/hours/summary (byStatus, byCategory, bankMinutes). Os quatro números do card: lançadas = soma de byStatus[*].declaredMinutes; validadas = bankMinutes; pendentes = byStatus[pending].declaredMinutes; ajustadas/rejeitadas = byStatus[adjusted].entries + byStatus[rejected].entries, e os minutos não aceitos = (byStatus[adjusted].declaredMinutes - byStatus[adjusted].validatedMinutes) + byStatus[rejected].declaredMinutes. Lançadas = validadas + pendentes + não aceitas.
+  members lista só quem tem lançamento no período, com entries, declaredMinutes, bankMinutes, pendingEntries e pendingMinutes; pendências primeiro (pendingMinutes), depois quem lançou mais (declaredMinutes), depois o id da pessoa. member traz nome e departamento (null para a coordenação sem perfil de membro).
+  ?search filtra por nome ou RA, sem diferenciar maiúsculas nem acentos, e filtra também os totais. ?from e ?to (AAAA-MM-DD a partir de 2000-01-01, extremos incluídos), ?page e ?limit (até 100). Lançamentos removidos ficam fora.
+  Erros possíveis: 400 VALIDATION_FAILED, 400 INVALID_PERIOD (from depois de to), 401, 403 FORBIDDEN.
+}
