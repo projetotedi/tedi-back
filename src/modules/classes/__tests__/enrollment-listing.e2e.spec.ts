@@ -83,9 +83,12 @@ interface ClassEnrollmentItem {
 interface StudentItem {
   id: string;
   name: string;
+  birthDate?: string;
   age: number;
   phone?: string | null;
+  email?: string | null;
   accessibilityNeed?: string;
+  createdAt?: string;
   currentClasses: ClassRef[];
 }
 
@@ -180,6 +183,7 @@ describe("Enrollment listings (e2e)", () => {
     input: {
       birthDate?: string;
       phone?: string;
+      email?: string;
       accessibilityNeed?: string;
       archived?: boolean;
     } = {},
@@ -189,6 +193,7 @@ describe("Enrollment listings (e2e)", () => {
       createdById: director.id,
       birthDate: input.birthDate,
       phone: input.phone,
+      email: input.email,
       accessibilityNeed: input.accessibilityNeed,
       archivedById: input.archived === true ? director.id : undefined,
     });
@@ -567,9 +572,12 @@ describe("Enrollment listings (e2e)", () => {
         {
           id: ana,
           name: "Ana",
+          birthDate: "1960-05-10",
           age: expect.any(Number),
           phone: "43999990000",
+          email: null,
           accessibilityNeed: "visual",
+          createdAt: expect.any(String),
           currentClasses: [
             {
               id: classId,

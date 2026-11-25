@@ -23,14 +23,20 @@ import {
   PaginatedResult,
   PaginationParams,
 } from "@shared/pagination/pagination.util";
-import { applyTextSearch } from "@shared/search/search.util";
 import { CreateStudentDto } from "../dto/create-student.dto";
+import {
+  ANY_ACCESSIBILITY_NEED,
+  AccessibilityNeedFilter,
+  ListStudentsQueryDto,
+} from "../dto/list-students-query.dto";
 import { StudentDetailDto } from "../dto/student-detail.response.dto";
+import { StudentListItemResponseDto } from "../dto/student-list-item.response.dto";
 import { StudentResponseDto } from "../dto/student.response.dto";
 import { UpdateStudentDto } from "../dto/update-student.dto";
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
+import { StudentListSort } from "../enums/student-list-sort.enum";
 import { auditSnapshot } from "./student-audit";
 import { toStudentDetail } from "./student-detail.mapper";
 import { StudentEnrollmentsRegistry } from "./student-enrollments.registry";
@@ -39,6 +45,7 @@ import {
   toStudentListEntry,
   toStudentResponse,
 } from "./student-response.mapper";
+import { applyStudentSearch } from "./student-search";
 
 /** Fields of the student that live on Person. */
 const PERSON_FIELDS = ["name", "birthDate", "email", "phone"] as const;
@@ -57,6 +64,25 @@ const PROFILE_FIELDS = [
 ] as const;
 
 const STUDENT_TARGET_TYPE = "student";
+
+/**
+ * The categories of the `accessibilityNeed` filter of `GET /students`: the union of the values, with
+ * `any` as every category but `none` (derived from the enum, so a new category joins `any` by
+ * itself). Empty for an empty filter, which then filters nothing.
+ */
+function accessibilityNeedsOf(filters: readonly AccessibilityNeedFilter[]): AccessibilityNeed[] {
+  const needs = new Set<AccessibilityNeed>();
+  for (const filter of filters) {
+    if (filter === ANY_ACCESSIBILITY_NEED) {
+      for (const need of Object.values(AccessibilityNeed)) {
+        if (need !== AccessibilityNeed.NONE) needs.add(need);
+      }
+    } else {
+      needs.add(filter);
+    }
+  }
+  return [...needs];
+}
 
 /**
  * The one place that builds the "student not found" error: an unknown id, a malformed id and a
@@ -96,17 +122,22 @@ export interface StudentSummary {
 }
 
 /**
- * One student of a list of students, for another module (classes, GUS-108): the item of the list
- * of students that GUS-106 reuses (`StudentListItemResponseDto` implements it). Not a "ref" (id and
- * name): it carries `phone` and `accessibilityNeed`, personal data (RNF-13) that whoever shows it
- * decides about (the list of a class hides them without students.view).
+ * One student of a list of students: the item of `GET /students` (GUS-106) and of the lists of
+ * another module (classes, GUS-108); `StudentListItemResponseDto` implements it. Not a "ref" (id and
+ * name): it carries `birthDate`, `phone`, `email` and `accessibilityNeed`, personal data (RNF-13)
+ * that whoever shows it decides about (the list of a class hides the contact without students.view
+ * and never shows the birth date nor the e-mail). `createdAt` is when the person was registered as a
+ * student (the student profile), not when the person was created.
  */
 export interface StudentListEntry {
   id: string;
   name: string;
+  birthDate: string;
   age: number;
   phone: string | null;
+  email: string | null;
   accessibilityNeed: AccessibilityNeed;
+  createdAt: Date;
 }
 
 /** Which students `listStudentEntries` lists. Every field narrows the list; none is required. */
@@ -117,6 +148,12 @@ export interface StudentListFilter {
   excludeIds?: readonly string[];
   /** Part of the name, ignoring case and accents (section 12). */
   search?: string;
+  /**
+   * The search also looks at the e-mail and, for a phone-shaped term, the digits of the phone
+   * (`applyStudentSearch`). Personal data (RNF-13): only for a caller under students.view, that
+   * shows the contact it matched.
+   */
+  searchContact?: boolean;
   /** Archived students are left out unless this is true (an enrollment history keeps them). */
   includeArchived?: boolean;
 }
@@ -413,7 +450,8 @@ export class StudentsService {
    * A page of students for another module (classes, GUS-108: the lists of the enrollments), so it
    * never reads the tables of `people`. Ordered by name and then person id, with the total of the
    * filter counted in SQL. A student is a person (not removed) with a student profile (not
-   * removed); the archived ones are left out unless `includeArchived`.
+   * removed); the archived ones are left out unless `includeArchived`. `search` is the name, plus the
+   * e-mail and the phone only with `searchContact` (`applyStudentSearch`).
    *
    * The ids go to Postgres as ONE array parameter (`= ANY(:ids::uuid[])`), never one parameter per
    * id. Ids that are not uuids are skipped; an empty `onlyIds` answers an empty page without
@@ -442,8 +480,54 @@ export class StudentsService {
     if (excludeIds.length > 0) {
       builder.andWhere("NOT (person.id = ANY(:excludeIds::uuid[]))", { excludeIds });
     }
-    applyTextSearch(builder, ["person.name"], filter.search, "studentListSearch");
+    applyStudentSearch(builder, filter.search, { contact: filter.searchContact === true });
     builder.orderBy("person.name", "ASC").addOrderBy("person.id", "ASC");
+
+    return this.studentListPage(builder, page, limit);
+  }
+
+  /**
+   * The list of students (GUS-106, `GET /students`). Read-only: no transaction, no lock, no event
+   * and no log (RNF-13: the items carry personal data). The filters combine with AND:
+   *
+   * - `archived=true` lists only the archived students; omitted or false, only the others (RN-27).
+   * - `ids` lists only these students among the ones the other filters keep: an id that is not a
+   *   student, an archived one (without `archived=true`) or a removed one is simply not there. The
+   *   order is the one of `sort`, not the one of `ids`.
+   * - `accessibilityNeed` is the union of its values, `any` being every category but `none`.
+   * - `search` is the name or the e-mail, or the digits of the phone for a phone-shaped term
+   *   (`applyStudentSearch`).
+   * - `sort=name` (the default) is alphabetical; `sort=createdAt` puts the student registered last
+   *   first (`createdAt` is the one of the student profile). Both break ties by id.
+   */
+  async listStudents(
+    query: ListStudentsQueryDto,
+  ): Promise<PaginatedResult<StudentListItemResponseDto>> {
+    const { page, limit } = normalizePagination(query);
+    const builder = this.studentListQuery();
+
+    builder.andWhere(
+      query.archived === true
+        ? "student_profile.archived_at IS NOT NULL"
+        : "student_profile.archived_at IS NULL",
+    );
+    if (query.ids !== undefined) {
+      builder.andWhere("person.id = ANY(:ids::uuid[])", { ids: query.ids });
+    }
+    const accessibilityNeeds = accessibilityNeedsOf(query.accessibilityNeed ?? []);
+    if (accessibilityNeeds.length > 0) {
+      builder.andWhere("student_profile.accessibility_need IN (:...accessibilityNeeds)", {
+        accessibilityNeeds,
+      });
+    }
+    applyStudentSearch(builder, query.search, { contact: true });
+
+    if (query.sort === StudentListSort.CREATED_AT) {
+      builder.orderBy("student_profile.created_at", "DESC");
+    } else {
+      builder.orderBy("person.name", "ASC");
+    }
+    builder.addOrderBy("person.id", "ASC");
 
     return this.studentListPage(builder, page, limit);
   }
@@ -499,7 +583,9 @@ export class StudentsService {
       .addSelect("person.name", "name")
       .addSelect("person.birth_date::text", "birthDate")
       .addSelect("person.phone", "phone")
+      .addSelect("person.email", "email")
       .addSelect("student_profile.accessibility_need", "accessibilityNeed")
+      .addSelect("student_profile.created_at", "createdAt")
       .where("person.deleted_at IS NULL");
   }
 

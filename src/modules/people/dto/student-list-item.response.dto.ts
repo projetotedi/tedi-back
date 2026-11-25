@@ -3,9 +3,11 @@ import { AccessibilityNeed } from "../enums/accessibility-need.enum";
 import type { StudentListEntry } from "../services/students.service";
 
 /**
- * One student of a list of students: the item of the list of students, defined in GUS-108 for
- * GUS-106 to reuse. It implements `StudentListEntry` (`StudentsService.listStudentEntries`): who
- * the student is, the age, the phone to reach her and the category of what she needs in class.
+ * One student of a list of students: the item of `GET /students` (GUS-106) and, with the classes
+ * of the student, of `GET /enrollments/students` (GUS-108). It implements `StudentListEntry`
+ * (`StudentsService.listStudentEntries`): who the student is, the age, the phone and the e-mail to
+ * reach her, the category of what she needs in class and when she was registered. No emergency
+ * contact, support resource or class needs: those stay in the record (`GET /students/:id`).
  */
 export class StudentListItemResponseDto implements StudentListEntry {
   @ApiProperty({
@@ -18,6 +20,9 @@ export class StudentListItemResponseDto implements StudentListEntry {
 
   @ApiProperty({ type: String, example: "Maria Silva Santos" })
   name!: string;
+
+  @ApiProperty({ type: String, format: "date", example: "1958-04-12" })
+  birthDate!: string;
 
   @ApiProperty({
     type: "integer",
@@ -34,6 +39,9 @@ export class StudentListItemResponseDto implements StudentListEntry {
   })
   phone!: string | null;
 
+  @ApiProperty({ type: String, nullable: true, example: "maria.santos@example.com" })
+  email!: string | null;
+
   @ApiProperty({
     enum: AccessibilityNeed,
     enumName: "AccessibilityNeed",
@@ -41,4 +49,12 @@ export class StudentListItemResponseDto implements StudentListEntry {
     description: "Category of what the student needs in class, never a diagnosis (RNF-13).",
   })
   accessibilityNeed!: AccessibilityNeed;
+
+  @ApiProperty({
+    type: String,
+    format: "date-time",
+    example: "2026-10-01T13:00:00.000Z",
+    description: "When the person was registered as a student.",
+  })
+  createdAt!: Date;
 }

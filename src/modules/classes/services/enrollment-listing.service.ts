@@ -240,9 +240,12 @@ export class EnrollmentListingService {
       data: students.data.map((student) => ({
         id: student.id,
         name: student.name,
+        birthDate: student.birthDate,
         age: student.age,
         phone: student.phone,
+        email: student.email,
         accessibilityNeed: student.accessibilityNeed,
+        createdAt: student.createdAt,
         currentClasses: currentClasses.get(student.id) ?? [],
       })),
       total: students.total,

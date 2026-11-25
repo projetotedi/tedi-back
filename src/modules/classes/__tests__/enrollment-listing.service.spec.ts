@@ -41,7 +41,16 @@ const ACTOR: AuthUser = {
 };
 
 function ref(id: string, name: string): StudentListEntry {
-  return { id, name, age: 68, phone: "43999990000", accessibilityNeed: AccessibilityNeed.VISUAL };
+  return {
+    id,
+    name,
+    birthDate: "1958-03-03",
+    age: 68,
+    phone: "43999990000",
+    email: `${name.toLowerCase()}@example.com`,
+    accessibilityNeed: AccessibilityNeed.VISUAL,
+    createdAt: new Date("2026-02-01T12:00:00.000Z"),
+  };
 }
 
 function classRow(studentId: string, status = EnrollmentStatus.ACTIVE): ClassEnrollmentRow {
