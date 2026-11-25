@@ -11826,7 +11826,7 @@
             }
           },
           {
-            "description": "Part of the name of the student, ignoring case and accents.",
+            "description": "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone (the search of GET /students).",
             "in": "query",
             "name": "search",
             "required": false,

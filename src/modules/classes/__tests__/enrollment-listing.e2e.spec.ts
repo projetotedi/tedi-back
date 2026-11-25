@@ -643,5 +643,31 @@ describe("Enrollment listings (e2e)", () => {
       expect(names(res)).toEqual(["Ana"]);
       await get(`/enrollments/students`, null).expect(401);
     });
+
+    it("searches GET /enrollments/students by e-mail and phone digits too, and the list of a class only by name", async () => {
+      // The phone with a mask only comes in by SQL; the API stores digits only.
+      await enroll(classId, await student("Ana", { email: "ana.souza@example.com" }));
+      await enroll(classId, await student("Bruno", { phone: "(11) 98888-7777" }));
+
+      const byEmail = await get(
+        `/enrollments/students?classId=${classId}&search=${encodeURIComponent("souza@")}`,
+      ).expect(200);
+      expect(names(byEmail)).toEqual(["Ana"]);
+      const byPhone = await get(
+        `/enrollments/students?classId=${classId}&search=${encodeURIComponent("(11) 98888")}`,
+      ).expect(200);
+      expect(names(byPhone)).toEqual(["Bruno"]);
+
+      for (const term of ["souza@", "98888"]) {
+        const ofClass = await get(
+          `/classes/${classId}/enrollments?search=${encodeURIComponent(term)}`,
+        ).expect(200);
+        expect((ofClass.body as Page<ClassEnrollmentItem>).total).toBe(0);
+      }
+      const byName = await get(`/classes/${classId}/enrollments?search=brun`).expect(200);
+      expect(
+        (byName.body as Page<ClassEnrollmentItem>).data.map((item) => item.student.name),
+      ).toEqual(["Bruno"]);
+    });
   });
 });

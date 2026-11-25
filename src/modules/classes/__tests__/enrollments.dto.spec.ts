@@ -140,6 +140,26 @@ describe("enrollment DTOs", () => {
     }
   });
 
+  it("keeps the page, the limit and a search of at most 100 characters in the list by enrollment, whose search is declared again", async () => {
+    const parsed = await check(ListStudentsByEnrollmentQueryDto, {
+      page: "3",
+      limit: "15",
+      search: "(11) 98888",
+    });
+    expect(parsed.fields).toEqual([]);
+    expect(parsed.dto).toMatchObject({ page: 3, limit: 15, search: "(11) 98888" });
+
+    expect(
+      (await check(ListStudentsByEnrollmentQueryDto, { search: "a".repeat(101) })).fields,
+    ).toEqual(["search"]);
+    expect((await check(ListStudentsByEnrollmentQueryDto, { search: 3 })).fields).toEqual([
+      "search",
+    ]);
+    expect(
+      (await check(ListStudentsByEnrollmentQueryDto, { page: "0", limit: "101" })).fields,
+    ).toEqual(["limit", "page"]);
+  });
+
   it("refuses a classId that is not a uuid and an unknown situation", async () => {
     expect(
       (await check(ListStudentsByEnrollmentQueryDto, { classId: "not-a-uuid", situation: "all" }))
