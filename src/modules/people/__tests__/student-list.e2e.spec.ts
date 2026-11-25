@@ -322,6 +322,33 @@ describe("GET /students (e2e)", () => {
     expect(await names(`?ids=${bruno}&archived=true`)).toEqual(["Bruno"]);
   });
 
+  it("leaves a removed student out, even asked by ids", async () => {
+    const ana = await student("Ana");
+    const removedPerson = await student("Bruno");
+    const removedProfile = await student("Carla");
+    await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [removedPerson]);
+    await dataSource.query(`UPDATE student_profiles SET deleted_at = now() WHERE person_id = $1`, [
+      removedProfile,
+    ]);
+
+    expect(await names("")).toEqual(["Ana"]);
+    const asked = await list(`?ids=${ana},${removedPerson},${removedProfile}`).expect(200);
+    expect((asked.body as Page).data.map((item) => item.id)).toEqual([ana]);
+    expect((asked.body as Page).total).toBe(1);
+    expect(await names(`?ids=${removedPerson},${removedProfile}&archived=true`)).toEqual([]);
+  });
+
+  it("combines search with the other filters with AND: the phone never brings back an archived student or another category", async () => {
+    await student("Ana", { phone: "(11) 98888-1111", accessibilityNeed: "visual", archived: true });
+    await student("Bruno", { phone: "11988882222", accessibilityNeed: "visual" });
+    await student("Carla", { phone: "11988883333", accessibilityNeed: "hearing" });
+
+    expect(await names("?search=98888")).toEqual(["Bruno", "Carla"]);
+    expect(await names("?search=98888&accessibilityNeed=visual")).toEqual(["Bruno"]);
+    expect(await names("?search=98888&archived=true")).toEqual(["Ana"]);
+    expect(await names("?search=98888&archived=true&accessibilityNeed=hearing")).toEqual([]);
+  });
+
   it("orders by name by default and by registration, newest first, with sort=createdAt", async () => {
     const registeredAt = async (name: string, at: string): Promise<void> => {
       const id = await student(name);
@@ -359,6 +386,8 @@ describe("GET /students (e2e)", () => {
       "?accessibilityNeed=blind",
       "?sort=age",
       "?limit=101",
+      "?archived=yes",
+      "?page=0",
     ]) {
       const res = await list(query).expect(400);
       expect(res.body.error).toBe("VALIDATION_FAILED");
