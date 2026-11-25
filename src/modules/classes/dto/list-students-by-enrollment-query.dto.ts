@@ -16,7 +16,7 @@ export class ListStudentsByEnrollmentQueryDto extends OmitType(EnrollmentPageQue
     example: "Maria",
     maxLength: 100,
     description:
-      "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone (the search of GET /students).",
+      "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, compared as they were stored (a term with the country code +55 does not find a phone stored without it). The search of GET /students.",
   })
   @IsOptional()
   @IsString()

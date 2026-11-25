@@ -86,7 +86,7 @@ export class ListStudentsQueryDto {
     example: "maria",
     maxLength: 100,
     description:
-      "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, whatever mask it was stored with.",
+      "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, whatever mask it was stored with. The digits are compared as they were stored: a term with the country code (+55) does not find a phone stored without it.",
   })
   @IsOptional()
   @IsString()

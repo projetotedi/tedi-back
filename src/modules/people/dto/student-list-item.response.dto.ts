@@ -35,7 +35,8 @@ export class StudentListItemResponseDto implements StudentListEntry {
     type: String,
     nullable: true,
     example: "43999990000",
-    description: "Digits only.",
+    description:
+      "As it was stored: the API writes digits only, but a phone that came in by an import or by SQL may keep its mask.",
   })
   phone!: string | null;
 

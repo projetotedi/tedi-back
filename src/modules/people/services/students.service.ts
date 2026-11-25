@@ -146,7 +146,10 @@ export interface StudentListFilter {
   onlyIds?: readonly string[];
   /** Every student but these. */
   excludeIds?: readonly string[];
-  /** Part of the name, ignoring case and accents (section 12). */
+  /**
+   * Part of the name, ignoring case and accents (section 12); with `searchContact`, also the e-mail
+   * and, for a phone-shaped term, the digits of the phone.
+   */
   search?: string;
   /**
    * The search also looks at the e-mail and, for a phone-shaped term, the digits of the phone
