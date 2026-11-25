@@ -466,31 +466,37 @@ describe("people repository (e2e)", () => {
       expect(phoneIndex).toHaveLength(1);
       expect(phoneIndex[0]).toMatch(/USING gin \(phone_digits gin_trgm_ops\)/);
 
-      // The expression of each query is the one of its index (section 12).
-      const plans = await dataSource.transaction(async (manager) => {
-        await manager.query("SET LOCAL enable_seqscan = off");
-        // On a near-empty table, walking the whole uq_people_email (a constraint, it cannot be
-        // dropped) is cheaper than the GIN. With plain and index-only scans off, the GIN is still
-        // there through a bitmap scan, the only way a GIN index is ever read.
-        await manager.query("SET LOCAL enable_indexscan = off");
-        await manager.query("SET LOCAL enable_indexonlyscan = off");
+      // The expression of each query is the one of its index (section 12). On a near-empty table
+      // the partial uq_people_email (its WHERE email IS NOT NULL follows from the LIKE) is cheaper
+      // than the GIN, so it is dropped in a transaction that is always rolled back, as
+      // lessons.repository.e2e does with idx_lessons_class_id_date.
+      const queryRunner = dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        await queryRunner.query("SET LOCAL enable_seqscan = off");
+        await queryRunner.query("DROP INDEX uq_people_email");
         const explain = async (sql: string, term: string): Promise<string> => {
-          const rows: Array<{ "QUERY PLAN": string }> = await manager.query(`EXPLAIN ${sql}`, [
+          const rows: Array<{ "QUERY PLAN": string }> = await queryRunner.query(`EXPLAIN ${sql}`, [
             term,
           ]);
           return rows.map((row) => row["QUERY PLAN"]).join("\n");
         };
-        return {
-          email: await explain(
+
+        expect(
+          await explain(
             `SELECT id FROM people
               WHERE public.search_normalize(email) LIKE public.search_normalize($1) ESCAPE '\\'`,
             "%souza%",
           ),
-          phone: await explain(`SELECT id FROM people WHERE phone_digits LIKE $1`, "%98888%"),
-        };
-      });
-      expect(plans.email).toContain("idx_people_email_search");
-      expect(plans.phone).toContain("idx_people_phone_digits_search");
+        ).toContain("idx_people_email_search");
+        expect(
+          await explain(`SELECT id FROM people WHERE phone_digits LIKE $1`, "%98888%"),
+        ).toContain("idx_people_phone_digits_search");
+      } finally {
+        await queryRunner.rollbackTransaction();
+        await queryRunner.release();
+      }
     });
 
     it("has the four named foreign keys of member_profiles", async () => {
