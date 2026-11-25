@@ -7,7 +7,8 @@ import { DataSource } from "typeorm";
  *
  * The birth date defaults to a real date on purpose: `listStudentEntries` refuses a student without
  * one (it is required on registration). The accessibility need defaults to `none`, the default of
- * the column. Archived (now, by `archivedById`) when `archivedById` is given.
+ * the column. Archived (now, by `archivedById`) when `archivedById` is given. The phone goes in as
+ * given, so a test can store one with a mask (the API stores digits only).
  */
 export async function insertStudent(
   dataSource: DataSource,
@@ -16,14 +17,15 @@ export async function insertStudent(
     createdById: string;
     birthDate?: string;
     phone?: string | null;
+    email?: string | null;
     accessibilityNeed?: string;
     archivedById?: string;
   },
 ): Promise<string> {
   const rows: Array<{ id: string }> = await dataSource.query(
     `WITH person AS (
-       INSERT INTO people (id, name, birth_date, phone)
-       VALUES (gen_random_uuid(), $1, $2::date, $3)
+       INSERT INTO people (id, name, birth_date, phone, email)
+       VALUES (gen_random_uuid(), $1, $2::date, $3, $7)
        RETURNING id
      )
      INSERT INTO student_profiles (id, person_id, accessibility_need, created_by_id,
@@ -40,6 +42,7 @@ export async function insertStudent(
       input.accessibilityNeed ?? "none",
       input.createdById,
       input.archivedById ?? null,
+      input.email ?? null,
     ],
   );
   return rows[0].id;

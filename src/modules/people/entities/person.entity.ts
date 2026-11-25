@@ -49,6 +49,23 @@ export class Person extends BaseEntity {
   phone: string | null;
 
   /**
+   * GUS-106. The digits of `phone`, computed by Postgres (STORED generated column): the search by
+   * phone (`digitsSearchCondition`, idx_people_phone_digits_search) finds a phone even if it was
+   * stored with a mask. Never written by the app: insert and update leave it out.
+   */
+  @Column({
+    name: "phone_digits",
+    type: "varchar",
+    length: 20,
+    nullable: true,
+    generatedType: "STORED",
+    asExpression: `regexp_replace("phone", '[^0-9]', '', 'g')`,
+    insert: false,
+    update: false,
+  })
+  phoneDigits: string | null;
+
+  /**
    * GUS-122. Instant of the most recent successful login; null until the first one.
    * Written only by PeopleService.recordLogin (raw UPDATE, so updated_at does not move): it is
    * not a change to the person's data. The "last access" shown to the person is

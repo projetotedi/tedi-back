@@ -1,0 +1,39 @@
+meta {
+  name: list-students
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/students
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  page: 1
+  limit: 20
+  ~search: maria
+  ~accessibilityNeed: visual,hearing
+  ~ids: 01952ef7-0000-7000-8000-000000000001,01952ef7-0000-7000-8000-000000000002
+  ~archived: true
+  ~sort: createdAt
+}
+
+docs {
+  Lista de alunos (GUS-106): a tela Alunos sem filtro de turma ou de situação (com eles, list-students-by-enrollment).
+  Requer cookie tedi_session e a permissão students.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Filtros (combinam entre si): ?page, ?limit (1 a 100, padrão 20), ?search, ?accessibilityNeed, ?ids, ?archived, ?sort.
+  ?search: parte do nome ou do e-mail, sem diferenciar maiúsculas nem acentos, % e _ como texto literal, até 100 caracteres. Quando o termo só tem dígitos e espaço ( ) - . +, também os dígitos do telefone, com ou sem máscara gravada: search=98888 e search=(11) 98888 trazem o mesmo. Os dígitos são comparados como foram gravados: com DDI (+55 43 ...) não acha quem foi gravado sem ele. Termo com letra nunca é lido como telefone.
+  ?accessibilityNeed: um ou vários, separados por vírgula ou repetidos (none, visual, hearing, motor, cognitive, other), ou any (toda categoria menos none). Traz quem tem qualquer um deles. Vazio não filtra.
+  ?ids: só esses alunos (ids da Person), de 1 a 100, separados por vírgula ou repetidos, na paginação e na ordem normais. Id que não é aluno, arquivado (sem archived=true) ou apagado não aparece. ids= vazio é 400.
+  ?archived: true traz só os arquivados; omitido ou false, só os não arquivados.
+  ?sort: name (padrão, alfabético) ou createdAt (o cadastrado por último primeiro); desempate pelo id.
+  Retorna 200 { data: StudentListItemResponseDto[], total, page, limit }. Cada item: { id, name, birthDate, age, phone, email, accessibilityNeed, createdAt }. age é calculada na data de hoje em America/Sao_Paulo; phone vem como foi gravado (só dígitos pela API; importação ou SQL podem deixar máscara); createdAt é o cadastro como aluno. Sem contato de emergência, recurso de apoio nem necessidades em aula (estão em get-student).
+  Dado sensível (RNF-13): não cole a resposta em issue, chat ou log.
+  Erros possíveis: 400 VALIDATION_FAILED (filtro inválido), 401.
+}

@@ -6892,12 +6892,28 @@
             "example": 68,
             "type": "integer"
           },
+          "birthDate": {
+            "example": "1958-04-12",
+            "format": "date",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the person was registered as a student.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
           "currentClasses": {
             "description": "The classes where the student has an active enrollment, the most recent edition first.",
             "items": {
               "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
             },
             "type": "array"
+          },
+          "email": {
+            "example": "maria.santos@example.com",
+            "nullable": true,
+            "type": "string"
           },
           "id": {
             "description": "Person id of the student.",
@@ -6910,7 +6926,7 @@
             "type": "string"
           },
           "phone": {
-            "description": "Digits only.",
+            "description": "As it was stored: the API writes digits only, but a phone that came in by an import or by SQL may keep its mask.",
             "example": "43999990000",
             "nullable": true,
             "type": "string"
@@ -6919,9 +6935,12 @@
         "required": [
           "id",
           "name",
+          "birthDate",
           "age",
           "phone",
+          "email",
           "accessibilityNeed",
+          "createdAt",
           "currentClasses"
         ],
         "type": "object"
@@ -7169,6 +7188,74 @@
           "firstEnrollmentAt"
         ],
         "type": "object"
+      },
+      "StudentListItemResponseDto": {
+        "properties": {
+          "accessibilityNeed": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityNeed"
+              }
+            ],
+            "description": "Category of what the student needs in class, never a diagnosis (RNF-13).",
+            "example": "none"
+          },
+          "age": {
+            "description": "Whole years today in America/Sao_Paulo.",
+            "example": 68,
+            "type": "integer"
+          },
+          "birthDate": {
+            "example": "1958-04-12",
+            "format": "date",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the person was registered as a student.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "example": "maria.santos@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "Person id of the student.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          },
+          "phone": {
+            "description": "As it was stored: the API writes digits only, but a phone that came in by an import or by SQL may keep its mask.",
+            "example": "43999990000",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "birthDate",
+          "age",
+          "phone",
+          "email",
+          "accessibilityNeed",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "StudentListSort": {
+        "enum": [
+          "name",
+          "createdAt"
+        ],
+        "type": "string"
       },
       "StudentResponseDto": {
         "properties": {
@@ -11739,7 +11826,7 @@
             }
           },
           {
-            "description": "Part of the name of the student, ignoring case and accents.",
+            "description": "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, compared as they were stored (a term with the country code +55 does not find a phone stored without it). The search of GET /students.",
             "in": "query",
             "name": "search",
             "required": false,
@@ -17734,6 +17821,173 @@
       }
     },
     "/students": {
+      "get": {
+        "operationId": "listStudents",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, whatever mask it was stored with. The digits are compared as they were stored: a term with the country code (+55) does not find a phone stored without it.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "maria",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "One or more categories, comma separated (none, visual, hearing, motor, cognitive, other), or any: every category but none. The students of any of them. Omitted or empty lists every category.",
+            "in": "query",
+            "name": "accessibilityNeed",
+            "required": false,
+            "schema": {
+              "example": "visual,hearing",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only these students (person ids), comma separated: from 1 to 100 ids, else 400 VALIDATION_FAILED (an empty ids too). Paginated and ordered like the rest of the list; an id that is not a student, an archived one (without archived=true) or a removed one is left out.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "example": "01999a3e-7c1b-7000-8000-000000000001,01999a3e-7c1b-7000-8000-000000000002",
+              "type": "string"
+            }
+          },
+          {
+            "description": "true lists only the archived students. Omitted (or false) lists only the students that are not archived (RN-27).",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "example": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "name is alphabetical; createdAt puts the student registered last first.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StudentListSort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/StudentListItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      },
       "post": {
         "operationId": "createStudent",
         "parameters": [],

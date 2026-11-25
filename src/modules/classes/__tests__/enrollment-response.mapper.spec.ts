@@ -245,11 +245,15 @@ describe("enrollment response mapper", () => {
     const student = {
       id: STUDENT_ID,
       name: "Maria Silva",
+      birthDate: "1958-03-03",
       age: 68,
       phone: "43999990000",
+      email: "maria.silva@example.com",
       accessibilityNeed: AccessibilityNeed.VISUAL,
+      createdAt: ENROLLED_AT,
     };
 
+    // toEqual: the birth date, the e-mail and createdAt of the student never reach the list of a class.
     expect(
       toClassEnrollmentItem(row, student, { canSeeStudentContact: true, attendanceRate: 0.75 }),
     ).toEqual({

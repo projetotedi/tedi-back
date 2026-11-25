@@ -71,7 +71,7 @@ describe("people repository (e2e)", () => {
   });
 
   describe("schema", () => {
-    it("has exactly the 14 expected columns", async () => {
+    it("has exactly the 15 expected columns", async () => {
       const rows: Array<{ column_name: string }> = await dataSource.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'people' ORDER BY ordinal_position`,
       );
@@ -90,11 +90,50 @@ describe("people repository (e2e)", () => {
           "access_enabled",
           "birth_date",
           "phone",
+          "phone_digits",
           "last_login_at",
           "previous_login_at",
         ]),
       );
-      expect(names).toHaveLength(14);
+      expect(names).toHaveLength(15);
+    });
+
+    it("has phone_digits as a stored generated column with the digits of phone", async () => {
+      const columns: Array<{ is_generated: string; generation_expression: string | null }> =
+        await dataSource.query(
+          `SELECT is_generated, generation_expression FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'people' AND column_name = 'phone_digits'`,
+        );
+      expect(columns).toHaveLength(1);
+      expect(columns[0].is_generated).toBe("ALWAYS");
+      expect(columns[0].generation_expression).toContain("regexp_replace");
+
+      const phoneDigitsOf = async (id: string): Promise<string | null> => {
+        const rows: Array<{ phone_digits: string | null }> = await dataSource.query(
+          `SELECT phone_digits FROM people WHERE id = $1`,
+          [id],
+        );
+        return rows[0].phone_digits;
+      };
+
+      const ana = await service.save({ name: "Ana", phone: "43999990000" });
+      expect(await phoneDigitsOf(ana.id)).toBe("43999990000");
+
+      // A mask only comes in by SQL: the column keeps the digits anyway.
+      await dataSource.query(`UPDATE people SET phone = '(11) 98888-7777' WHERE id = $1`, [ana.id]);
+      expect(await phoneDigitsOf(ana.id)).toBe("11988887777");
+
+      const bruno = await service.save({ name: "Bruno", phone: null });
+      expect(await phoneDigitsOf(bruno.id)).toBeNull();
+
+      // TypeORM reads the column and never writes it: saving a loaded person does not fail.
+      const repository = dataSource.getRepository(Person);
+      const loaded = await repository.findOneByOrFail({ id: ana.id });
+      expect(loaded.phoneDigits).toBe("11988887777");
+      loaded.name = "Ana Souza";
+      loaded.phone = "43988887777";
+      await repository.save(loaded);
+      expect(await phoneDigitsOf(ana.id)).toBe("43988887777");
     });
   });
 
@@ -414,6 +453,50 @@ describe("people repository (e2e)", () => {
         return rows.map((row) => row["QUERY PLAN"]).join("\n");
       });
       expect(plan).toContain("idx_people_name_search");
+    });
+
+    it("has the GUS-106 search indexes idx_people_email_search and idx_people_phone_digits_search", async () => {
+      const emailIndex = await indexDefinition("people", "idx_people_email_search");
+      const phoneIndex = await indexDefinition("people", "idx_people_phone_digits_search");
+
+      expect(emailIndex).toHaveLength(1);
+      expect(emailIndex[0]).toMatch(
+        /USING gin \(.*search_normalize\(.*\bemail\b.*\) gin_trgm_ops\)/,
+      );
+      expect(phoneIndex).toHaveLength(1);
+      expect(phoneIndex[0]).toMatch(/USING gin \(phone_digits gin_trgm_ops\)/);
+
+      // The expression of each query is the one of its index (section 12). On a near-empty table
+      // the partial uq_people_email (its WHERE email IS NOT NULL follows from the LIKE) is cheaper
+      // than the GIN, so it is dropped in a transaction that is always rolled back, as
+      // lessons.repository.e2e does with idx_lessons_class_id_date.
+      const queryRunner = dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        await queryRunner.query("SET LOCAL enable_seqscan = off");
+        await queryRunner.query("DROP INDEX uq_people_email");
+        const explain = async (sql: string, term: string): Promise<string> => {
+          const rows: Array<{ "QUERY PLAN": string }> = await queryRunner.query(`EXPLAIN ${sql}`, [
+            term,
+          ]);
+          return rows.map((row) => row["QUERY PLAN"]).join("\n");
+        };
+
+        expect(
+          await explain(
+            `SELECT id FROM people
+              WHERE public.search_normalize(email) LIKE public.search_normalize($1) ESCAPE '\\'`,
+            "%souza%",
+          ),
+        ).toContain("idx_people_email_search");
+        expect(
+          await explain(`SELECT id FROM people WHERE phone_digits LIKE $1`, "%98888%"),
+        ).toContain("idx_people_phone_digits_search");
+      } finally {
+        await queryRunner.rollbackTransaction();
+        await queryRunner.release();
+      }
     });
 
     it("has the four named foreign keys of member_profiles", async () => {

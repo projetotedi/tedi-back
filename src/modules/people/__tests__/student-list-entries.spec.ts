@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { Test } from "@nestjs/testing";
-import { DataSource } from "typeorm";
+import { Brackets, DataSource, WhereExpressionBuilder } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { Person } from "../entities/person.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
@@ -12,6 +12,7 @@ const OTHER_STUDENT_ID = "01999a3e-7c1b-7000-8000-000000000002";
 
 // 22:30 in São Paulo on 2026-10-01 is already 2026-10-02 in UTC: the age uses the São Paulo day.
 const NOW = new Date("2026-10-02T01:30:00.000Z");
+const REGISTERED_AT = new Date("2026-03-03T13:00:00.000Z");
 
 function row(overrides: Partial<StudentListEntryRow> = {}): StudentListEntryRow {
   return {
@@ -19,7 +20,9 @@ function row(overrides: Partial<StudentListEntryRow> = {}): StudentListEntryRow 
     name: "Maria Silva Santos",
     birthDate: "1958-10-02",
     phone: "43999990000",
+    email: "maria.santos@example.com",
     accessibilityNeed: AccessibilityNeed.VISUAL,
+    createdAt: REGISTERED_AT,
     ...overrides,
   };
 }
@@ -49,6 +52,27 @@ describe("StudentsService.listStudentEntries", () => {
 
   function conditions(): Array<[string, Record<string, unknown> | undefined]> {
     return builder.andWhere.mock.calls.map((call) => [call[0], call[1]]);
+  }
+
+  /** The search: each where and orWhere of the one Brackets group it adds, or [] without one. */
+  function searchOf(): Array<[string, string, Record<string, unknown>]> {
+    const groups = builder.andWhere.mock.calls
+      .map((call): unknown => call[0])
+      .filter((condition): condition is Brackets => condition instanceof Brackets);
+    expect(groups.length).toBeLessThanOrEqual(1);
+    if (groups.length === 0) return [];
+
+    const calls: Array<[string, string, Record<string, unknown>]> = [];
+    const recorder = {
+      where: (sql: string, parameters: Record<string, unknown>) => {
+        calls.push(["where", sql, parameters]);
+      },
+      orWhere: (sql: string, parameters: Record<string, unknown>) => {
+        calls.push(["orWhere", sql, parameters]);
+      },
+    };
+    groups[0].whereFactory(recorder as unknown as WhereExpressionBuilder);
+    return calls;
   }
 
   beforeEach(async () => {
@@ -151,7 +175,13 @@ describe("StudentsService.listStudentEntries", () => {
   it("ages every student against the same day in America/Sao_Paulo, from the clock", async () => {
     builder.getRawMany.mockResolvedValue([
       row(),
-      row({ id: OTHER_STUDENT_ID, name: "Ana", birthDate: "1958-10-01", phone: null }),
+      row({
+        id: OTHER_STUDENT_ID,
+        name: "Ana",
+        birthDate: "1958-10-01",
+        phone: null,
+        email: null,
+      }),
     ]);
     builder.getCount.mockResolvedValue(12);
 
@@ -167,16 +197,22 @@ describe("StudentsService.listStudentEntries", () => {
         {
           id: STUDENT_ID,
           name: "Maria Silva Santos",
+          birthDate: "1958-10-02",
           age: 67,
           phone: "43999990000",
+          email: "maria.santos@example.com",
           accessibilityNeed: AccessibilityNeed.VISUAL,
+          createdAt: REGISTERED_AT,
         },
         {
           id: OTHER_STUDENT_ID,
           name: "Ana",
+          birthDate: "1958-10-01",
           age: 68,
           phone: null,
+          email: null,
           accessibilityNeed: AccessibilityNeed.VISUAL,
+          createdAt: REGISTERED_AT,
         },
       ],
       total: 12,
@@ -185,9 +221,31 @@ describe("StudentsService.listStudentEntries", () => {
     });
     expect(builder.offset).toHaveBeenCalledWith(10);
     expect(builder.limit).toHaveBeenCalledWith(10);
-    expect(conditions().some(([, parameters]) => parameters?.studentListSearch === "%a%")).toBe(
-      true,
-    );
+    expect(searchOf()).toEqual([
+      [
+        "where",
+        `(public.search_normalize(person.name) LIKE public.search_normalize(:studentListSearch) ESCAPE '\\')`,
+        { studentListSearch: "%a%" },
+      ],
+    ]);
+  });
+
+  it("searches the e-mail and the phone only with searchContact", async () => {
+    await service.listStudentEntries({ search: "98888" }, {});
+    expect(searchOf().map(([method, sql]) => [method, sql.includes("person.email")])).toEqual([
+      ["where", false],
+    ]);
+
+    builder.andWhere.mockClear();
+    await service.listStudentEntries({ search: "98888", searchContact: true }, {});
+    expect(searchOf()).toEqual([
+      ["where", expect.stringContaining("person.email"), { studentListSearch: "%98888%" }],
+      [
+        "orWhere",
+        "person.phone_digits LIKE :studentListPhoneSearch",
+        { studentListPhoneSearch: "%98888%" },
+      ],
+    ]);
   });
 
   it("throws when a student has no birth date, a broken invariant of the registration", async () => {
