@@ -10,7 +10,7 @@ export const LESSON_CANCELLED_EVENT = "lesson.cancelled";
  *
  * It is the hook of RN-07: hours already recorded for a cancelled lesson must be reversed. The
  * `hours` module listens to this channel (LessonCancelledListener, GUS-168) and reverses the
- * attendance hours of the lesson, without `lessons` knowing it exists (docs/ARCHITECTURE.md
+ * hours of the lesson, without `lessons` knowing it exists (docs/ARCHITECTURE.md
  * section 3).
  *
  * It is not the audit event: the trail of the cancellation goes out on `auditable.action` as

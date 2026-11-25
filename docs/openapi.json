@@ -3006,7 +3006,7 @@
                 "$ref": "#/components/schemas/HourEntryEventType"
               }
             ],
-            "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
+            "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a lesson were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
             "example": "adjusted"
           }
         },
@@ -3025,7 +3025,7 @@
         "type": "object"
       },
       "HourEntryEventType": {
-        "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
+        "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a lesson were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
         "enum": [
           "created",
           "approved",
@@ -15346,7 +15346,7 @@
                 }
               }
             },
-            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the attendance hours of the lesson if that had failed."
+            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the hours of the lesson if that had failed."
           },
           "400": {
             "content": {

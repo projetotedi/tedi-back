@@ -106,7 +106,7 @@ export enum AuditableAction {
   HOUR_ENTRY_ADJUSTED = "HOUR_ENTRY_ADJUSTED",
   /** A pending hour entry was rejected; it leaves the bank of hours. The reason is not in the payload (RNF-13, GUS-164). */
   HOUR_ENTRY_REJECTED = "HOUR_ENTRY_REJECTED",
-  /** The hours of a presence were reversed, by a correction of the attendance to absent or by the cancellation of the lesson (RF-071, RN-07); the entry is soft-deleted, in any status. No free text in the payload (GUS-168). */
+  /** The hours of a lesson, of a presence or linked to it (GUS-172), were reversed, by a correction of the attendance to absent or by the cancellation of the lesson (RF-071, RN-07); the entry is soft-deleted, in any status. No free text in the payload (GUS-168). */
   HOUR_ENTRY_REVERSED = "HOUR_ENTRY_REVERSED",
   /** The attendance of a member at a lesson was signed for the first time, present or absent; a presence carries the hour entry it generated (GUS-168). */
   MEMBER_ATTENDANCE_CONFIRMED = "MEMBER_ATTENDANCE_CONFIRMED",

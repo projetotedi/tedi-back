@@ -16,7 +16,7 @@ export class HourEntryEventResponseDto {
     enumName: "HourEntryEventType",
     example: HourEntryEventType.ADJUSTED,
     description:
-      "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
+      "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a lesson were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
   })
   type!: HourEntryEventType;
 
