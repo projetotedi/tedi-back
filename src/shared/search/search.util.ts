@@ -198,7 +198,11 @@ export function applyDigitsSearch<T extends ObjectLiteral>(
   return qb;
 }
 
-function assertParametersAvailable<T extends ObjectLiteral>(
+/**
+ * Throws when any of `parameters` is already in the query: two searches never share a parameter.
+ * For a search built by hand (conditions in a `Brackets`), before adding it to the query.
+ */
+export function assertParametersAvailable<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   parameters: Record<string, string>,
 ): void {

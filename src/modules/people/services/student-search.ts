@@ -1,5 +1,9 @@
 import { Brackets, ObjectLiteral, SelectQueryBuilder } from "typeorm";
-import { digitsSearchCondition, textSearchCondition } from "@shared/search/search.util";
+import {
+  assertParametersAvailable,
+  digitsSearchCondition,
+  textSearchCondition,
+} from "@shared/search/search.util";
 
 /** A term the screen can only mean as a phone: digits and the formatting normalizePhone strips. */
 const PHONE_SHAPED_TERM = /^[\d\s().+-]+$/;
@@ -14,8 +18,8 @@ const PHONE_PARAMETER = "studentListPhoneSearch";
  * `contact` matches personal data (RNF-13): only for a caller that shows it, under students.view.
  * A term with a letter is never read as a phone: "joao123@x.com" does not bring every phone with 123.
  *
- * Adds nothing for a blank term. Throws when a parameter it needs is already in the query, as the
- * shared `applyTextSearch` does: two searches must never share a parameter.
+ * Adds nothing for a blank term. Throws when a parameter it needs is already in the query
+ * (`assertParametersAvailable`, as `applyTextSearch` does): two searches never share a parameter.
  */
 export function applyStudentSearch<T extends ObjectLiteral>(
   builder: SelectQueryBuilder<T>,
@@ -32,13 +36,8 @@ export function applyStudentSearch<T extends ObjectLiteral>(
       ? digitsSearchCondition("person.phone_digits", term, PHONE_PARAMETER)
       : undefined;
 
-  const existing = builder.getParameters();
-  const names = digits === undefined ? [TEXT_PARAMETER] : [TEXT_PARAMETER, PHONE_PARAMETER];
-  for (const name of names) {
-    if (Object.hasOwn(existing, name)) {
-      throw new Error(`Search parameter "${name}" is already defined in this query.`);
-    }
-  }
+  assertParametersAvailable(builder, text.parameters);
+  if (digits !== undefined) assertParametersAvailable(builder, digits.parameters);
 
   builder.andWhere(
     new Brackets((group) => {
