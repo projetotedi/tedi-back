@@ -255,6 +255,12 @@ describe("MyProfileController (e2e)", () => {
     it("returns 200 with member fields null for the seeded initial coordinator", async () => {
       await seedAdmin("seed-me-001");
       const session = sessionOf(await login("seed-me-001", ADMIN_PASSWORD).expect(200));
+      // The seeded account requires a password change on first access (GUS-93) before other routes.
+      await request(app.getHttpServer())
+        .post("/auth/password")
+        .set("Cookie", session)
+        .send({ newPassword: PASSWORD })
+        .expect(200);
 
       const res = await getMyProfile(session).expect(200);
 
