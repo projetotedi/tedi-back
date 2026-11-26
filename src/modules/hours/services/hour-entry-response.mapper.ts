@@ -3,9 +3,13 @@ import { HourEntry } from "../entities/hour-entry.entity";
 
 /**
  * The answer of an hour entry, copied field by field: the entity has columns the contract does not
- * show (`deletedAt`), and a spread would publish whatever column comes next.
+ * show (`deletedAt`), and a spread would publish whatever column comes next. `cancelledLessonIds` are
+ * the cancelled lessons among the ones of the entries answered (`findCancelledLessonIds`).
  */
-export function toHourEntryResponse(entry: HourEntry): HourEntryResponseDto {
+export function toHourEntryResponse(
+  entry: HourEntry,
+  cancelledLessonIds: ReadonlySet<string>,
+): HourEntryResponseDto {
   return {
     id: entry.id,
     personId: entry.personId,
@@ -20,6 +24,7 @@ export function toHourEntryResponse(entry: HourEntry): HourEntryResponseDto {
     createdById: entry.createdById,
     classId: entry.classId,
     lessonId: entry.lessonId,
+    lessonCancelled: entry.lessonId !== null && cancelledLessonIds.has(entry.lessonId),
     reviewNote: entry.reviewNote,
     reviewedById: entry.reviewedById,
     reviewedAt: entry.reviewedAt,

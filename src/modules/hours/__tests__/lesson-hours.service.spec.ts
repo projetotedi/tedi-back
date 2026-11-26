@@ -272,14 +272,14 @@ describe("LessonHoursService", () => {
   });
 
   describe("reverseLessonEntries", () => {
-    it("reverses every active entry of a lesson, whatever its origin, and writes nothing when there is none", async () => {
+    it("reverses every active attendance entry of a lesson, and writes nothing when there is none", async () => {
       const service = await serviceWith(HourEntryStatus.APPROVED);
       manager.find.mockResolvedValue([entryOf(ENTRY_A), entryOf(ENTRY_B)]);
 
       const audits = await service.reverseLessonEntries(entityManager, LESSON_ID, TEACHER_ID, NOW);
 
       expect(manager.find).toHaveBeenCalledWith(HourEntry, {
-        where: { lessonId: LESSON_ID },
+        where: { lessonId: LESSON_ID, origin: HourEntryOrigin.ATTENDANCE },
         order: { id: "ASC" },
         lock: { mode: "pessimistic_write" },
       });

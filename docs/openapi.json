@@ -3006,7 +3006,7 @@
                 "$ref": "#/components/schemas/HourEntryEventType"
               }
             ],
-            "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a lesson were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
+            "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
             "example": "adjusted"
           }
         },
@@ -3025,7 +3025,7 @@
         "type": "object"
       },
       "HourEntryEventType": {
-        "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a lesson were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
+        "description": "created, approved, adjusted, rejected, removed or reversed. reversed: the hours of a presence were reversed, by a correction of the attendance or the cancellation of the lesson. The history cannot be edited or deleted.",
         "enum": [
           "created",
           "approved",
@@ -3092,6 +3092,11 @@
             "example": "01999a3e-7c1b-7000-8000-000000000a01",
             "format": "uuid",
             "type": "string"
+          },
+          "lessonCancelled": {
+            "description": "True when the lesson of the entry was cancelled after the entry was logged. The entry is not reversed: the work existed, and the coordination decides in the review (GUS-172). False without a lesson.",
+            "example": false,
+            "type": "boolean"
           },
           "lessonId": {
             "description": "The lesson the entry is linked to: the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
@@ -3176,6 +3181,7 @@
           "createdById",
           "classId",
           "lessonId",
+          "lessonCancelled",
           "reviewNote",
           "reviewedById",
           "reviewedAt",
@@ -5251,6 +5257,11 @@
             "format": "uuid",
             "type": "string"
           },
+          "lessonCancelled": {
+            "description": "True when the lesson of the entry was cancelled after the entry was logged. The entry is not reversed: the work existed, and the coordination decides in the review (GUS-172). False without a lesson.",
+            "example": false,
+            "type": "boolean"
+          },
           "lessonId": {
             "description": "The lesson the entry is linked to: the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
             "example": null,
@@ -5344,6 +5355,7 @@
           "createdById",
           "classId",
           "lessonId",
+          "lessonCancelled",
           "reviewNote",
           "reviewedById",
           "reviewedAt",
@@ -15346,7 +15358,7 @@
                 }
               }
             },
-            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the hours of the lesson if that had failed."
+            "description": "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the attendance hours of the lesson if that had failed."
           },
           "400": {
             "content": {

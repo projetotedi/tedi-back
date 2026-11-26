@@ -509,6 +509,26 @@ describe("MyHoursController (e2e)", () => {
         id: entry.id,
         classId: scenery.classId,
         lessonId: scenery.lessonId,
+        lessonCancelled: false,
+      });
+    });
+
+    it("keeps the entry when its lesson is cancelled later, and the statement says the lesson was cancelled (PO, GUS-172)", async () => {
+      const scenery = await setUpClasses();
+      const linked = await logEntry(member, { lessonId: scenery.lessonId });
+      const onlyClass = await logEntry(member, { classId: scenery.classId });
+
+      await lessonsService.cancel(scenery.lessonId, { reason: "Feriado" }, coordinator.id);
+
+      const { data } = await statement(member);
+      expect(data.find((entry) => entry.id === linked.id)).toMatchObject({
+        lessonId: scenery.lessonId,
+        lessonCancelled: true,
+        status: "pending",
+      });
+      expect(data.find((entry) => entry.id === onlyClass.id)).toMatchObject({
+        lessonId: null,
+        lessonCancelled: false,
       });
     });
 

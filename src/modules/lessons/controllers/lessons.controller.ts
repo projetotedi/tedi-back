@@ -146,7 +146,7 @@ export class LessonsController {
   @ApiOkResponse({
     type: LessonResponseDto,
     description:
-      "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the hours of the lesson if that had failed.",
+      "The lesson, now cancelled. Cancelling a lesson that is already cancelled changes nothing and answers the same, with the first reason; it only announces the cancellation to the hours again, which reverse the attendance hours of the lesson if that had failed.",
   })
   @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
   @ApiNotFoundResponse(LESSON_NOT_FOUND_RESPONSE)

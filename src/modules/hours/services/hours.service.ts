@@ -41,6 +41,7 @@ import {
   memberNotFound,
   selfOnBehalfNotAllowed,
 } from "./hour-entry-errors";
+import { findCancelledLessonIds, NO_CANCELLED_LESSONS } from "./hour-entry-lessons";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
 import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
 
@@ -345,7 +346,7 @@ export class HoursService {
     for (const auditEvent of auditEvents) {
       this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
     }
-    return toHourEntryResponse(entry);
+    return toHourEntryResponse(entry, NO_CANCELLED_LESSONS);
   }
 
   /**
@@ -388,7 +389,7 @@ export class HoursService {
     for (const auditEvent of auditEvents) {
       this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
     }
-    return toHourEntryResponse(entry);
+    return toHourEntryResponse(entry, NO_CANCELLED_LESSONS);
   }
 
   /**
@@ -425,7 +426,13 @@ export class HoursService {
       .limit(limit)
       .getManyAndCount();
 
-    return { data: entries.map(toHourEntryResponse), total, page, limit };
+    const cancelled = await findCancelledLessonIds(this.lessons, entries);
+    return {
+      data: entries.map((entry) => toHourEntryResponse(entry, cancelled)),
+      total,
+      page,
+      limit,
+    };
   }
 
   /**

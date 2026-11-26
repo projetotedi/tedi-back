@@ -196,7 +196,7 @@ describe("lesson.cancelled reverses the attendance hours (e2e)", () => {
     return audits.filter((event) => event.action === AuditableAction.HOUR_ENTRY_REVERSED);
   }
 
-  it("reverses every attendance entry of the cancelled lesson, approved or adjusted, with a reversed row in the history and HOUR_ENTRY_REVERSED, and leaves the other lesson and the manual entries without a lesson alone", async () => {
+  it("reverses every attendance entry of the cancelled lesson, approved or adjusted, with a reversed row in the history and HOUR_ENTRY_REVERSED, and leaves the other lesson and the manual entries alone", async () => {
     const scenery = await setUp();
     const monitorEntry = await recordPresence(scenery.monitorId, scenery.teacherId, scenery.lesson);
     const teacherEntry = await recordPresence(
@@ -270,7 +270,7 @@ describe("lesson.cancelled reverses the attendance hours (e2e)", () => {
     expect(JSON.stringify(reversals())).not.toContain("Teclado");
   });
 
-  it("reverses the manual and on-behalf entries linked to the cancelled lesson, and leaves the ones linked to another lesson or only to the class (GUS-172)", async () => {
+  it("keeps the manual and on-behalf entries linked to the cancelled lesson: the work existed, and the coordination decides in the review (PO, GUS-172)", async () => {
     const scenery = await setUp();
     const repository = dataSource.getRepository(HourEntry);
     const log = async (
@@ -292,35 +292,22 @@ describe("lesson.cancelled reverses the attendance hours (e2e)", () => {
       );
       return entry.id;
     };
-    const { lesson, otherLesson } = scenery;
+    const { lesson } = scenery;
     const manual = await log({ classId: lesson.classId, lessonId: lesson.id });
     const onBehalf = await log(
       { classId: lesson.classId, lessonId: lesson.id },
       scenery.coordinatorId,
     );
-    const ofOtherLesson = await log({ classId: otherLesson.classId, lessonId: otherLesson.id });
     const onlyClass = await log({ classId: lesson.classId, lessonId: null });
     audits = [];
 
     await cancel(scenery);
 
-    for (const id of [manual, onBehalf]) {
-      expect((await entryRow(dataSource, id))?.deleted_at).toBeInstanceOf(Date);
-      expect((await eventsOf(dataSource, id)).at(-1)).toMatchObject({
-        type: "reversed",
-        actor_id: scenery.coordinatorId,
-        from_status: "pending",
-        from_minutes: 60,
-      });
-    }
-    for (const id of [ofOtherLesson, onlyClass]) {
+    for (const id of [manual, onBehalf, onlyClass]) {
       expect((await entryRow(dataSource, id))?.deleted_at).toBeNull();
+      expect((await eventsOf(dataSource, id)).map((event) => event.type)).not.toContain("reversed");
     }
-    expect(
-      reversals()
-        .map((event) => event.targetId)
-        .sort(),
-    ).toEqual([manual, onBehalf].sort());
+    expect(reversals()).toEqual([]);
   });
 
   it("does nothing the second time the same lesson.cancelled arrives: no row and no event", async () => {

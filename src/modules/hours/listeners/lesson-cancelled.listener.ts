@@ -11,8 +11,8 @@ import { LessonHoursService } from "../services/lesson-hours.service";
 
 /**
  * A cancelled lesson did not happen, so its hours go (RN-07): when `lessons` cancels a lesson, this
- * listener reverses, in one transaction, every active entry of it (of the attendance, or logged and
- * linked to it, GUS-172), as the person who cancelled it, with one instant from the Clock. The rows of the attendance stay (who signed what);
+ * listener reverses, in one transaction, every active attendance entry of it, as the person who
+ * cancelled it, with one instant from the Clock. The rows of the attendance stay (who signed what);
  * their entry is reversed.
  *
  * Idempotent: the same event again finds nothing active and writes nothing. Delivered at most once:

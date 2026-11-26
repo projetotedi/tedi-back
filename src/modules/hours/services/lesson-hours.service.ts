@@ -121,11 +121,9 @@ export class LessonHoursService {
   }
 
   /**
-   * Reverses every ACTIVE entry of a lesson, of any origin (its cancellation, RN-07): the ones of the
-   * attendance and the ones logged through a route and linked to it (GUS-172), because a cancelled
-   * lesson counts no valid hours. The ones already removed or reversed (by a correction, or by this
-   * same cancellation arriving twice) are not found, so it is idempotent; a lesson without them
-   * writes nothing and answers [].
+   * Reverses every ACTIVE attendance entry of a lesson (its cancellation, RN-07). The ones already
+   * reversed (by a correction, or by this same cancellation arriving twice) are not found, so it is
+   * idempotent; a lesson without them writes nothing and answers [].
    */
   async reverseLessonEntries(
     manager: EntityManager,
@@ -134,7 +132,7 @@ export class LessonHoursService {
     now: Date,
   ): Promise<AuditableActionEvent[]> {
     const entries = await manager.find(HourEntry, {
-      where: { lessonId },
+      where: { lessonId, origin: HourEntryOrigin.ATTENDANCE },
       order: { id: "ASC" },
       lock: { mode: "pessimistic_write" },
     });

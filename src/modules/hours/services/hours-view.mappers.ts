@@ -51,8 +51,9 @@ export function toHoursMemberTotal(
 export function toMemberHourEntry(
   entry: HourEntry,
   member: MemberRefDto | null,
+  cancelledLessonIds: ReadonlySet<string>,
 ): MemberHourEntryResponseDto {
-  return { ...toHourEntryResponse(entry), member };
+  return { ...toHourEntryResponse(entry, cancelledLessonIds), member };
 }
 
 /**

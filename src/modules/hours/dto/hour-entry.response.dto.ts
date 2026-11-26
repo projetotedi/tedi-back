@@ -104,6 +104,14 @@ export class HourEntryResponseDto {
   lessonId!: string | null;
 
   @ApiProperty({
+    type: Boolean,
+    example: false,
+    description:
+      "True when the lesson of the entry was cancelled after the entry was logged. The entry is not reversed: the work existed, and the coordination decides in the review (GUS-172). False without a lesson.",
+  })
+  lessonCancelled!: boolean;
+
+  @ApiProperty({
     type: String,
     nullable: true,
     example: null,
