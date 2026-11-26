@@ -49,6 +49,11 @@ Migration: CreateUsers
 - [ ] Novas buscas textuais seguem o padrão descrito em `docs/ARCHITECTURE.md`, seção 12.
 - [ ] Não se aplica.
 
+## Contrato da API
+
+- [ ] Não mudou o contrato (`docs/openapi.json`).
+- [ ] Mudou o contrato: abrir a sincronização no front (copiar o `docs/openapi.json` para `tedi-front/openapi/openapi.json`, `yarn generate` e `yarn format`).
+
 ## Observações
 
 <!--
