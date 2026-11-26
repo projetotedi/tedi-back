@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { DataSource, EntityManager, In } from "typeorm";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import {
@@ -25,6 +26,7 @@ import {
   hourEntryNotFound,
   selfReviewNotAllowed,
 } from "./hour-entry-errors";
+import { findCancelledLessonIds } from "./hour-entry-lessons";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
 
 /** The statuses a review leads to. */
@@ -139,9 +141,10 @@ function reviewedResponse(
   entry: HourEntry,
   review: Review,
   stamp: ReviewStamp,
+  cancelledLessonIds: ReadonlySet<string>,
 ): HourEntryResponseDto {
   return {
-    ...toHourEntryResponse(entry),
+    ...toHourEntryResponse(entry, cancelledLessonIds),
     status: review.status,
     validatedMinutes: review.validatedMinutes,
     reviewNote: review.note,
@@ -171,6 +174,7 @@ export class HoursReviewService {
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly clock: Clock,
+    private readonly lessons: LessonsService,
   ) {}
 
   /**
@@ -238,7 +242,8 @@ export class HoursReviewService {
     for (const entry of approved) {
       this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEventOf(entry, approvalOf(entry), stamp));
     }
-    return approved.map((entry) => reviewedResponse(entry, approvalOf(entry), stamp));
+    const cancelled = await findCancelledLessonIds(this.lessons, approved);
+    return approved.map((entry) => reviewedResponse(entry, approvalOf(entry), stamp, cancelled));
   }
 
   /**
@@ -325,6 +330,7 @@ export class HoursReviewService {
     });
 
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEventOf(entry, review, stamp));
-    return reviewedResponse(entry, review, stamp);
+    const cancelled = await findCancelledLessonIds(this.lessons, [entry]);
+    return reviewedResponse(entry, review, stamp, cancelled);
   }
 }

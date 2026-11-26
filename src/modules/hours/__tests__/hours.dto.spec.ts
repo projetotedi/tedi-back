@@ -164,7 +164,7 @@ describe("CreateHourEntryDto", () => {
     expect((await checkCreate({ ...CARD_BODY, date: HOUR_ENTRY_MIN_DATE })).errors).toHaveLength(0);
   });
 
-  it("drops personId, status, origin, validatedMinutes, classId and lessonId through the global pipe", async () => {
+  it("drops personId, status, origin and validatedMinutes through the global pipe, and keeps classId and lessonId", async () => {
     const transformed: unknown = await buildValidationPipe().transform(
       {
         ...CARD_BODY,
@@ -185,7 +185,31 @@ describe("CreateHourEntryDto", () => {
       category: "planning",
       date: "2026-03-10",
       declaredMinutes: 150,
+      classId: CLASS_ID,
+      lessonId: LESSON_ID,
     });
+  });
+
+  it("accepts classId and lessonId omitted or null, and lower-cases them", async () => {
+    expect(
+      (await checkCreate({ ...CARD_BODY, classId: null, lessonId: null })).errors,
+    ).toHaveLength(0);
+
+    const { dto, errors } = await checkCreate({
+      ...CARD_BODY,
+      classId: CLASS_ID.toUpperCase(),
+      lessonId: LESSON_ID.toUpperCase(),
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto).toMatchObject({ classId: CLASS_ID, lessonId: LESSON_ID });
+  });
+
+  it("rejects a classId or a lessonId that is not a UUID", async () => {
+    for (const value of ["abc", 42, "", true]) {
+      expect((await checkCreate({ ...CARD_BODY, classId: value })).fields).toEqual(["classId"]);
+      expect((await checkCreate({ ...CARD_BODY, lessonId: value })).fields).toEqual(["lessonId"]);
+    }
   });
 });
 

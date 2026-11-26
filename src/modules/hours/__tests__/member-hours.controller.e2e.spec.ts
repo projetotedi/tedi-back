@@ -10,6 +10,9 @@ import { join } from "node:path";
 import request from "supertest";
 import { DataSource } from "typeorm";
 import { AuthModule } from "@modules/auth/auth.module";
+import { CourseCategory, CoursesService } from "@modules/catalog/services/courses.service";
+import { ClassesService } from "@modules/classes/services/classes.service";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import {
   insertDepartment,
   insertMemberProfile,
@@ -91,6 +94,9 @@ describe("MemberHoursController (e2e)", () => {
   let peopleService: PeopleService;
   let jwtService: JwtService;
   let eventEmitter: EventEmitter2;
+  let coursesService: CoursesService;
+  let classesService: ClassesService;
+  let lessonsService: LessonsService;
 
   let tech: string;
   let comms: string;
@@ -132,6 +138,9 @@ describe("MemberHoursController (e2e)", () => {
     peopleService = module.get(PeopleService);
     jwtService = module.get(JwtService);
     eventEmitter = module.get(EventEmitter2);
+    coursesService = module.get(CoursesService);
+    classesService = module.get(ClassesService);
+    lessonsService = module.get(LessonsService);
   });
 
   afterAll(async () => {
@@ -140,7 +149,9 @@ describe("MemberHoursController (e2e)", () => {
 
   beforeEach(async () => {
     await dataSource.query(
-      `TRUNCATE TABLE hour_entry_events, hour_entries, invites, departments, people
+      `TRUNCATE TABLE hour_entry_events, hour_entries, lessons, classes, editions,
+                      course_lesson_plans, lesson_plan_contents, lesson_plans,
+                      course_prerequisites, courses, invites, departments, people
        RESTART IDENTITY CASCADE`,
     );
 
@@ -228,6 +239,60 @@ describe("MemberHoursController (e2e)", () => {
       declaredMinutes: 150,
       validatedMinutes: null,
     });
+  });
+
+  /** A class and a lesson in it, through the services of the other modules. */
+  async function createLesson(): Promise<{ classId: string; lessonId: string }> {
+    const course = await coursesService.create(
+      {
+        name: "Informática Básica",
+        description: "Fundamentos do uso do computador.",
+        category: CourseCategory.BASIC,
+      },
+      coordinator.id,
+    );
+    const schoolClass = await classesService.create(
+      {
+        courseId: course.id,
+        code: "INFO-A",
+        editionName: "2026.1",
+        startDate: "2026-03-03",
+        endDate: "2026-06-27",
+        capacity: 15,
+      },
+      coordinator.id,
+    );
+    const lesson = await lessonsService.create(
+      {
+        classId: schoolClass.id,
+        title: "Teclado, mouse e janelas",
+        date: "2026-03-10",
+        startTime: "14:00",
+        endTime: "15:30",
+      },
+      coordinator.id,
+    );
+    return { classId: schoolClass.id, lessonId: lesson.id };
+  }
+
+  it("links the entry on behalf to a lesson and its class, and the member sees the link in her statement (GUS-172)", async () => {
+    const { classId, lessonId } = await createLesson();
+
+    const res = await logFor(memberTech.id, directorTech, hourEntryBody({ lessonId })).expect(201);
+
+    expect(res.body).toMatchObject({ origin: "on_behalf", classId, lessonId });
+    const statement = await statementOf(memberTech).expect(200);
+    expect(statement.body.data[0]).toMatchObject({ id: res.body.id, classId, lessonId });
+  });
+
+  it("checks the scope before the link: a director of another department gets 403, not the error of the link (GUS-172)", async () => {
+    const { lessonId } = await createLesson();
+    await lessonsService.cancel(lessonId, { reason: "Feriado" }, coordinator.id);
+
+    const res = await logFor(memberTech.id, directorComms, hourEntryBody({ lessonId })).expect(403);
+
+    expect(res.body).toMatchObject({ error: "FORBIDDEN_SCOPE" });
+    expect(await countEntries(dataSource)).toBe(0);
   });
 
   it("answers 403 FORBIDDEN_SCOPE to a director logging for a member of another department, and writes nothing (CA3)", async () => {

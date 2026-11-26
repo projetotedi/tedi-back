@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { DataSource, EntityManager, SelectQueryBuilder } from "typeorm";
+import { ClassesService } from "@modules/classes/services/classes.service";
+import { LessonsService, LessonStatus } from "@modules/lessons/services/lessons.service";
 import { MemberRegistrationStatus, MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { todayInAppTimeZone } from "@shared/dates/calendar-date";
@@ -31,9 +33,15 @@ import {
   hourEntryDateInFuture,
   hourEntryNotFound,
   invalidPeriod,
+  lessonNotInClass,
+  linkedClassArchived,
+  linkedClassNotFound,
+  linkedLessonCancelled,
+  linkedLessonNotFound,
   memberNotFound,
   selfOnBehalfNotAllowed,
 } from "./hour-entry-errors";
+import { findCancelledLessonIds, NO_CANCELLED_LESSONS } from "./hour-entry-lessons";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
 import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
 
@@ -70,9 +78,9 @@ export interface HourEntryDraft {
   date: string;
   declaredMinutes: number;
   notes: string | null;
-  /** Only the attendance fills it; omitted is null. */
+  /** The class of the lesson of the attendance, or the link of a route (GUS-172); omitted is null. */
   classId?: string | null;
-  /** Only the attendance fills it; omitted is null. */
+  /** The lesson of the attendance, or the link of a route (GUS-172); omitted is null. */
   lessonId?: string | null;
   /**
    * Who approves the entry as it is born, with its declared minutes: the presence of a lesson
@@ -137,6 +145,14 @@ interface DraftAuthorship {
   origin: HourEntryOrigin;
 }
 
+/** The class and the lesson an entry logged through a route is linked to, already checked. */
+interface HourEntryLink {
+  classId: string | null;
+  lessonId: string | null;
+}
+
+const NO_LINK: HourEntryLink = { classId: null, lessonId: null };
+
 /** What the audit event of an hour entry carries. `before` is null for a creation. */
 interface HourEntryAudit {
   action: AuditableAction;
@@ -156,8 +172,9 @@ interface HourEntryAudit {
  * `now`, read once from the Clock: the API and the database run on different hosts, and two clocks
  * could put the history of an entry out of order.
  *
- * The people are read through the services PeopleModule exports; this module touches no table of
- * another one.
+ * The people are read through the services PeopleModule exports, and the class and the lesson an
+ * entry is linked to (GUS-172) through the ones ClassesModule and LessonsModule export; this module
+ * touches no table of another one.
  */
 @Injectable()
 export class HoursService {
@@ -168,6 +185,8 @@ export class HoursService {
     private readonly people: PeopleService,
     private readonly members: MembersService,
     private readonly permissions: PermissionPolicy,
+    private readonly classes: ClassesService,
+    private readonly lessons: LessonsService,
   ) {}
 
   /**
@@ -308,8 +327,9 @@ export class HoursService {
 
   /**
    * `POST /me/hour-entries`: the logged-in person logs her own hours, `manual` and authored by
-   * herself. Errors: 400 VALIDATION_FAILED (the DTO) and 400 HOUR_ENTRY_DATE_IN_FUTURE. Emits
-   * HOUR_ENTRY_CREATED after the commit.
+   * herself, optionally linked to a class or a lesson (`linkOf`). Errors: 400 VALIDATION_FAILED (the
+   * DTO), the errors of the link and 400 HOUR_ENTRY_DATE_IN_FUTURE. Emits HOUR_ENTRY_CREATED after
+   * the commit.
    */
   async logMyHours(dto: CreateHourEntryDto, actor: AuthUser): Promise<HourEntryResponseDto> {
     const draft = this.draftFrom(dto, {
@@ -318,14 +338,15 @@ export class HoursService {
       origin: HourEntryOrigin.MANUAL,
     });
     const now = this.clock.now();
-    const { entry, auditEvents } = await this.dataSource.transaction((manager) =>
-      this.createEntry(manager, draft, now),
-    );
+    const { entry, auditEvents } = await this.dataSource.transaction(async (manager) => {
+      const link = await this.linkOf(manager, dto);
+      return this.createEntry(manager, { ...draft, ...link }, now);
+    });
 
     for (const auditEvent of auditEvents) {
       this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
     }
-    return toHourEntryResponse(entry);
+    return toHourEntryResponse(entry, NO_CANCELLED_LESSONS);
   }
 
   /**
@@ -336,7 +357,7 @@ export class HoursService {
    * Errors, in the order they are answered: 404 MEMBER_NOT_FOUND for a malformed id (the pipe of
    * the route, before the body), 400 VALIDATION_FAILED (the DTO), 400 SELF_ON_BEHALF_NOT_ALLOWED
    * (the id is the actor's, in any letter case, before the target is read), 404 MEMBER_NOT_FOUND,
-   * 403 FORBIDDEN_SCOPE and 400 HOUR_ENTRY_DATE_IN_FUTURE. The 404 comes before the 403, as in the
+   * 403 FORBIDDEN_SCOPE, the errors of the link (`linkOf`) and 400 HOUR_ENTRY_DATE_IN_FUTURE. The 404 comes before the 403, as in the
    * member record. Emits HOUR_ENTRY_CREATED after the commit.
    *
    * The scope is read before the transaction: a change of department at the same instant is not
@@ -360,14 +381,15 @@ export class HoursService {
       origin: HourEntryOrigin.ON_BEHALF,
     });
     const now = this.clock.now();
-    const { entry, auditEvents } = await this.dataSource.transaction((manager) =>
-      this.createEntry(manager, draft, now),
-    );
+    const { entry, auditEvents } = await this.dataSource.transaction(async (manager) => {
+      const link = await this.linkOf(manager, dto);
+      return this.createEntry(manager, { ...draft, ...link }, now);
+    });
 
     for (const auditEvent of auditEvents) {
       this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, auditEvent);
     }
-    return toHourEntryResponse(entry);
+    return toHourEntryResponse(entry, NO_CANCELLED_LESSONS);
   }
 
   /**
@@ -404,7 +426,13 @@ export class HoursService {
       .limit(limit)
       .getManyAndCount();
 
-    return { data: entries.map(toHourEntryResponse), total, page, limit };
+    const cancelled = await findCancelledLessonIds(this.lessons, entries);
+    return {
+      data: entries.map((entry) => toHourEntryResponse(entry, cancelled)),
+      total,
+      page,
+      limit,
+    };
   }
 
   /**
@@ -502,6 +530,57 @@ export class HoursService {
         occurredAt: now,
       }),
     );
+  }
+
+  /**
+   * The class and the lesson of the body (GUS-172), checked inside the transaction of the entry.
+   * Both are optional, and none is no link.
+   *
+   * - A lesson: it must exist (400 LESSON_NOT_FOUND) and the class of the entry is the lesson's.
+   *   With a class too, it must be that one (400 LESSON_NOT_IN_CLASS). A cancelled lesson did not
+   *   happen (409 LESSON_CANCELLED), and the class of the lesson must not be archived (409
+   *   CLASS_ARCHIVED, on `lessonId`).
+   * - Only a class: it must exist (400 CLASS_NOT_FOUND) and not be archived (409 CLASS_ARCHIVED).
+   *
+   * The person does not need to be assigned to the lesson: the entry goes through the review of
+   * the coordination. The lesson is read FOR SHARE, and then its class, the order `LessonsService`
+   * locks them in: cancelling the lesson or archiving the class at the same time waits for the entry,
+   * or the entry sees them cancelled or archived. The ids returned are the database's.
+   */
+  private async linkOf(manager: EntityManager, dto: CreateHourEntryDto): Promise<HourEntryLink> {
+    const classId = dto.classId ?? null;
+    const lessonId = dto.lessonId ?? null;
+
+    if (lessonId !== null) {
+      const lesson = await this.lessons.getLessonSummary(lessonId, manager, { forShare: true });
+      if (lesson === null) throw linkedLessonNotFound();
+      if (classId !== null && classId !== lesson.classId) throw lessonNotInClass();
+      if (lesson.status === LessonStatus.CANCELLED) throw linkedLessonCancelled();
+      await this.assertClassLinkable(manager, lesson.classId, "lessonId");
+      return { classId: lesson.classId, lessonId: lesson.id };
+    }
+
+    if (classId !== null) {
+      const id = await this.assertClassLinkable(manager, classId, "classId");
+      return { classId: id, lessonId: null };
+    }
+
+    return NO_LINK;
+  }
+
+  /**
+   * The class an entry is linked to, read FOR SHARE: it must exist (400 CLASS_NOT_FOUND) and not be
+   * archived (409 CLASS_ARCHIVED on `field`). Returns its id as the database has it.
+   */
+  private async assertClassLinkable(
+    manager: EntityManager,
+    classId: string,
+    field: "classId" | "lessonId",
+  ): Promise<string> {
+    const schoolClass = await this.classes.getClassSummary(classId, manager, { forShare: true });
+    if (schoolClass === null) throw linkedClassNotFound();
+    if (schoolClass.archivedAt !== null) throw linkedClassArchived(field);
+    return schoolClass.id;
   }
 
   /**

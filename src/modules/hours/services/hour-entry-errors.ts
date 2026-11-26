@@ -162,3 +162,73 @@ export function adjustedMinutesUnchanged(): HttpException {
     400,
   );
 }
+
+/**
+ * The link of an entry to a class and a lesson (GUS-172). The ids come in the body, so an unknown
+ * one is 400 (docs/ARCHITECTURE.md section 10.3), with the field in `details`. The codes owned by
+ * `classes` and `lessons` are built here again, because a module does not import the helpers of
+ * another.
+ */
+
+/** 400: the `classId` of the body is not a class. */
+export function linkedClassNotFound(): HttpException {
+  return new HttpException(
+    {
+      error: "CLASS_NOT_FOUND",
+      message: "Class not found.",
+      details: [{ field: "classId", message: "class not found" }],
+    },
+    400,
+  );
+}
+
+/** 400: the `lessonId` of the body is not a lesson. */
+export function linkedLessonNotFound(): HttpException {
+  return new HttpException(
+    {
+      error: "LESSON_NOT_FOUND",
+      message: "Lesson not found.",
+      details: [{ field: "lessonId", message: "lesson not found" }],
+    },
+    400,
+  );
+}
+
+/** 400: the lesson and the class of the body do not match: the class of an entry is the lesson's. */
+export function lessonNotInClass(): HttpException {
+  return new HttpException(
+    {
+      error: "LESSON_NOT_IN_CLASS",
+      message: "The lesson does not belong to the class.",
+      details: [{ field: "lessonId", message: "lesson does not belong to classId" }],
+    },
+    400,
+  );
+}
+
+/** 409: a cancelled lesson did not happen, so no entry is linked to it. */
+export function linkedLessonCancelled(): HttpException {
+  return new HttpException(
+    {
+      error: "LESSON_CANCELLED",
+      message: "Hours cannot be linked to a cancelled lesson.",
+      details: [{ field: "lessonId", message: "lesson is cancelled" }],
+    },
+    409,
+  );
+}
+
+/**
+ * 409: archived classes are read-only (RN-27). `field` is the id of the body the class came from:
+ * `classId`, or `lessonId` when the class is the lesson's.
+ */
+export function linkedClassArchived(field: "classId" | "lessonId"): HttpException {
+  return new HttpException(
+    {
+      error: "CLASS_ARCHIVED",
+      message: "Hours cannot be linked to an archived class.",
+      details: [{ field, message: "class is archived" }],
+    },
+    409,
+  );
+}

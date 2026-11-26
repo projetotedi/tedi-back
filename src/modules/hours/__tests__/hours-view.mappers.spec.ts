@@ -11,6 +11,7 @@ import {
   toHoursMemberTotal,
   toMemberHourEntry,
 } from "../services/hours-view.mappers";
+import { NO_CANCELLED_LESSONS } from "../services/hour-entry-lessons";
 
 const AT = new Date("2026-03-12T13:00:00.000Z");
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
@@ -103,8 +104,15 @@ describe("hours view mappers", () => {
       department: { id: TECH, name: "Tecnologia" },
     };
 
-    expect(toMemberHourEntry(ENTRY, member)).toEqual({ ...toHourEntryResponse(ENTRY), member });
-    expect(toMemberHourEntry(ENTRY, null)).toEqual({ ...toHourEntryResponse(ENTRY), member: null });
-    expect(toMemberHourEntry(ENTRY, member)).not.toHaveProperty("deletedAt");
+    const none = NO_CANCELLED_LESSONS;
+    expect(toMemberHourEntry(ENTRY, member, none)).toEqual({
+      ...toHourEntryResponse(ENTRY, none),
+      member,
+    });
+    expect(toMemberHourEntry(ENTRY, null, none)).toEqual({
+      ...toHourEntryResponse(ENTRY, none),
+      member: null,
+    });
+    expect(toMemberHourEntry(ENTRY, member, none)).not.toHaveProperty("deletedAt");
   });
 });
