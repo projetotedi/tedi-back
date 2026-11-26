@@ -1,4 +1,9 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import {
+  ExecutionContext,
+  ForbiddenException,
+  HttpException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
@@ -8,6 +13,7 @@ import { MemberRegistrationStatus } from "@modules/people/enums/member-registrat
 import { MemberAccessFacts, MembersService } from "@modules/people/services/members.service";
 import { Role } from "@shared/enums/role.enum";
 import { SESSION_COOKIE_NAME, REQUEST_USER_KEY } from "../auth.constants";
+import { ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY } from "../decorators/allow-when-password-change-required.decorator";
 import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
@@ -51,20 +57,30 @@ function makeMembers(facts: MemberAccessFacts = NO_MEMBER_PROFILE): MembersServi
   } as unknown as MembersService;
 }
 
+interface PersonRow {
+  id: string;
+  role: Role | null;
+  accessEnabled: boolean;
+  mustChangePassword?: boolean;
+}
+
 function makeGuard(overrides: {
   isPublic?: boolean;
   minRole?: Role;
   permission?: Permission;
+  allowWhenPasswordChangeRequired?: boolean;
   jwtPayload?: { sub: string } | null;
-  person?: { id: string; role: Role | null; accessEnabled: boolean } | null;
+  person?: PersonRow | null;
   configSecret?: string;
   facts?: MemberAccessFacts;
   members?: MembersService;
+  people?: PeopleService;
 }): AuthGuard {
   const {
     isPublic = false,
     minRole,
     permission,
+    allowWhenPasswordChangeRequired,
     jwtPayload,
     person,
     configSecret = "test-secret",
@@ -76,6 +92,7 @@ function makeGuard(overrides: {
       if (key === PUBLIC_KEY) return isPublic;
       if (key === ROLES_KEY) return minRole;
       if (key === PERMISSION_KEY) return permission;
+      if (key === ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY) return allowWhenPasswordChangeRequired;
       return undefined;
     }),
   } as unknown as Reflector;
@@ -87,9 +104,14 @@ function makeGuard(overrides: {
     }),
   } as unknown as JwtService;
 
-  const people = {
-    findById: jest.fn(() => Promise.resolve(person ?? null)),
-  } as unknown as PeopleService;
+  // A person row always carries the flag; it is false unless a test turns it on.
+  const people =
+    overrides.people ??
+    ({
+      findById: jest.fn(() =>
+        Promise.resolve(person ? { mustChangePassword: false, ...person } : null),
+      ),
+    } as unknown as PeopleService);
 
   const config = {
     getOrThrow: jest.fn(() => configSecret),
@@ -285,6 +307,144 @@ describe("AuthGuard", () => {
 
       expect(req[REQUEST_USER_KEY]).not.toHaveProperty("departmentIds");
       expect(members.findAccessFacts).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("password change required (GUS-93)", () => {
+    const SESSION = { [SESSION_COOKIE_NAME]: "valid-jwt" };
+    const JWT = { sub: "user-123" };
+
+    function flagged(overrides: Partial<PersonRow> = {}): PersonRow {
+      return {
+        id: "user-123",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+        mustChangePassword: true,
+        ...overrides,
+      };
+    }
+
+    // The guard answers with an HttpException carrying { error, message }, so these tests read
+    // the status and the body instead of the exception class.
+    async function failureOf(promise: Promise<unknown>): Promise<HttpException> {
+      const error = await promise.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(HttpException);
+      return error as HttpException;
+    }
+
+    it("answers 403 PASSWORD_CHANGE_REQUIRED on a route that is not marked, without attaching the user", async () => {
+      const guard = makeGuard({ jwtPayload: JWT, person: flagged() });
+      const req = makeRequest(SESSION);
+
+      const failure = await failureOf(guard.canActivate(makeContext(req)));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).toEqual({
+        error: "PASSWORD_CHANGE_REQUIRED",
+        message: "Password change required.",
+      });
+      expect(req[REQUEST_USER_KEY]).toBeUndefined();
+    });
+
+    it("lets a route marked @AllowWhenPasswordChangeRequired answer and attaches the user", async () => {
+      const guard = makeGuard({
+        jwtPayload: JWT,
+        person: flagged(),
+        allowWhenPasswordChangeRequired: true,
+      });
+      const req = makeRequest(SESSION);
+
+      await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+
+      expect(req[REQUEST_USER_KEY]).toEqual({
+        id: "user-123",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+        departmentIds: [],
+      });
+    });
+
+    it("lets an account without the flag through a route that is not marked", async () => {
+      const guard = makeGuard({
+        jwtPayload: JWT,
+        person: flagged({ mustChangePassword: false }),
+      });
+
+      await expect(guard.canActivate(makeContext(makeRequest(SESSION)))).resolves.toBe(true);
+    });
+
+    it("answers PASSWORD_CHANGE_REQUIRED before @RequirePermission and @Roles", async () => {
+      // A member has no access.manage and is below @Roles(COORDINATOR): without the flag the
+      // answer would be a plain 403. With it, the client learns the reason that matters.
+      const member = flagged({ role: Role.MEMBER });
+
+      for (const route of [
+        { permission: Permission.ACCESS_MANAGE },
+        { minRole: Role.COORDINATOR },
+        { permission: Permission.ACCESS_MANAGE, minRole: Role.COORDINATOR },
+      ]) {
+        const guard = makeGuard({ ...route, jwtPayload: JWT, person: member });
+
+        const failure = await failureOf(guard.canActivate(makeContext(makeRequest(SESSION))));
+
+        expect(failure.getStatus()).toBe(403);
+        expect(failure.getResponse()).toMatchObject({ error: "PASSWORD_CHANGE_REQUIRED" });
+      }
+    });
+
+    it("still applies @RequirePermission and @Roles to a route marked as allowed", async () => {
+      const guard = makeGuard({
+        jwtPayload: JWT,
+        person: flagged({ role: Role.MEMBER }),
+        allowWhenPasswordChangeRequired: true,
+        permission: Permission.ACCESS_MANAGE,
+      });
+
+      const failure = await failureOf(guard.canActivate(makeContext(makeRequest(SESSION))));
+
+      expect(failure.getStatus()).toBe(403);
+      expect(failure.getResponse()).not.toMatchObject({ error: "PASSWORD_CHANGE_REQUIRED" });
+    });
+
+    it("keeps answering 401, not 403, when the access is disabled, there is no role or the registration is pending", async () => {
+      const cases: Array<{ person: PersonRow; facts?: MemberAccessFacts }> = [
+        { person: flagged({ accessEnabled: false }) },
+        { person: flagged({ role: null }) },
+        {
+          person: flagged({ role: Role.MEMBER }),
+          facts: { registrationStatus: MemberRegistrationStatus.PENDING, departmentIds: [] },
+        },
+      ];
+
+      for (const { person, facts } of cases) {
+        const guard = makeGuard({ jwtPayload: JWT, person, facts });
+
+        await expect(guard.canActivate(makeContext(makeRequest(SESSION)))).rejects.toBeInstanceOf(
+          UnauthorizedException,
+        );
+      }
+    });
+
+    it("never blocks a @Public() route and does not even load the person", async () => {
+      const people = { findById: jest.fn() } as unknown as PeopleService;
+      const guard = makeGuard({ isPublic: true, people });
+
+      await expect(guard.canActivate(makeContext(makeRequest(SESSION)))).resolves.toBe(true);
+      expect(people.findById).not.toHaveBeenCalled();
+    });
+
+    it("ignores the flag for the DEV_FAKE_ROLE user (no person is loaded)", async () => {
+      process.env.DEV_FAKE_ROLE = "coordinator";
+      const people = {
+        findById: jest.fn(() => Promise.resolve(flagged())),
+      } as unknown as PeopleService;
+      const guard = makeGuard({ people });
+      const req = makeRequest({});
+
+      await expect(guard.canActivate(makeContext(req))).resolves.toBe(true);
+
+      expect(people.findById).not.toHaveBeenCalled();
+      expect((req[REQUEST_USER_KEY] as { id: string }).id).toBe("dev-fake-user");
     });
   });
 

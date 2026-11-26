@@ -3,6 +3,7 @@ import { HttpException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
 import { DataSource, In } from "typeorm";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { Role } from "@shared/enums/role.enum";
@@ -95,6 +96,7 @@ describe("HoursReviewService", () => {
   const dataSource = { transaction: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
   const clock = { now: jest.fn() };
+  const lessons = { findLessonSummaries: jest.fn().mockResolvedValue([]) };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -159,6 +161,7 @@ describe("HoursReviewService", () => {
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: Clock, useValue: clock },
+        { provide: LessonsService, useValue: lessons },
       ],
     }).compile();
     service = moduleRef.get(HoursReviewService);

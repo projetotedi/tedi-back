@@ -21,7 +21,8 @@ body:json {
     "category": "planning",
     "date": "2026-03-10",
     "declaredMinutes": 150,
-    "notes": "Revisei os exercícios do plano 3."
+    "notes": "Revisei os exercícios do plano 3.",
+    "lessonId": null
   }
 }
 
@@ -32,8 +33,10 @@ docs {
   declaredMinutes é um inteiro de 1 a 1440 (um dia): 2h30 = 150. 0, mais de 1440, número fracionário e a string "150" respondem 400 VALIDATION_FAILED.
   category: planning, event, management, meeting, support ou other. lesson é recusada (400 VALIDATION_FAILED): horas de aula só nascem da presença confirmada (RN-03).
   date não pode ser depois de hoje no fuso de São Paulo: 400 HOUR_ENTRY_DATE_IN_FUTURE, com details[].field = "date". Hoje vale. Nem antes de 2000-01-01: 400 VALIDATION_FAILED, field date.
-  personId, status, origin, validatedMinutes, classId e lessonId enviados no corpo são descartados.
+  Vínculo opcional com turma e aula (GUS-172): classId e lessonId (UUID; omitido ou null = sem vínculo). Com lessonId, a turma vem da aula; com os dois, classId precisa ser a turma da aula (senão 400 LESSON_NOT_IN_CLASS); só classId vincula só a turma. A pessoa não precisa estar alocada na aula.
+  Erros do vínculo, com o campo em details: 400 LESSON_NOT_FOUND (lessonId), 400 CLASS_NOT_FOUND (classId), 400 LESSON_NOT_IN_CLASS (lessonId), 409 LESSON_CANCELLED (lessonId) e 409 CLASS_ARCHIVED (classId, ou lessonId quando a turma é a da aula).
+  personId, status, origin e validatedMinutes enviados no corpo são descartados.
   Lançamento enviado não é editado: para corrigir, remova (enquanto pending) e lance de novo.
   Retorna 201 HourEntryResponseDto. Grava o evento created no histórico do lançamento (hour_entry_events) e registra HOUR_ENTRY_CREATED, sem activity nem notes (texto livre, RNF-13).
-  Erros possíveis: 400 VALIDATION_FAILED, 400 HOUR_ENTRY_DATE_IN_FUTURE, 401.
+  Erros possíveis: 400 VALIDATION_FAILED, 400 LESSON_NOT_FOUND, 400 CLASS_NOT_FOUND, 400 LESSON_NOT_IN_CLASS, 400 HOUR_ENTRY_DATE_IN_FUTURE, 401, 409 LESSON_CANCELLED, 409 CLASS_ARCHIVED.
 }

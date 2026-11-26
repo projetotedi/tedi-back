@@ -614,6 +614,20 @@
         ],
         "type": "object"
       },
+      "ChangePasswordDto": {
+        "properties": {
+          "newPassword": {
+            "description": "New password. At least 8 characters, and different from the current one.",
+            "example": "NovaSenha@123",
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "newPassword"
+        ],
+        "type": "object"
+      },
       "ClassCourseResponseDto": {
         "properties": {
           "category": {
@@ -2085,6 +2099,13 @@
             "description": "Kind of work (F7.7). lesson is refused here (400 VALIDATION_FAILED): lesson hours only come from the confirmed attendance (RN-03).",
             "example": "planning"
           },
+          "classId": {
+            "description": "The class the work is about. Omitted or null means none. With lessonId, it must be the class of the lesson (else 400 LESSON_NOT_IN_CLASS); without it, the class comes from the lesson. An unknown class is 400 CLASS_NOT_FOUND, an archived one 409 CLASS_ARCHIVED.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000c1",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
+          },
           "date": {
             "description": "Day of the work, YYYY-MM-DD, from 2000-01-01 (else 400 VALIDATION_FAILED). Today or before, in America/Sao_Paulo (else 400 HOUR_ENTRY_DATE_IN_FUTURE).",
             "example": "2026-03-10",
@@ -2097,6 +2118,13 @@
             "maximum": 1440,
             "minimum": 1,
             "type": "integer"
+          },
+          "lessonId": {
+            "description": "The lesson the work is about. Omitted or null means none. The entry also gets the class of the lesson. An unknown lesson is 400 LESSON_NOT_FOUND, a cancelled one 409 LESSON_CANCELLED. The person does not need to be assigned to it: the entry goes through the review of the coordination.",
+            "example": "01999a3e-7c1b-7000-8000-0000000000f1",
+            "format": "uuid",
+            "nullable": true,
+            "type": "string"
           },
           "notes": {
             "description": "Free notes of the person. Omitted, null or blank means none.",
@@ -3087,7 +3115,7 @@
             "example": "planning"
           },
           "classId": {
-            "description": "The class of the lesson, for an entry created by the attendance.",
+            "description": "The class the entry is linked to: the class of the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
             "example": null,
             "format": "uuid",
             "nullable": true,
@@ -3120,8 +3148,13 @@
             "format": "uuid",
             "type": "string"
           },
+          "lessonCancelled": {
+            "description": "True when the lesson of the entry was cancelled after the entry was logged. The entry is not reversed: the work existed, and the coordination decides in the review (GUS-172). False without a lesson.",
+            "example": false,
+            "type": "boolean"
+          },
           "lessonId": {
-            "description": "The lesson, for an entry created by the attendance.",
+            "description": "The lesson the entry is linked to: the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
             "example": null,
             "format": "uuid",
             "nullable": true,
@@ -3203,6 +3236,7 @@
           "createdById",
           "classId",
           "lessonId",
+          "lessonCancelled",
           "reviewNote",
           "reviewedById",
           "reviewedAt",
@@ -4776,6 +4810,11 @@
             "example": "01952ef7-0000-7000-8000-000000000001",
             "type": "string"
           },
+          "mustChangePassword": {
+            "description": "True while the account still has to replace its password (initial coordinator, GUS-93). Until POST /auth/password succeeds, every authenticated route except GET /auth/me and POST /auth/password answers 403 PASSWORD_CHANGE_REQUIRED.",
+            "example": false,
+            "type": "boolean"
+          },
           "name": {
             "example": "Alice Silva",
             "type": "string"
@@ -4807,7 +4846,8 @@
           "ra",
           "email",
           "role",
-          "permissions"
+          "permissions",
+          "mustChangePassword"
         ],
         "type": "object"
       },
@@ -5252,7 +5292,7 @@
             "example": "planning"
           },
           "classId": {
-            "description": "The class of the lesson, for an entry created by the attendance.",
+            "description": "The class the entry is linked to: the class of the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
             "example": null,
             "format": "uuid",
             "nullable": true,
@@ -5285,8 +5325,13 @@
             "format": "uuid",
             "type": "string"
           },
+          "lessonCancelled": {
+            "description": "True when the lesson of the entry was cancelled after the entry was logged. The entry is not reversed: the work existed, and the coordination decides in the review (GUS-172). False without a lesson.",
+            "example": false,
+            "type": "boolean"
+          },
           "lessonId": {
-            "description": "The lesson, for an entry created by the attendance.",
+            "description": "The lesson the entry is linked to: the lesson of an attendance entry, or the one chosen when the entry was logged (GUS-172). Null when none.",
             "example": null,
             "format": "uuid",
             "nullable": true,
@@ -5378,6 +5423,7 @@
           "createdById",
           "classId",
           "lessonId",
+          "lessonCancelled",
           "reviewNote",
           "reviewedById",
           "reviewedAt",
@@ -6965,12 +7011,28 @@
             "example": 68,
             "type": "integer"
           },
+          "birthDate": {
+            "example": "1958-04-12",
+            "format": "date",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the person was registered as a student.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
           "currentClasses": {
             "description": "The classes where the student has an active enrollment, the most recent edition first.",
             "items": {
               "$ref": "#/components/schemas/EnrollmentClassRefResponseDto"
             },
             "type": "array"
+          },
+          "email": {
+            "example": "maria.santos@example.com",
+            "nullable": true,
+            "type": "string"
           },
           "id": {
             "description": "Person id of the student.",
@@ -6983,7 +7045,7 @@
             "type": "string"
           },
           "phone": {
-            "description": "Digits only.",
+            "description": "As it was stored: the API writes digits only, but a phone that came in by an import or by SQL may keep its mask.",
             "example": "43999990000",
             "nullable": true,
             "type": "string"
@@ -6992,9 +7054,12 @@
         "required": [
           "id",
           "name",
+          "birthDate",
           "age",
           "phone",
+          "email",
           "accessibilityNeed",
+          "createdAt",
           "currentClasses"
         ],
         "type": "object"
@@ -7242,6 +7307,74 @@
           "firstEnrollmentAt"
         ],
         "type": "object"
+      },
+      "StudentListItemResponseDto": {
+        "properties": {
+          "accessibilityNeed": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AccessibilityNeed"
+              }
+            ],
+            "description": "Category of what the student needs in class, never a diagnosis (RNF-13).",
+            "example": "none"
+          },
+          "age": {
+            "description": "Whole years today in America/Sao_Paulo.",
+            "example": 68,
+            "type": "integer"
+          },
+          "birthDate": {
+            "example": "1958-04-12",
+            "format": "date",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "When the person was registered as a student.",
+            "example": "2026-10-01T13:00:00.000Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "example": "maria.santos@example.com",
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "description": "Person id of the student.",
+            "example": "01999a3e-7c1b-7000-8000-000000000001",
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "example": "Maria Silva Santos",
+            "type": "string"
+          },
+          "phone": {
+            "description": "As it was stored: the API writes digits only, but a phone that came in by an import or by SQL may keep its mask.",
+            "example": "43999990000",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "birthDate",
+          "age",
+          "phone",
+          "email",
+          "accessibilityNeed",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "StudentListSort": {
+        "enum": [
+          "name",
+          "createdAt"
+        ],
+        "type": "string"
       },
       "StudentResponseDto": {
         "properties": {
@@ -9178,6 +9311,97 @@
               }
             },
             "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/password": {
+      "post": {
+        "operationId": "changePassword",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponseDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED | PASSWORD_UNCHANGED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "PASSWORD_CHANGE_NOT_REQUIRED"
           },
           "500": {
             "content": {
@@ -11812,7 +12036,7 @@
             }
           },
           {
-            "description": "Part of the name of the student, ignoring case and accents.",
+            "description": "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, compared as they were stored (a term with the country code +55 does not find a phone stored without it). The search of GET /students.",
             "in": "query",
             "name": "search",
             "required": false,
@@ -17899,6 +18123,173 @@
       }
     },
     "/students": {
+      "get": {
+        "operationId": "listStudents",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "example": 1,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "example": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "number"
+            }
+          },
+          {
+            "description": "Part of the name or of the e-mail, ignoring case and accents; when the term has only digits and the characters space ( ) - . +, also the digits of the phone, whatever mask it was stored with. The digits are compared as they were stored: a term with the country code (+55) does not find a phone stored without it.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "example": "maria",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "One or more categories, comma separated (none, visual, hearing, motor, cognitive, other), or any: every category but none. The students of any of them. Omitted or empty lists every category.",
+            "in": "query",
+            "name": "accessibilityNeed",
+            "required": false,
+            "schema": {
+              "example": "visual,hearing",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only these students (person ids), comma separated: from 1 to 100 ids, else 400 VALIDATION_FAILED (an empty ids too). Paginated and ordered like the rest of the list; an id that is not a student, an archived one (without archived=true) or a removed one is left out.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "example": "01999a3e-7c1b-7000-8000-000000000001,01999a3e-7c1b-7000-8000-000000000002",
+              "type": "string"
+            }
+          },
+          {
+            "description": "true lists only the archived students. Omitted (or false) lists only the students that are not archived (RN-27).",
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "example": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "name is alphabetical; createdAt puts the student registered last first.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/StudentListSort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "$ref": "#/components/schemas/StudentListItemResponseDto"
+                      },
+                      "type": "array"
+                    },
+                    "limit": {
+                      "example": 20,
+                      "type": "integer"
+                    },
+                    "page": {
+                      "example": 1,
+                      "type": "integer"
+                    },
+                    "total": {
+                      "example": 42,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "total",
+                    "page",
+                    "limit"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": "VALIDATION_FAILED"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "people"
+        ]
+      },
       "post": {
         "operationId": "createStudent",
         "parameters": [],

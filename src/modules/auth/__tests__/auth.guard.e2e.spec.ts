@@ -205,6 +205,92 @@ describe("AuthGuard (e2e)", () => {
   });
 
   // -----------------------------------------------------------------------
+  // GUS-93: an account that must change the password reaches only the routes marked as allowed
+  // -----------------------------------------------------------------------
+  describe("password change required (GUS-93)", () => {
+    async function flaggedPerson(
+      overrides: { role?: Role; accessEnabled?: boolean } = {},
+    ): Promise<{ id: string; cookie: string }> {
+      const person = await peopleService.save({
+        name: "Helena",
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+        mustChangePassword: true,
+        ...overrides,
+      });
+      const token = await jwtService.signAsync({ sub: person.id }, { secret: TEST_SECRET });
+      return { id: person.id, cookie: buildCookie(token) };
+    }
+
+    it("GET /test/open returns 403 PASSWORD_CHANGE_REQUIRED", async () => {
+      const { cookie } = await flaggedPerson();
+
+      const res = await request(app.getHttpServer())
+        .get("/test/open")
+        .set("Cookie", cookie)
+        .expect(403);
+
+      expect(res.body).toMatchObject({
+        statusCode: 403,
+        error: "PASSWORD_CHANGE_REQUIRED",
+        message: "Password change required.",
+      });
+    });
+
+    it("answers it before @Roles: a flagged member gets PASSWORD_CHANGE_REQUIRED on /test/director, not a plain 403", async () => {
+      const { cookie } = await flaggedPerson({ role: Role.MEMBER });
+
+      const res = await request(app.getHttpServer())
+        .get("/test/director")
+        .set("Cookie", cookie)
+        .expect(403);
+
+      expect(res.body.error).toBe("PASSWORD_CHANGE_REQUIRED");
+    });
+
+    it("GET /auth/me stays open and reports mustChangePassword true", async () => {
+      const { id, cookie } = await flaggedPerson();
+
+      const res = await request(app.getHttpServer())
+        .get("/auth/me")
+        .set("Cookie", cookie)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ id, mustChangePassword: true });
+    });
+
+    it("GET /test/public still returns 200 for a flagged session", async () => {
+      const { cookie } = await flaggedPerson();
+
+      await request(app.getHttpServer())
+        .get("/test/public")
+        .set("Cookie", cookie)
+        .expect(200)
+        .expect({ ok: true });
+    });
+
+    it("returns 401, not 403, when the flagged account has its access disabled", async () => {
+      const { cookie } = await flaggedPerson({ accessEnabled: false });
+
+      const res = await request(app.getHttpServer())
+        .get("/test/open")
+        .set("Cookie", cookie)
+        .expect(401);
+
+      expect(res.body.error).toBe("UNAUTHORIZED");
+    });
+
+    it("reads the flag on every request: the block lifts as soon as it is cleared", async () => {
+      const { id, cookie } = await flaggedPerson();
+      await request(app.getHttpServer()).get("/test/open").set("Cookie", cookie).expect(403);
+
+      await dataSource.query(`UPDATE people SET must_change_password = false WHERE id = $1`, [id]);
+
+      await request(app.getHttpServer()).get("/test/open").set("Cookie", cookie).expect(200);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // CA1 / Case 1: Role hierarchy — DIRECTOR route
   // -----------------------------------------------------------------------
   describe("hierarchy: DIRECTOR route accepts director and coordinator, rejects member", () => {

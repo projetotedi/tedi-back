@@ -41,7 +41,16 @@ const ACTOR: AuthUser = {
 };
 
 function ref(id: string, name: string): StudentListEntry {
-  return { id, name, age: 68, phone: "43999990000", accessibilityNeed: AccessibilityNeed.VISUAL };
+  return {
+    id,
+    name,
+    birthDate: "1958-03-03",
+    age: 68,
+    phone: "43999990000",
+    email: `${name.toLowerCase()}@example.com`,
+    accessibilityNeed: AccessibilityNeed.VISUAL,
+    createdAt: new Date("2026-02-01T12:00:00.000Z"),
+  };
 }
 
 function classRow(studentId: string, status = EnrollmentStatus.ACTIVE): ClassEnrollmentRow {
@@ -517,7 +526,7 @@ describe("EnrollmentListingService", () => {
       await service.listStudentsByEnrollment({});
 
       expect(students.listStudentEntries).toHaveBeenCalledWith(
-        { onlyIds: [ANA], search: undefined, includeArchived: false },
+        { onlyIds: [ANA], search: undefined, searchContact: true, includeArchived: false },
         { page: 1, limit: 20 },
       );
     });
@@ -547,8 +556,13 @@ describe("EnrollmentListingService", () => {
         [EnrollmentStatus.ACTIVE, null],
       ]);
       expect(students.listStudentEntries.mock.calls.map((call) => call[0])).toEqual([
-        { onlyIds: [ANA, BRUNO], search: "an", includeArchived: false },
-        { excludeIds: [ANA, BRUNO], search: undefined, includeArchived: false },
+        { onlyIds: [ANA, BRUNO], search: "an", searchContact: true, includeArchived: false },
+        {
+          excludeIds: [ANA, BRUNO],
+          search: undefined,
+          searchContact: true,
+          includeArchived: false,
+        },
       ]);
       expect(enrolled.data).toEqual([
         {
@@ -572,7 +586,7 @@ describe("EnrollmentListingService", () => {
         situation: StudentEnrollmentSituation.NOT_ENROLLED,
       });
       expect(students.listStudentEntries).toHaveBeenCalledWith(
-        { excludeIds: [], search: undefined, includeArchived: false },
+        { excludeIds: [], search: undefined, searchContact: true, includeArchived: false },
         { page: 1, limit: 20 },
       );
     });

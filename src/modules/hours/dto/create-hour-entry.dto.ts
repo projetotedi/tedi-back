@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -23,6 +24,9 @@ import {
   HOUR_ENTRY_NOTES_MAX_LENGTH,
 } from "./hour-entry-limits";
 import { IsOnOrAfterDate } from "./is-on-or-after-date.validator";
+
+const lowerCase = ({ value }: { value: unknown }): unknown =>
+  typeof value === "string" ? value.toLowerCase() : value;
 
 /**
  * The body of `POST /me/hour-entries` and `POST /members/:id/hour-entries`. Whose hours they are,
@@ -88,4 +92,30 @@ export class CreateHourEntryDto {
   @MaxLength(HOUR_ENTRY_NOTES_MAX_LENGTH)
   @IsString()
   notes?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: "uuid",
+    nullable: true,
+    example: "01999a3e-7c1b-7000-8000-0000000000c1",
+    description:
+      "The class the work is about. Omitted or null means none. With lessonId, it must be the class of the lesson (else 400 LESSON_NOT_IN_CLASS); without it, the class comes from the lesson. An unknown class is 400 CLASS_NOT_FOUND, an archived one 409 CLASS_ARCHIVED.",
+  })
+  @IsOptional()
+  @Transform(lowerCase)
+  @IsUUID("all")
+  classId?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: "uuid",
+    nullable: true,
+    example: "01999a3e-7c1b-7000-8000-0000000000f1",
+    description:
+      "The lesson the work is about. Omitted or null means none. The entry also gets the class of the lesson. An unknown lesson is 400 LESSON_NOT_FOUND, a cancelled one 409 LESSON_CANCELLED. The person does not need to be assigned to it: the entry goes through the review of the coordination.",
+  })
+  @IsOptional()
+  @Transform(lowerCase)
+  @IsUUID("all")
+  lessonId?: string | null;
 }

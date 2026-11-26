@@ -270,6 +270,46 @@ describe("lesson.cancelled reverses the attendance hours (e2e)", () => {
     expect(JSON.stringify(reversals())).not.toContain("Teclado");
   });
 
+  it("keeps the manual and on-behalf entries linked to the cancelled lesson: the work existed, and the coordination decides in the review (PO, GUS-172)", async () => {
+    const scenery = await setUp();
+    const repository = dataSource.getRepository(HourEntry);
+    const log = async (
+      link: { classId: string; lessonId: string | null },
+      createdById = scenery.monitorId,
+    ): Promise<string> => {
+      const entry = await repository.save(
+        repository.create({
+          personId: scenery.monitorId,
+          createdById,
+          origin:
+            createdById === scenery.monitorId ? HourEntryOrigin.MANUAL : HourEntryOrigin.ON_BEHALF,
+          activity: "Planejamento da aula",
+          category: HourEntryCategory.PLANNING,
+          date: "2026-03-10",
+          declaredMinutes: 60,
+          ...link,
+        }),
+      );
+      return entry.id;
+    };
+    const { lesson } = scenery;
+    const manual = await log({ classId: lesson.classId, lessonId: lesson.id });
+    const onBehalf = await log(
+      { classId: lesson.classId, lessonId: lesson.id },
+      scenery.coordinatorId,
+    );
+    const onlyClass = await log({ classId: lesson.classId, lessonId: null });
+    audits = [];
+
+    await cancel(scenery);
+
+    for (const id of [manual, onBehalf, onlyClass]) {
+      expect((await entryRow(dataSource, id))?.deleted_at).toBeNull();
+      expect((await eventsOf(dataSource, id)).map((event) => event.type)).not.toContain("reversed");
+    }
+    expect(reversals()).toEqual([]);
+  });
+
   it("does nothing the second time the same lesson.cancelled arrives: no row and no event", async () => {
     const scenery = await setUp();
     const entry = await recordPresence(scenery.monitorId, scenery.teacherId, scenery.lesson);

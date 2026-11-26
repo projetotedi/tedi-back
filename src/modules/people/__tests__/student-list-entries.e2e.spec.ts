@@ -84,10 +84,11 @@ describe("StudentsService.listStudentEntries and findStudentSummaries (e2e)", ()
     return undefined;
   }
 
-  it("lists only the ids asked, ordered by name and id, with age, phone and accessibilityNeed", async () => {
+  it("lists only the ids asked, ordered by name and id, with birthDate, age, phone, email, accessibilityNeed and createdAt", async () => {
     const maria = await student("Maria Silva", {
       birthDate: "1958-10-02",
       phone: "43999990000",
+      email: "maria.silva@example.com",
       accessibilityNeed: "visual",
     });
     const ana = await student("Ana Souza", { birthDate: "1958-10-01" });
@@ -106,17 +107,42 @@ describe("StudentsService.listStudentEntries and findStudentSummaries (e2e)", ()
     expect(page.data.find((item) => item.id === maria)).toEqual({
       id: maria,
       name: "Maria Silva",
+      birthDate: "1958-10-02",
       age: 67,
       phone: "43999990000",
+      email: "maria.silva@example.com",
       accessibilityNeed: "visual",
+      createdAt: expect.any(Date),
     });
     expect(page.data.find((item) => item.id === ana)).toEqual({
       id: ana,
       name: "Ana Souza",
+      birthDate: "1958-10-01",
       age: 68,
       phone: null,
+      email: null,
       accessibilityNeed: "none",
+      createdAt: expect.any(Date),
     });
+  });
+
+  it("searches the e-mail and the phone digits only with searchContact", async () => {
+    const ana = await student("Ana", { email: "ana.souza@example.com" });
+    const bruno = await student("Bruno", { phone: "(11) 98888-7777" });
+    await student("Carla");
+
+    const idsOf = async (search: string, searchContact?: boolean): Promise<string[]> =>
+      (await studentsService.listStudentEntries({ search, searchContact }, {})).data.map(
+        (item) => item.id,
+      );
+
+    expect(await idsOf("souza@")).toEqual([]);
+    expect(await idsOf("souza@", true)).toEqual([ana]);
+    expect(await idsOf("98888")).toEqual([]);
+    expect(await idsOf("(11) 98888", true)).toEqual([bruno]);
+    // The name is searched either way.
+    expect(await idsOf("carl")).toHaveLength(1);
+    expect(await idsOf("carl", true)).toHaveLength(1);
   });
 
   it("leaves out the excluded ids, archived students unless asked and soft-deleted people", async () => {

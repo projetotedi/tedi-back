@@ -207,7 +207,9 @@ export class EnrollmentListingService {
    * M12): `enrolled` (the default) lists the students with an active enrollment, in `classId` or in
    * any class; `not_enrolled` lists the students that are not archived and have none. A `classId`
    * that is not a class answers nobody enrolled and everybody not enrolled. By name, paginated and
-   * searchable, each with the classes where she is active.
+   * searchable, each with the classes where she is active. The search is the one of `GET /students`
+   * (GUS-106: the name, the e-mail or the digits of the phone, `searchContact`): it is the same search
+   * box of the screen of students, and the route is under students.view, which sees that contact.
    */
   async listStudentsByEnrollment(
     query: ListStudentsByEnrollmentQueryDto,
@@ -228,8 +230,13 @@ export class EnrollmentListingService {
 
     const students = await this.students.listStudentEntries(
       situation === StudentEnrollmentSituation.ENROLLED
-        ? { onlyIds: activeIds, search: query.search, includeArchived: false }
-        : { excludeIds: activeIds, search: query.search, includeArchived: false },
+        ? { onlyIds: activeIds, search: query.search, searchContact: true, includeArchived: false }
+        : {
+            excludeIds: activeIds,
+            search: query.search,
+            searchContact: true,
+            includeArchived: false,
+          },
       { page, limit },
     );
     const currentClasses = await this.findCurrentClasses(
@@ -240,9 +247,12 @@ export class EnrollmentListingService {
       data: students.data.map((student) => ({
         id: student.id,
         name: student.name,
+        birthDate: student.birthDate,
         age: student.age,
         phone: student.phone,
+        email: student.email,
         accessibilityNeed: student.accessibilityNeed,
+        createdAt: student.createdAt,
         currentClasses: currentClasses.get(student.id) ?? [],
       })),
       total: students.total,

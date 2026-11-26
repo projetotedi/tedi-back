@@ -38,6 +38,13 @@ export class Person extends BaseEntity {
   accessEnabled: boolean;
 
   /**
+   * GUS-93. True while the account still holds a password someone else knows (the one the seed
+   * takes from ADMIN_PASSWORD). The guard blocks the session until the person replaces it.
+   */
+  @Column({ name: "must_change_password", type: "boolean", default: false })
+  mustChangePassword: boolean;
+
+  /**
    * RF-001. Calendar date "YYYY-MM-DD" (TypeORM hydrates `date` as string, never a Date).
    * Required for students; members get it in GUS-91, so existing people have none.
    */
@@ -47,6 +54,23 @@ export class Person extends BaseEntity {
   /** RF-001. Digits only (10 to 13). Personal data: never logged. */
   @Column({ name: "phone", type: "varchar", length: 20, nullable: true, default: null })
   phone: string | null;
+
+  /**
+   * GUS-106. The digits of `phone`, computed by Postgres (STORED generated column): the search by
+   * phone (`digitsSearchCondition`, idx_people_phone_digits_search) finds a phone even if it was
+   * stored with a mask. Never written by the app: insert and update leave it out.
+   */
+  @Column({
+    name: "phone_digits",
+    type: "varchar",
+    length: 20,
+    nullable: true,
+    generatedType: "STORED",
+    asExpression: `regexp_replace("phone", '[^0-9]', '', 'g')`,
+    insert: false,
+    update: false,
+  })
+  phoneDigits: string | null;
 
   /**
    * GUS-122. Instant of the most recent successful login; null until the first one.

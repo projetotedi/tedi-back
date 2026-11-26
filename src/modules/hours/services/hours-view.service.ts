@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { DataSource, SelectQueryBuilder } from "typeorm";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { MemberRefDto } from "@modules/people/dto/member-ref.response.dto";
 import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
@@ -21,6 +22,7 @@ import { HourEntry } from "../entities/hour-entry.entity";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
 import { HourCategoryNotesService } from "./hour-category-notes.service";
 import { hourEntryNotFound, memberNotFound } from "./hour-entry-errors";
+import { findCancelledLessonIds } from "./hour-entry-lessons";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
 import {
   applyPopulation,
@@ -65,6 +67,7 @@ export class HoursViewService {
     private readonly people: PeopleService,
     private readonly permissions: PermissionPolicy,
     private readonly notes: HourCategoryNotesService,
+    private readonly lessons: LessonsService,
   ) {}
 
   /**
@@ -155,10 +158,17 @@ export class HoursViewService {
       .limit(limit)
       .getManyAndCount();
 
+    const cancelled = await findCancelledLessonIds(this.lessons, entries);
+
     return {
       member,
       summary,
-      entries: { data: entries.map(toHourEntryResponse), total, page, limit },
+      entries: {
+        data: entries.map((entry) => toHourEntryResponse(entry, cancelled)),
+        total,
+        page,
+        limit,
+      },
     };
   }
 
@@ -194,9 +204,12 @@ export class HoursViewService {
       .limit(limit)
       .getManyAndCount();
     const members = await this.memberRefsOf(entries.map((entry) => entry.personId));
+    const cancelled = await findCancelledLessonIds(this.lessons, entries);
 
     return {
-      data: entries.map((entry) => toMemberHourEntry(entry, members.get(entry.personId) ?? null)),
+      data: entries.map((entry) =>
+        toMemberHourEntry(entry, members.get(entry.personId) ?? null, cancelled),
+      ),
       total,
       page,
       limit,

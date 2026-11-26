@@ -3,6 +3,7 @@ import { HourEntry } from "../entities/hour-entry.entity";
 import { HourEntryCategory } from "../enums/hour-entry-category.enum";
 import { HourEntryOrigin } from "../enums/hour-entry-origin.enum";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
+import { NO_CANCELLED_LESSONS } from "../services/hour-entry-lessons";
 import { toHourEntryResponse } from "../services/hour-entry-response.mapper";
 
 const ENTRY_ID = "01999a3e-7c1b-7000-8000-000000000a01";
@@ -40,7 +41,7 @@ function buildEntry(overrides: Partial<HourEntry> = {}): HourEntry {
 
 describe("toHourEntryResponse", () => {
   it("maps every field of the entry, with null for the optional ones", () => {
-    expect(toHourEntryResponse(buildEntry())).toEqual({
+    expect(toHourEntryResponse(buildEntry(), NO_CANCELLED_LESSONS)).toEqual({
       id: ENTRY_ID,
       personId: MEMBER_ID,
       activity: "Planejamento da aula de teclado e mouse",
@@ -54,6 +55,7 @@ describe("toHourEntryResponse", () => {
       createdById: MEMBER_ID,
       classId: null,
       lessonId: null,
+      lessonCancelled: false,
       reviewNote: null,
       reviewedById: null,
       reviewedAt: null,
@@ -78,12 +80,13 @@ describe("toHourEntryResponse", () => {
       updatedAt: UPDATED_AT,
     });
 
-    expect(toHourEntryResponse(reviewed)).toMatchObject({
+    expect(toHourEntryResponse(reviewed, NO_CANCELLED_LESSONS)).toMatchObject({
       category: HourEntryCategory.LESSON,
       origin: HourEntryOrigin.ATTENDANCE,
       createdById: DIRECTOR_ID,
       classId: CLASS_ID,
       lessonId: LESSON_ID,
+      lessonCancelled: false,
       notes: "Aula de teclado.",
       status: HourEntryStatus.ADJUSTED,
       validatedMinutes: 120,
@@ -97,6 +100,17 @@ describe("toHourEntryResponse", () => {
   it("never exposes deletedAt", () => {
     const removed = buildEntry({ deletedAt: UPDATED_AT });
 
-    expect(toHourEntryResponse(removed)).not.toHaveProperty("deletedAt");
+    expect(toHourEntryResponse(removed, NO_CANCELLED_LESSONS)).not.toHaveProperty("deletedAt");
+  });
+
+  it("says the lesson was cancelled only when the lesson of the entry is among the cancelled ones", () => {
+    const linked = buildEntry({ classId: CLASS_ID, lessonId: LESSON_ID });
+    const cancelled = new Set([LESSON_ID]);
+
+    expect(toHourEntryResponse(linked, cancelled).lessonCancelled).toBe(true);
+    expect(toHourEntryResponse(linked, NO_CANCELLED_LESSONS).lessonCancelled).toBe(false);
+    expect(toHourEntryResponse(buildEntry({ classId: CLASS_ID }), cancelled).lessonCancelled).toBe(
+      false,
+    );
   });
 });

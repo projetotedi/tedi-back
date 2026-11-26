@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { DataSource } from "typeorm";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { MemberRegistrationStatus, MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 import { AuthUser } from "@shared/decorators/auth-user.type";
@@ -139,6 +140,7 @@ describe("HoursViewService", () => {
   const members = { findMemberRefs: jest.fn(), findAccessFacts: jest.fn() };
   const people = { findRefsByIds: jest.fn() };
   const notes = { notesOf: jest.fn() };
+  const lessons = { findLessonSummaries: jest.fn().mockResolvedValue([]) };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -185,6 +187,7 @@ describe("HoursViewService", () => {
         { provide: MembersService, useValue: members },
         { provide: PeopleService, useValue: people },
         { provide: HourCategoryNotesService, useValue: notes },
+        { provide: LessonsService, useValue: lessons },
       ],
     }).compile();
     service = moduleRef.get(HoursViewService);
