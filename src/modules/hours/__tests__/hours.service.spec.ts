@@ -637,6 +637,7 @@ describe("HoursService", () => {
         createdById: MEMBER.id,
         classId: null,
         lessonId: null,
+        lessonCancelled: false,
         reviewNote: null,
         reviewedById: null,
         reviewedAt: null,
