@@ -20,6 +20,7 @@ import { MemberHoursResponseDto } from "../dto/member-hours.response.dto";
 import { HourEntryEvent } from "../entities/hour-entry-event.entity";
 import { HourEntry } from "../entities/hour-entry.entity";
 import { HourEntryStatus } from "../enums/hour-entry-status.enum";
+import { HourCategoryNotesService } from "./hour-category-notes.service";
 import { hourEntryNotFound, memberNotFound } from "./hour-entry-errors";
 import { findCancelledLessonIds } from "./hour-entry-lessons";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
@@ -65,6 +66,7 @@ export class HoursViewService {
     private readonly members: MembersService,
     private readonly people: PeopleService,
     private readonly permissions: PermissionPolicy,
+    private readonly notes: HourCategoryNotesService,
     private readonly lessons: LessonsService,
   ) {}
 
@@ -120,7 +122,8 @@ export class HoursViewService {
 
   /**
    * `GET /members/:id/hours` (F7.4): one member, her totals in the period (by status and by
-   * category, with the pending ones) and a page of her entries, the most recent day first, each
+   * category, with the pending ones and the observation of coordination on each category, GUS-173)
+   * and a page of her entries, the most recent day first, each
    * with its review note.
    *
    * The member is a row of `GET /members` (an access role or a member registration): a student, an
@@ -144,7 +147,7 @@ export class HoursViewService {
     });
 
     const population = peoplePopulation([member.id]);
-    const summary = await this.readSummary(query, population);
+    const summary = await this.readSummary(query, population, await this.notes.notesOf(member.id));
 
     const builder = this.entries();
     applyPeriod(builder, query);
@@ -250,14 +253,16 @@ export class HoursViewService {
     );
   }
 
+  /** The totals of the population in the period; `notes` only for the summary of one member. */
   private async readSummary(
     period: HoursPeriodQueryDto,
     population: HoursPopulation,
+    notes?: ReadonlyMap<string, string>,
   ): Promise<HoursSummaryResponseDto> {
     const builder = this.entries();
     applyPeriod(builder, period);
     applyPopulation(builder, population);
-    return buildHoursSummary(await selectSummaryRows(builder), periodOf(period));
+    return buildHoursSummary(await selectSummaryRows(builder), periodOf(period), notes);
   }
 
   /** A page of the totals of each member; the statuses go as parameters, never in the SQL text. */

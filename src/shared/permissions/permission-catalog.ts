@@ -131,7 +131,7 @@ export const PERMISSION_CATALOG: Readonly<
   },
   [Permission.HOURS_REVIEW]: {
     section: "Horas",
-    action: "Validar, ajustar ou rejeitar lançamentos",
+    action: "Validar, ajustar ou rejeitar lançamentos e escrever a observação por categoria",
   },
   [Permission.HOURS_EXPORT]: { section: "Horas", action: "Exportar relatório de horas" },
 };

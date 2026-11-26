@@ -1,0 +1,38 @@
+meta {
+  name: set-member-hour-category-note
+  type: http
+  seq: 14
+}
+
+put {
+  url: {{baseUrl}}/members/:id/hours/notes
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000020
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "category": "planning",
+    "note": "Aguardando validação da coordenação."
+  }
+}
+
+docs {
+  Escreve, troca ou apaga a observação da coordenação sobre as horas de um membro numa categoria (GUS-173): a coluna OBSERVAÇÃO da tabela "Horas por categoria".
+  Requer cookie tedi_session e a permissão hours.review (@RequirePermission; só coordenação e superadmin, RN-06). Diretoria e membro recebem 403 FORBIDDEN.
+  O id é de um membro, como em get-member-hours: id mal formado, inexistente, pessoa removida ou aluno respondem 404 MEMBER_NOT_FOUND.
+  Corpo: category (qualquer uma das 7, lesson inclusive) e note (texto livre, aparado, até 500 caracteres). note null ou em branco apaga a observação.
+  Uma observação por membro e categoria, sem período: o banco de horas é acumulativo (Q6.9), então ela aparece em qualquer período do resumo. Escrever de novo substitui.
+  A observação aparece em byCategory[].note de get-my-hours-summary (o próprio membro) e de get-member-hours (summary). Em get-hours-overview, que soma a equipe, note é sempre null.
+  Retorna 200 HourCategoryNoteResponseDto (personId, category, note, updatedById, updatedAt). Registra HOUR_CATEGORY_NOTE_UPDATED com hasNote, sem o texto (RNF-13).
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 MEMBER_NOT_FOUND.
+}

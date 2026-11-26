@@ -43,6 +43,7 @@ import {
 } from "./hour-entry-errors";
 import { findCancelledLessonIds, NO_CANCELLED_LESSONS } from "./hour-entry-lessons";
 import { toHourEntryResponse } from "./hour-entry-response.mapper";
+import { HourCategoryNotesService } from "./hour-category-notes.service";
 import { buildHoursSummary, HoursSummaryRow } from "./hours-summary";
 
 const HOUR_ENTRY_TARGET_TYPE = "hour_entry";
@@ -185,6 +186,7 @@ export class HoursService {
     private readonly people: PeopleService,
     private readonly members: MembersService,
     private readonly permissions: PermissionPolicy,
+    private readonly notes: HourCategoryNotesService,
     private readonly classes: ClassesService,
     private readonly lessons: LessonsService,
   ) {}
@@ -437,7 +439,8 @@ export class HoursService {
 
   /**
    * `GET /me/hours/summary`: the totals of the logged-in person in the period, by status and by
-   * category, and the bank of hours. One query, grouped by status and category (at most 28 rows);
+   * category, with the observation of coordination on each category (GUS-173), and the bank of
+   * hours. One query, grouped by status and category (at most 28 rows), and one for the observations;
    * the counts are cast to `int` because Postgres sums into `bigint`, which `pg` hands over as a
    * string. Removed entries are left out. 400 INVALID_PERIOD before querying.
    */
@@ -463,7 +466,11 @@ export class HoursService {
       .addGroupBy("entry.category")
       .getRawMany<HoursSummaryRow>();
 
-    return buildHoursSummary(rows, { from: query.from ?? null, to: query.to ?? null });
+    return buildHoursSummary(
+      rows,
+      { from: query.from ?? null, to: query.to ?? null },
+      await this.notes.notesOf(actor.id),
+    );
   }
 
   /**

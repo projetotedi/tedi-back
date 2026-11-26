@@ -730,6 +730,14 @@ A GUS-164 dá à coordenação e à diretoria a leitura das horas da equipe e à
 | V13 | A exportação é uma fotografia?               | Não: lotes lidos cada um no seu instante, sem transação longa; cada lançamento sai uma vez.                             |
 | V14 | `HOUR_ENTRY_NOT_FOUND` e `ENTRY_NOT_PENDING` | 404 com id na URL e 400 com ids no corpo; `ENTRY_NOT_PENDING` da revisão tem mensagem própria, mesmo código.            |
 
+### 17.1 Observação por categoria (GUS-173)
+
+A tabela "Horas por categoria" do Meu perfil e das horas do membro tem a coluna OBSERVAÇÃO: texto livre da coordenação, por membro e categoria (decisão do PO na GUS-173). Fica em `hour_category_notes` (`HourCategoryNote`), uma linha por pessoa e categoria (índice único parcial `uq_hour_category_notes_person_id_category`), com `note` null quando apagada e `updated_by_id`. A categoria reaproveita `hour_entries_category_enum`. Migration `CreateHourCategoryNotes1795000001300`; o e2e de schema é `hours/__tests__/hour-category-notes.repository.e2e.spec.ts`.
+
+- **Escrita.** `PUT /members/:id/hours/notes` com `{ category, note }`: `hours.review`, a permissão da revisão (RN-06: só coordenação e superadmin; diretoria e membro recebem 403 `FORBIDDEN` no guard). O membro é uma linha de `GET /members`, como em `GET /members/:id/hours` (404 `MEMBER_NOT_FOUND` para aluno, inexistente e id mal formado). `note` é aparada, até 500 caracteres; null ou em branco apaga. Um único `INSERT ... ON CONFLICT ("person_id", "category") WHERE "deleted_at" IS NULL DO UPDATE`: duas escritas simultâneas deixam uma linha, com a última. Emite `HOUR_CATEGORY_NOTE_UPDATED` com `hasNote`, nunca o texto (RNF-13).
+- **Sem período.** O banco de horas é acumulativo (Q6.9): a observação aparece em qualquer período lido.
+- **Leitura.** `HoursCategoryTotalDto.note`: `buildHoursSummary` recebe as observações de um membro (`HourCategoryNotesService.notesOf`, uma consulta) e preenche cada categoria; sem observação, null. `GET /me/hours/summary` e `GET /members/:id/hours` passam as do membro, e o mesmo texto sai nas duas telas; `GET /hours/overview`, que soma a equipe, não passa nenhuma, e `note` é sempre null ali.
+
 ## 18. Presença de membros (GUS-168)
 
 O módulo `attendance` guarda a **presença de membros**: quem estava (ou faltou) numa aula como professor ou monitor, quem assinou e quando. Confirmar `present` gera as horas da aula (F7.1, RF-060); corrigir para `absent` ou cancelar a aula as estorna (RF-071, RN-07). A chamada de alunos (GUS-166) está na 18.1. As decisões P1 a P14 estão na tabela do fim.
