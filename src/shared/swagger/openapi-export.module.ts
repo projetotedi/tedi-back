@@ -17,13 +17,76 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { ThrottlerStorage } from "@nestjs/throttler";
 import { HealthController } from "@shared/health/health.controller";
+import { ApplicationsController } from "@modules/assignments/controllers/applications.controller";
+import { AssignmentsController } from "@modules/assignments/controllers/assignments.controller";
+import { LessonApplicationsController } from "@modules/assignments/controllers/lesson-applications.controller";
+import { LessonAssignmentsController } from "@modules/assignments/controllers/lesson-assignments.controller";
+import { MemberAssignmentsController } from "@modules/assignments/controllers/member-assignments.controller";
+import { MyAssignmentsController } from "@modules/assignments/controllers/my-assignments.controller";
 import { AuthController } from "@modules/auth/auth.controller";
 import { InvitesController } from "@modules/auth/invites.controller";
 import { AccessController } from "@modules/auth/access.controller";
+import { CourseLessonPlansController } from "@modules/catalog/controllers/course-lesson-plans.controller";
+import { CoursesController } from "@modules/catalog/controllers/courses.controller";
+import { LessonPlansController } from "@modules/catalog/controllers/lesson-plans.controller";
+import { ClassEnrollmentsController } from "@modules/classes/controllers/class-enrollments.controller";
+import { ClassesController } from "@modules/classes/controllers/classes.controller";
+import { CourseClassesController } from "@modules/classes/controllers/course-classes.controller";
+import { EditionsController } from "@modules/classes/controllers/editions.controller";
+import { EnrollmentsController } from "@modules/classes/controllers/enrollments.controller";
+import { StudentEnrollmentsController } from "@modules/classes/controllers/student-enrollments.controller";
+import { ClassLessonsController } from "@modules/lessons/controllers/class-lessons.controller";
+import { LessonsController } from "@modules/lessons/controllers/lessons.controller";
+import { MemberHoursController } from "@modules/hours/controllers/member-hours.controller";
+import { MyHoursController } from "@modules/hours/controllers/my-hours.controller";
+import { HourEntriesController } from "@modules/hours/controllers/hour-entries.controller";
+import { HoursController } from "@modules/hours/controllers/hours.controller";
+import { MemberHoursViewController } from "@modules/hours/controllers/member-hours-view.controller";
+import { MemberHourNotesController } from "@modules/hours/controllers/member-hour-notes.controller";
+import { LessonMemberAttendanceController } from "@modules/attendance/controllers/lesson-member-attendance.controller";
+import { MemberAttendanceController } from "@modules/attendance/controllers/member-attendance.controller";
+import { LessonStudentAttendanceController } from "@modules/attendance/controllers/lesson-student-attendance.controller";
+import { StudentAttendanceController } from "@modules/attendance/controllers/student-attendance.controller";
+import { DepartmentsController } from "@modules/people/controllers/departments.controller";
+import { MembersController } from "@modules/people/controllers/members.controller";
+import { MemberRegistrationsController } from "@modules/people/controllers/member-registrations.controller";
+import { MyProfileController } from "@modules/people/controllers/my-profile.controller";
 import { StudentsController } from "@modules/people/controllers/students.controller";
+import { ApplicationsService } from "@modules/assignments/services/applications.service";
+import { AssignmentsService } from "@modules/assignments/services/assignments.service";
+import { MyAssignmentsService } from "@modules/assignments/services/my-assignments.service";
 import { AuthService } from "@modules/auth/services/auth.service";
 import { InvitesService } from "@modules/auth/services/invites.service";
 import { AccessService } from "@modules/auth/services/access.service";
+import { CourseDetailService } from "@modules/catalog/services/course-detail.service";
+import { CourseListService } from "@modules/catalog/services/course-list.service";
+import { LessonPlanListService } from "@modules/catalog/services/lesson-plan-list.service";
+import { CourseLessonPlansService } from "@modules/catalog/services/course-lesson-plans.service";
+import { CoursesService } from "@modules/catalog/services/courses.service";
+import { LessonPlanUsageService } from "@modules/catalog/services/lesson-plan-usage.service";
+import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
+import { ClassDetailService } from "@modules/classes/services/class-detail.service";
+import { ClassListService } from "@modules/classes/services/class-list.service";
+import { ClassesService } from "@modules/classes/services/classes.service";
+import { CourseClassesService } from "@modules/classes/services/course-classes.service";
+import { EditionsService } from "@modules/classes/services/editions.service";
+import { EnrollmentListingService } from "@modules/classes/services/enrollment-listing.service";
+import { EnrollmentsService } from "@modules/classes/services/enrollments.service";
+import { LessonGenerationService } from "@modules/lessons/services/lesson-generation.service";
+import { LessonListingService } from "@modules/lessons/services/lesson-listing.service";
+import { LessonsService } from "@modules/lessons/services/lessons.service";
+import { HoursService } from "@modules/hours/services/hours.service";
+import { HourCategoryNotesService } from "@modules/hours/services/hour-category-notes.service";
+import { HoursExportService } from "@modules/hours/services/hours-export.service";
+import { HoursReviewService } from "@modules/hours/services/hours-review.service";
+import { HoursViewService } from "@modules/hours/services/hours-view.service";
+import { MemberAttendanceService } from "@modules/attendance/services/member-attendance.service";
+import { MemberAttendanceHistoryService } from "@modules/attendance/services/member-attendance-history.service";
+import { StudentRollCallService } from "@modules/attendance/services/student-roll-call.service";
+import { StudentAttendanceRecordsService } from "@modules/attendance/services/student-attendance-records.service";
+import { DepartmentsService } from "@modules/people/services/departments.service";
+import { MembersService } from "@modules/people/services/members.service";
+import { MyProfileService } from "@modules/people/services/my-profile.service";
 import { StudentsService } from "@modules/people/services/students.service";
 import { LoginThrottlerGuard } from "@modules/auth/guards/login-throttler.guard";
 
@@ -36,6 +99,37 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     InvitesController,
     AccessController,
     StudentsController,
+    MemberRegistrationsController,
+    DepartmentsController,
+    MyProfileController,
+    MembersController,
+    LessonPlansController,
+    CoursesController,
+    CourseLessonPlansController,
+    ClassesController,
+    EditionsController,
+    CourseClassesController,
+    ClassEnrollmentsController,
+    EnrollmentsController,
+    StudentEnrollmentsController,
+    LessonsController,
+    ClassLessonsController,
+    LessonAssignmentsController,
+    LessonApplicationsController,
+    AssignmentsController,
+    ApplicationsController,
+    MemberAssignmentsController,
+    MyAssignmentsController,
+    MyHoursController,
+    MemberHoursController,
+    MemberHoursViewController,
+    HoursController,
+    HourEntriesController,
+    MemberHourNotesController,
+    LessonMemberAttendanceController,
+    MemberAttendanceController,
+    LessonStudentAttendanceController,
+    StudentAttendanceController,
   ],
   providers: [
     {
@@ -44,7 +138,11 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
     },
     {
       provide: AuthService,
-      useValue: { login: async () => ({}), getMe: async () => ({}) },
+      useValue: {
+        login: async () => ({}),
+        getMe: async () => ({}),
+        changeOwnPassword: async () => ({}),
+      },
     },
     {
       provide: InvitesService,
@@ -77,6 +175,221 @@ const THROTTLER_OPTIONS_TOKEN = "THROTTLER:MODULE_OPTIONS";
         findByIds: async () => [],
         findDetail: async () => ({}),
       },
+    },
+    {
+      provide: MembersService,
+      useValue: {
+        submitFromInvite: async () => ({}),
+        findAccessFacts: async () => ({ registrationStatus: null, departmentIds: [] }),
+        listRegistrations: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listMembers: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getMember: async () => ({}),
+        deactivateMember: async () => ({}),
+        reactivateMember: async () => ({}),
+        updateMember: async () => ({}),
+        getRegistration: async () => ({}),
+        approve: async () => ({}),
+        reject: async () => ({}),
+      },
+    },
+    {
+      provide: MyAssignmentsService,
+      useValue: { listMine: async () => ({}), listOpen: async () => [] },
+    },
+    {
+      provide: MyProfileService,
+      useValue: { getMyProfile: async () => ({}) },
+    },
+    {
+      provide: DepartmentsService,
+      useValue: { list: async () => [], create: async () => ({}), exists: async () => false },
+    },
+    {
+      provide: LessonPlansService,
+      useValue: {
+        create: async () => ({}),
+        findById: async () => ({}),
+        update: async () => ({}),
+        archive: async () => ({}),
+        unarchive: async () => ({}),
+        duplicate: async () => ({}),
+        getLessonPlanSummary: async () => null,
+      },
+    },
+    {
+      provide: LessonPlanUsageService,
+      useValue: { getDetail: async () => ({}), getUsage: async () => ({}) },
+    },
+    {
+      provide: CoursesService,
+      useValue: {
+        create: async () => ({}),
+        update: async () => ({}),
+        duplicate: async () => ({}),
+        getCourseSummary: async () => null,
+      },
+    },
+    {
+      provide: CourseLessonPlansService,
+      useValue: {
+        list: async () => ({}),
+        replace: async () => ({}),
+        findPosition: async () => null,
+        getSequenceSummaries: async () => [],
+      },
+    },
+    {
+      provide: CourseDetailService,
+      useValue: { findDetail: async () => ({}) },
+    },
+    {
+      provide: CourseListService,
+      useValue: { list: async () => ({}) },
+    },
+    {
+      provide: LessonPlanListService,
+      useValue: { list: async () => ({}), listContents: async () => [] },
+    },
+    {
+      provide: ClassesService,
+      useValue: {
+        create: async () => ({}),
+        update: async () => ({}),
+        archive: async () => ({}),
+        unarchive: async () => ({}),
+        getClassSummary: async () => null,
+        listClassRefs: async () => [],
+      },
+    },
+    {
+      provide: ClassDetailService,
+      useValue: { findDetail: async () => ({}) },
+    },
+    {
+      provide: ClassListService,
+      useValue: { list: async () => ({}) },
+    },
+    {
+      provide: EditionsService,
+      useValue: { list: async () => [], findOrCreate: async () => ({}) },
+    },
+    {
+      provide: CourseClassesService,
+      useValue: {
+        listCourseClasses: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        summarizeByCourse: async () => [],
+      },
+    },
+    {
+      provide: EnrollmentsService,
+      useValue: {
+        enroll: async () => ({ enrolled: [], skipped: [], warnings: [] }),
+        updateStatus: async () => ({}),
+        remove: async () => undefined,
+      },
+    },
+    {
+      provide: EnrollmentListingService,
+      useValue: {
+        listClassEnrollments: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listAvailableStudents: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listStudentEnrollments: async () => ({}),
+        listStudentsByEnrollment: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+      },
+    },
+    {
+      provide: LessonListingService,
+      useValue: {
+        list: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        listCalendar: async () => [],
+      },
+    },
+    {
+      provide: LessonsService,
+      useValue: {
+        create: async () => ({}),
+        findById: async () => ({}),
+        update: async () => ({}),
+        cancel: async () => ({}),
+        reschedule: async () => ({}),
+      },
+    },
+    {
+      provide: LessonGenerationService,
+      useValue: { preview: async () => ({}), generate: async () => ({}) },
+    },
+    {
+      provide: AssignmentsService,
+      useValue: {
+        create: async () => ({}),
+        listByLesson: async () => [],
+        confirm: async () => ({}),
+        cancel: async () => ({}),
+        listByMember: async () => [],
+      },
+    },
+    {
+      provide: ApplicationsService,
+      useValue: {
+        apply: async () => ({}),
+        listPending: async () => ({ total: 0, lessons: [] }),
+        approve: async () => ({}),
+        reject: async () => ({}),
+      },
+    },
+    {
+      provide: HoursService,
+      useValue: {
+        createEntry: async () => ({}),
+        logMyHours: async () => ({}),
+        logHoursForMember: async () => ({}),
+        listMyEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getMySummary: async () => ({}),
+        removeMyEntry: async () => undefined,
+      },
+    },
+    {
+      provide: HourCategoryNotesService,
+      useValue: {
+        setNote: async () => ({}),
+      },
+    },
+    {
+      provide: HoursViewService,
+      useValue: {
+        getOverview: async () => ({}),
+        getMemberHours: async () => ({}),
+        listEntries: async () => ({ data: [], total: 0, page: 1, limit: 20 }),
+        getHistory: async () => [],
+      },
+    },
+    {
+      provide: HoursReviewService,
+      useValue: {
+        validateEntries: async () => [],
+        adjustEntry: async () => ({}),
+        rejectEntry: async () => ({}),
+      },
+    },
+    {
+      provide: HoursExportService,
+      useValue: { exportCsv: async () => ({}) },
+    },
+    {
+      provide: MemberAttendanceService,
+      useValue: { listByLesson: async () => [], confirm: async () => [] },
+    },
+    {
+      provide: MemberAttendanceHistoryService,
+      useValue: { getByMember: async () => ({ totals: { present: 0, absent: 0 }, items: [] }) },
+    },
+    {
+      provide: StudentRollCallService,
+      useValue: { list: async () => [], sign: async () => [] },
+    },
+    {
+      provide: StudentAttendanceRecordsService,
+      useValue: { justify: async () => ({}), correct: async () => ({}) },
     },
     {
       provide: ConfigService,

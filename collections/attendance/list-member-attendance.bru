@@ -1,0 +1,28 @@
+meta {
+  name: list-member-attendance
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/lessons/:id/attendance/members
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Presença de membros de uma aula (F6.2, GUS-168). O :id é o id da aula.
+  Requer cookie tedi_session e a permissão lessons.view (@RequirePermission; todos os perfis), a mesma de ler a aula e as alocações dela.
+  Lista as alocações CONFIRMADAS da aula, o professor primeiro (papel na ordem do enum, depois quando foi feita e o id), cada uma com a presença do membro: status (present ou absent), confirmedBy (quem assinou por último), confirmedAt e hourEntryId (o lançamento de horas que a presença gerou; o histórico dele é GET /hour-entries/:id/history). Presença ainda não assinada vem com os quatro campos null.
+  A presença é da pessoa na aula: um membro cancelado e alocado de novo continua com a presença que tinha. Alocação pendente, recusada ou cancelada não aparece. Aula cancelada continua listando o que foi assinado. Sem paginação.
+  Leitura simples: sem transação, sem trava e sem evento.
+  Erros possíveis: 401, 404 LESSON_NOT_FOUND (id inexistente ou mal formado).
+}

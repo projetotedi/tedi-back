@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  HttpException,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -10,6 +11,7 @@ import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import { Request } from "express";
 import { SESSION_COOKIE_NAME, REQUEST_USER_KEY } from "../auth.constants";
+import { ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY } from "../decorators/allow-when-password-change-required.decorator";
 import { ROLES_KEY } from "@shared/decorators/roles.decorator";
 import { PUBLIC_KEY } from "@shared/decorators/public.decorator";
 import { PERMISSION_KEY } from "@shared/permissions/require-permission.decorator";
@@ -18,6 +20,8 @@ import { scopeFor } from "@shared/permissions/permission-matrix";
 import { Scope } from "@shared/permissions/scope.type";
 import { Role, roleSatisfies } from "@shared/enums/role.enum";
 import { AuthUser } from "@shared/decorators/auth-user.type";
+import { MemberRegistrationStatus } from "@modules/people/enums/member-registration-status.enum";
+import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
 
 interface JwtPayload {
@@ -33,6 +37,7 @@ export class AuthGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly people: PeopleService,
     private readonly config: ConfigService,
+    private readonly members: MembersService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -86,11 +91,33 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    // Step 8: Attach AuthUser to request.
+    // Step 7b: a member registration under validation never passes (defense in depth: pending
+    // and rejected keep role null and accessEnabled false, so steps 6-7 already deny them).
+    // The same read gives the department scope (GUS-91, decision 19: fresh on every request).
+    const facts = await this.members.findAccessFacts(person.id);
+    if (
+      facts.registrationStatus === MemberRegistrationStatus.PENDING ||
+      facts.registrationStatus === MemberRegistrationStatus.REJECTED
+    ) {
+      throw new UnauthorizedException();
+    }
+
+    // Step 7c: the account still has to replace its password (GUS-93, decision 16). Only the
+    // routes marked @AllowWhenPasswordChangeRequired answer. It runs before @Roles and
+    // @RequirePermission so the client always learns this reason, never an unrelated 403.
+    if (person.mustChangePassword && !this.allowsPendingPasswordChange(ctx)) {
+      throw new HttpException(
+        { error: "PASSWORD_CHANGE_REQUIRED", message: "Password change required." },
+        403,
+      );
+    }
+
+    // Step 8: Attach AuthUser to request, with the department of the approved member profile.
     const authUser: AuthUser = {
       id: person.id,
       role: person.role,
       accessEnabled: person.accessEnabled,
+      departmentIds: facts.departmentIds,
     };
     request[REQUEST_USER_KEY] = authUser;
 
@@ -116,6 +143,15 @@ export class AuthGuard implements CanActivate {
       role: fakeRole as Role,
       accessEnabled: true,
     };
+  }
+
+  private allowsPendingPasswordChange(ctx: ExecutionContext): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(ALLOW_WHEN_PASSWORD_CHANGE_REQUIRED_KEY, [
+        ctx.getHandler(),
+        ctx.getClass(),
+      ]) === true
+    );
   }
 
   /**

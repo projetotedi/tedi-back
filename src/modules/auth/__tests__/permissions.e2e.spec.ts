@@ -1,9 +1,10 @@
 /**
  * E2e spec for @RequirePermission + PermissionPolicy — GUS-114.
  *
- * The domain modules that own these rules (members, hours, attendance) and the
- * department of a person (GUS-91) do not exist yet. PermissionDemoController
- * stands in for them under /test/permissions/..., fed by fake fixtures.
+ * The domain modules that own these rules (members, hours, attendance) do not exist yet.
+ * PermissionDemoController stands in for them under /test/permissions/..., fed by fake fixtures.
+ * Since GUS-91 the department of a person is real: the AuthGuard fills AuthUser.departmentIds
+ * from the approved member profile (see "department scope with real departments").
  */
 import "reflect-metadata";
 import { Test, TestingModule } from "@nestjs/testing";
@@ -15,6 +16,10 @@ import { DataSource } from "typeorm";
 import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import request from "supertest";
+import {
+  insertDepartment,
+  insertMemberProfile,
+} from "@modules/people/__tests__/fixtures/member-registration.fixture";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import { HttpExceptionFilter } from "@shared/filters/http-exception.filter";
@@ -105,7 +110,8 @@ describe("Permissions (e2e)", () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query("TRUNCATE TABLE people RESTART IDENTITY CASCADE");
+    // CASCADE from people also truncates member_profiles.
+    await dataSource.query("TRUNCATE TABLE departments, people RESTART IDENTITY CASCADE");
     FAKE_DEPARTMENTS.clear();
     FAKE_LESSON_STAFF.clear();
 
@@ -126,6 +132,62 @@ describe("Permissions (e2e)", () => {
       monitorIds: [diego.id, juliana.id],
     });
     FAKE_LESSON_STAFF.set(LESSON_Y, { teacherIds: [], monitorIds: [] });
+  });
+
+  // -------------------------------------------------------------------------
+  // Department scope with the real departments (GUS-91)
+  // -------------------------------------------------------------------------
+  describe("department scope with real departments (GUS-91)", () => {
+    let tecnologiaId: string;
+    let comunicacaoId: string;
+    let realDirector: Actor;
+    let realMemberTech: Actor;
+    let realMemberComms: Actor;
+
+    async function approvedActor(name: string, role: Role, departmentId: string): Promise<Actor> {
+      const actor = await createActor(name, role);
+      await insertMemberProfile(dataSource, {
+        personId: actor.id,
+        status: "approved",
+        departmentId,
+      });
+      return actor;
+    }
+
+    beforeEach(async () => {
+      tecnologiaId = await insertDepartment(dataSource, "Tecnologia");
+      comunicacaoId = await insertDepartment(dataSource, "Comunicação");
+      realDirector = await approvedActor("Director Real Tecnologia", Role.DIRECTOR, tecnologiaId);
+      realMemberTech = await approvedActor("Member Real Tecnologia", Role.MEMBER, tecnologiaId);
+      realMemberComms = await approvedActor("Member Real Comunicação", Role.MEMBER, comunicacaoId);
+    });
+
+    it("director of Tecnologia gets 200 on GET /test/permissions/real-members/<Tecnologia member> with departments filled by the AuthGuard (GUS-91)", async () => {
+      await request(app.getHttpServer())
+        .get(`${BASE}/real-members/${realMemberTech.id}`)
+        .set("Cookie", realDirector.cookie)
+        .expect(200)
+        .expect({ personId: realMemberTech.id });
+    });
+
+    it("director of Tecnologia gets 403 FORBIDDEN_SCOPE on GET /test/permissions/real-members/<Comunicação member> with departments filled by the AuthGuard (GUS-91)", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/real-members/${realMemberComms.id}`)
+        .set("Cookie", realDirector.cookie)
+        .expect(403);
+
+      expect(res.body.error).toBe("FORBIDDEN_SCOPE");
+    });
+
+    it("director without a member profile gets 403 FORBIDDEN_SCOPE on any third party", async () => {
+      // directorNoDept has no profile: the guard attaches [] and the department scope denies.
+      const res = await request(app.getHttpServer())
+        .get(`${BASE}/real-members/${realMemberTech.id}`)
+        .set("Cookie", directorNoDept.cookie)
+        .expect(403);
+
+      expect(res.body.error).toBe("FORBIDDEN_SCOPE");
+    });
   });
 
   // -------------------------------------------------------------------------

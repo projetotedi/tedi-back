@@ -1,0 +1,41 @@
+meta {
+  name: create-assignment
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/lessons/:id/assignments
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "personId": "01952ef7-0000-7000-8000-000000000005",
+    "role": "monitor",
+    "status": "confirmed",
+    "note": "Cobre a segunda hora da aula."
+  }
+}
+
+docs {
+  Aloca um membro numa aula, como professor ou monitor (F5.2). O :id é o id da aula.
+  Requer cookie tedi_session e a permissão assignments.create (@RequirePermission; diretoria, coordenação e superadmin, de qualquer departamento). Membro recebe 403 FORBIDDEN.
+  Corpo: personId (UUID do membro), role (teacher ou monitor) e status (pending ou confirmed), os três obrigatórios, e note (opcional, até 500 caracteres; null ou em branco significa sem nota; texto livre: não registre informação de saúde; depois de gravada, só quem tem assignments.create a lê: list-lesson-assignments devolve note null aos outros perfis). pending deixa a alocação esperando confirmação; confirmed já põe o membro na aula e grava reviewedById (quem alocou) e reviewedAt (agora). declined e cancelled são recusados com 400 VALIDATION_FAILED (field status): só saem de uma decisão sobre uma alocação que existe (cancel-assignment). A alocação feita aqui é sempre direct: um source enviado é ignorado (application é a candidatura do membro, outro card).
+  Um membro ocupa um lugar por aula (RN-01): se ele já tem alocação ativa (pending ou confirmed) na aula, como o mesmo papel ou como o outro, é 409 DUPLICATE_ROLE_IN_LESSON. Alocação cancelada ou recusada libera o lugar: o membro pode ser alocado de novo, e a nova é outra linha. Uma aula tem no máximo um professor confirmado (RN-02): teacher com confirmed numa aula que já tem um é 409 LESSON_TEACHER_TAKEN. Vários professores pending são aceitos (são candidatos), e monitores não têm limite.
+  Aula cancelada não recebe alocação: 409 LESSON_CANCELLED. Aula planned, confirmed ou done recebe, inclusive a que já passou. Só entra quem é membro ativo: personId que não é de um membro (desconhecido, mal formado ou aluno) é 400 MEMBER_NOT_FOUND (details[].field = "personId": o id está no corpo, não na URL), e membro sem acesso, ou com o cadastro ainda pendente ou recusado, é 409 MEMBER_INACTIVE.
+  A aula e o membro ficam travados (FOR SHARE) até o fim da transação: alocar e cancelar a aula (ou desativar o acesso do membro) ao mesmo tempo são feitos um depois do outro. Dois pedidos ao mesmo tempo para o mesmo membro, ou para dois professores confirmados, terminam com uma alocação só: o banco recusa a segunda e ela vira o mesmo 409.
+  Retorna 201 LessonAssignmentResponseDto: a alocação com person { id, name }. Registra o evento LESSON_ASSIGNMENT_CREATED, sem a nota.
+  Ordem dos erros: 400 VALIDATION_FAILED, 404 LESSON_NOT_FOUND, 409 LESSON_CANCELLED, 400 MEMBER_NOT_FOUND, 409 MEMBER_INACTIVE, 409 DUPLICATE_ROLE_IN_LESSON, 409 LESSON_TEACHER_TAKEN.
+  Erros possíveis: 400 (os códigos acima), 401, 403 FORBIDDEN, 404 LESSON_NOT_FOUND (id inexistente ou mal formado), 409 (os códigos acima).
+}

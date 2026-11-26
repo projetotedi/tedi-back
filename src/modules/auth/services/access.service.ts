@@ -1,9 +1,12 @@
 import { HttpException, Injectable } from "@nestjs/common";
-import { DataSource, EntityManager } from "typeorm";
+import { DataSource } from "typeorm";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Role } from "@shared/enums/role.enum";
 import { Person } from "@modules/people/entities/person.entity";
+import { PeopleService } from "@modules/people/services/people.service";
+import { OwnAccountException } from "@shared/permissions/permission.errors";
 import { PaginatedResult, normalizePagination } from "@shared/pagination/pagination.util";
+import { applyTextSearch } from "@shared/search/search.util";
 import {
   AUDITABLE_ACTION_EVENT,
   AuditableAction,
@@ -23,6 +26,7 @@ export class AccessService {
     private readonly eventEmitter: EventEmitter2,
     private readonly invitesService: InvitesService,
     private readonly config: ConfigService,
+    private readonly people: PeopleService,
   ) {}
 
   /**
@@ -40,10 +44,7 @@ export class AccessService {
       .where("person.role IS NOT NULL")
       .orderBy("person.name", "ASC");
 
-    if (query.search) {
-      const term = `%${query.search.toLowerCase()}%`;
-      qb = qb.andWhere("(LOWER(person.name) LIKE :term OR LOWER(person.ra) LIKE :term)", { term });
-    }
+    qb = applyTextSearch(qb, ["person.name", "person.ra"], query.search);
 
     if (query.role !== undefined) {
       qb = qb.andWhere("person.role = :role", { role: query.role });
@@ -72,7 +73,7 @@ export class AccessService {
    *  3. SERIALIZABLE tx:
    *     a. findOne with pessimistic_write lock → 404 if null or role===null.
    *     b. If target.role === COORDINATOR && dto.role !== COORDINATOR →
-   *        assertNotLastCoordinator(mgr) — skipped for SUPERADMIN actors.
+   *        people.assertNotLastActiveCoordinator(mgr) — skipped for SUPERADMIN actors.
    *     c. Save new role.
    *  4. After commit: emit ROLE_CHANGED.
    */
@@ -114,7 +115,7 @@ export class AccessService {
         dto.role !== Role.COORDINATOR &&
         actorRole !== Role.SUPERADMIN
       ) {
-        await this.assertNotLastCoordinator(mgr);
+        await this.people.assertNotLastActiveCoordinator(mgr);
       }
 
       prevRole = target.role;
@@ -144,7 +145,7 @@ export class AccessService {
    *  2. SERIALIZABLE tx:
    *     a. findOne with pessimistic_write lock → 404 if null or role===null.
    *     b. If target.role === COORDINATOR && dto.enabled === false →
-   *        assertNotLastCoordinator(mgr) — skipped for SUPERADMIN actors.
+   *        people.assertNotLastActiveCoordinator(mgr) — skipped for SUPERADMIN actors.
    *     c. Save new enabled state.
    *  3. After commit: emit ACCESS_ENABLED or ACCESS_DISABLED.
    */
@@ -183,7 +184,7 @@ export class AccessService {
         dto.enabled === false &&
         actorRole !== Role.SUPERADMIN
       ) {
-        await this.assertNotLastCoordinator(mgr);
+        await this.people.assertNotLastActiveCoordinator(mgr);
       }
 
       // No-op guard: skip write and event when the state doesn't actually change.
@@ -241,35 +242,7 @@ export class AccessService {
    */
   private assertNotSelf(actorId: string, targetId: string): void {
     if (actorId === targetId) {
-      throw new HttpException(
-        { error: "OWN_ACCOUNT", message: "Cannot act on your own account." },
-        403,
-      );
-    }
-  }
-
-  /**
-   * Counts active coordinators inside a transaction.
-   * Throws 409 LAST_COORDINATOR if count <= 1.
-   *
-   * Called BEFORE the save that would remove/disable the last coordinator.
-   * The target is already SELECT FOR UPDATE-locked so the count is stable.
-   *
-   * SUPERADMIN is not counted — only role=coordinator AND accessEnabled=true.
-   */
-  private async assertNotLastCoordinator(mgr: EntityManager): Promise<void> {
-    const count = await mgr.count(Person, {
-      where: { role: Role.COORDINATOR, accessEnabled: true },
-    });
-
-    if (count <= 1) {
-      throw new HttpException(
-        {
-          error: "LAST_COORDINATOR",
-          message: "Cannot demote or disable the last active coordinator.",
-        },
-        409,
-      );
+      throw new OwnAccountException();
     }
   }
 

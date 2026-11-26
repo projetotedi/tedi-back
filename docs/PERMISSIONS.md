@@ -33,7 +33,7 @@ Fonte única: `src/shared/permissions/permission-matrix.ts`. O `GET /auth/me` de
 | `members.view` | Ver ficha e banco de horas de outro membro | ❌ | depto | ✅ |
 | `members.edit` | Editar membro | ❌ | depto | ✅ |
 | `members.deactivate` | Inativar membro | ❌ | ❌ | ✅ |
-| `assignments.create` | Nova alocação (membro numa aula) | ❌ | ✅ | ✅ |
+| `assignments.create` | Nova alocação (membro numa aula), confirmar e cancelar alocação | ❌ | ✅ | ✅ |
 | `invites.manage` | Gerar convite, convites pendentes, revogar, validar cadastro | ❌ | ❌ | ✅ |
 | `access.manage` | Alterar perfil, link de redefinição de senha, desativar acesso (e listar acessos, GET /access) | ❌ | ❌ | ✅ |
 
@@ -85,5 +85,5 @@ Fonte única: `src/shared/permissions/permission-matrix.ts`. O `GET /auth/me` de
 | -- | -- | -- | -- | -- |
 | `hours.viewOthers` | Ver a tela Banco de horas (visão por membro) | ❌ | depto | ✅ |
 | `hours.logForOthers` | Lançar horas em nome de outro membro | ❌ | depto | ✅ |
-| `hours.review` | Validar, ajustar ou rejeitar lançamentos | ❌ | ❌ | ✅ |
+| `hours.review` | Validar, ajustar ou rejeitar lançamentos e escrever a observação por categoria | ❌ | ❌ | ✅ |
 | `hours.export` | Exportar relatório de horas | ❌ | depto | ✅ |

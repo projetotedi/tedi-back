@@ -1,0 +1,36 @@
+meta {
+  name: get-member-hours
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/members/:id/hours
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000020
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  from: 2026-03-01
+  to: 2026-03-31
+  page: 1
+  limit: 20
+}
+
+docs {
+  Horas de um membro no período (F7.4).
+  Requer cookie tedi_session e a permissão hours.viewOthers (@RequirePermission). Membro recebe 403 FORBIDDEN.
+  Escopo: a diretoria só abre membro do próprio departamento (o do cadastro aprovado; fora dele, ou sem departamento: 403 FORBIDDEN_SCOPE); coordenação e superadmin abrem qualquer um.
+  O id é de uma pessoa da lista de GET /members (perfil de acesso ou cadastro de membro). Aluno, id inexistente ou mal formado: 404 MEMBER_NOT_FOUND, antes do 403. A coordenação sem perfil de membro abre aqui também.
+  Retorna member (id, nome, departamento), summary (os mesmos totais da visão geral, por status e por categoria, sempre as sete categorias, com pendingMinutes e note, a observação da coordenação sobre cada categoria, a mesma do Meu perfil, GUS-173) e entries (o extrato do período, do dia mais recente, paginado, cada lançamento com reviewNote: a justificativa do ajuste ou o motivo da rejeição).
+  A observação de cada categoria na tela é montada pelo front a partir desses campos.
+  Erros possíveis: 400 VALIDATION_FAILED, 400 INVALID_PERIOD, 401, 403 FORBIDDEN, 403 FORBIDDEN_SCOPE, 404 MEMBER_NOT_FOUND.
+}

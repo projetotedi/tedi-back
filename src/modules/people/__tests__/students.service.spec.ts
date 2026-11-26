@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { HttpException, Logger } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { Test } from "@nestjs/testing";
-import { DataSource, FindOperator, In, QueryFailedError } from "typeorm";
+import { DataSource, EntityManager, FindOperator, In, QueryFailedError } from "typeorm";
 import { Clock } from "@shared/dates/clock";
 import { ArchivableColumns } from "@shared/entities/archivable.columns";
 import { Role } from "@shared/enums/role.enum";
@@ -14,6 +14,7 @@ import {
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
+import { StudentEnrollmentsRegistry } from "../services/student-enrollments.registry";
 import { StudentsService } from "../services/students.service";
 
 // 22:30 BRT on 2026-10-01 is already 2026-10-02 in UTC: ages must use the São Paulo date.
@@ -117,14 +118,18 @@ describe("StudentsService", () => {
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
+    find: jest.fn(),
   };
   const personRepository = { find: jest.fn() };
   const profileRepository = { find: jest.fn(), findOne: jest.fn() };
   const dataSource = {
     transaction: jest.fn(),
     getRepository: jest.fn(),
+    manager,
   };
   const eventEmitter = { emit: jest.fn() };
+  // The port of the enrollments (classes implements it): no active enrollment unless a test says so.
+  const enrollments = { countActiveEnrollments: jest.fn() };
 
   function emittedEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls.map((call) => call[1] as AuditableActionEvent);
@@ -177,6 +182,7 @@ describe("StudentsService", () => {
       order.push("emit");
       return true;
     });
+    enrollments.countActiveEnrollments.mockResolvedValue(0);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -184,6 +190,7 @@ describe("StudentsService", () => {
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },
         { provide: Clock, useValue: { now: () => NOW } },
+        { provide: StudentEnrollmentsRegistry, useValue: enrollments },
       ],
     }).compile();
 
@@ -513,6 +520,64 @@ describe("StudentsService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
+    it("refuses with 409 STUDENT_HAS_ACTIVE_ENROLLMENTS when the student has active enrollments, and writes and emits nothing", async () => {
+      enrollments.countActiveEnrollments.mockResolvedValue(1);
+
+      const failure = await httpFailure(service.archive(STUDENT_ID, { reason: "x" }, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "STUDENT_HAS_ACTIVE_ENROLLMENTS",
+        message: "A student with active enrollments cannot be archived.",
+      });
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect(order).not.toContain("commit");
+    });
+
+    it("asks the active enrollments with the manager of the transaction, after it locks the profile", async () => {
+      await service.archive(STUDENT_ID, undefined, ACTOR_ID);
+
+      expect(enrollments.countActiveEnrollments).toHaveBeenCalledTimes(1);
+      expect(enrollments.countActiveEnrollments).toHaveBeenCalledWith(manager, STUDENT_ID);
+      const lockCall = manager.findOne.mock.calls.findIndex((call) => call[0] === StudentProfile);
+      expect(manager.findOne.mock.calls[lockCall][1]).toMatchObject({
+        where: { personId: STUDENT_ID },
+        lock: { mode: "pessimistic_write" },
+      });
+      // The count is a statement AFTER the lock: it sees an enrollment that committed meanwhile.
+      expect(manager.findOne.mock.invocationCallOrder[lockCall]).toBeLessThan(
+        enrollments.countActiveEnrollments.mock.invocationCallOrder[0],
+      );
+      expect(enrollments.countActiveEnrollments.mock.invocationCallOrder[0]).toBeLessThan(
+        manager.save.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("does not ask the enrollments when the student is already archived", async () => {
+      enrollments.countActiveEnrollments.mockResolvedValue(3);
+      state.profile = buildProfile({
+        archive: { archivedAt: new Date("2026-09-15T10:00:00.000Z"), archivedById: ACTOR_ID },
+      });
+
+      const result = await service.archive(STUDENT_ID, undefined, ACTOR_ID);
+
+      expect(result.archivedAt).toEqual(new Date("2026-09-15T10:00:00.000Z"));
+      expect(enrollments.countActiveEnrollments).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("archives a student with no active enrollment", async () => {
+      const result = await service.archive(STUDENT_ID, undefined, ACTOR_ID);
+
+      expect(enrollments.countActiveEnrollments).toHaveBeenCalledTimes(1);
+      expect(result.archivedAt).toEqual(NOW);
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(emittedEvents().map((event) => event.action)).toEqual([
+        AuditableAction.STUDENT_ARCHIVED,
+      ]);
+    });
+
     it("returns 404 STUDENT_NOT_FOUND for an unknown student", async () => {
       state.profile = null;
 
@@ -634,6 +699,88 @@ describe("StudentsService", () => {
       expect(result[0].id).toBe(STUDENT_ID);
       // São Paulo date 2026-10-01: not yet 68.
       expect(result[0].age).toBe(67);
+    });
+  });
+
+  describe("findStudentSummaries()", () => {
+    const OTHER_STUDENT_ID = "01999a3e-7c1b-7000-8000-000000000003";
+    const txManager = manager as unknown as EntityManager;
+
+    function summariesFound(profiles: StudentProfile[], people: Person[]): void {
+      manager.find.mockImplementation(async (target: unknown) =>
+        target === StudentProfile ? profiles : people,
+      );
+    }
+
+    it("locks the student profiles FOR SHARE ordered by person id when forShare is asked", async () => {
+      summariesFound([buildProfile()], [buildPerson()]);
+
+      await service.findStudentSummaries([STUDENT_ID], txManager, { forShare: true });
+
+      const [target, options] = manager.find.mock.calls[0];
+      expect(target).toBe(StudentProfile);
+      expect(options.order).toEqual({ personId: "ASC" });
+      expect(options.lock).toEqual({ mode: "pessimistic_read" });
+      // The person is read without a lock: the lock that conflicts with archive is on the profile.
+      expect(manager.find.mock.calls[1][1].lock).toBeUndefined();
+
+      await service.findStudentSummaries([STUDENT_ID], txManager);
+      expect(manager.find.mock.calls[2][1].lock).toBeUndefined();
+    });
+
+    it("throws when forShare is asked without a manager", async () => {
+      await expect(
+        service.findStudentSummaries([STUDENT_ID], undefined, { forShare: true }),
+      ).rejects.toThrow("forShare needs the manager of a transaction");
+      expect(manager.find).not.toHaveBeenCalled();
+    });
+
+    it("answers [] without touching the database when no id is a uuid", async () => {
+      await expect(service.findStudentSummaries(["not-a-uuid", ""])).resolves.toEqual([]);
+      await expect(service.findStudentSummaries([])).resolves.toEqual([]);
+
+      expect(manager.find).not.toHaveBeenCalled();
+    });
+
+    it("leaves out ids without a student profile and soft-deleted people", async () => {
+      // OTHER_STUDENT_ID has a profile but its person is gone (soft-deleted): find skips it.
+      summariesFound(
+        [buildProfile(), buildProfile({ id: "profile-3", personId: OTHER_STUDENT_ID })],
+        [buildPerson()],
+      );
+
+      const result = await service.findStudentSummaries([
+        STUDENT_ID,
+        OTHER_STUDENT_ID,
+        "01999a3e-7c1b-7000-8000-000000000009",
+      ]);
+
+      expect(result.map((summary) => summary.id)).toEqual([STUDENT_ID]);
+    });
+
+    it("answers only id, name and archivedAt", async () => {
+      const archivedAt = new Date("2026-09-15T10:00:00.000Z");
+      summariesFound(
+        [buildProfile({ archive: { archivedAt, archivedById: ACTOR_ID } })],
+        [buildPerson()],
+      );
+
+      const result = await service.findStudentSummaries([STUDENT_ID]);
+
+      expect(result).toEqual([{ id: STUDENT_ID, name: "Maria Silva Santos", archivedAt }]);
+      expect(manager.find.mock.calls[1][1].select).toEqual({ id: true, name: true });
+      expectNoSensitiveValue(JSON.stringify(result));
+    });
+
+    it("lower-cases and dedupes the ids before reading", async () => {
+      summariesFound([], []);
+
+      await service.findStudentSummaries([STUDENT_ID.toUpperCase(), STUDENT_ID, "x"]);
+
+      const where = manager.find.mock.calls[0][1].where;
+      expect(where.personId.value).toEqual([STUDENT_ID]);
+      // No profile found: the people are not read.
+      expect(manager.find).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -14,16 +14,17 @@ src/
 │   └── migrations/          migrations geradas pelo CLI — não editar migration já rodada
 ├── shared/                 transversal, sem conhecer domínio
 │   ├── pagination/          pagination.util.ts + __tests__/
+│   ├── search/              search.util.ts (busca textual: normalizeSearchTerm, applyTextSearch, applyTextSearchAllWords, applyDigitsSearch; ver docs/ARCHITECTURE.md seção 12) + __tests__/
 │   ├── swagger/             swagger.util.ts + api-standard-errors.decorator.ts
 │   ├── filters/             http-exception.filter.ts (global, ApiErrorDto)
 │   ├── dto/                 api-error.dto.ts, archive.dto.ts (corpo de PATCH .../archive), transforms.ts
-│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, ageOn), clock.ts
+│   ├── dates/               calendar-date.ts (APP_TIME_ZONE, todayInAppTimeZone, timeOfDayInAppTimeZone, ageOn, calendarDaysBetween, addCalendarDays), date-range-errors.ts (invalidDateRange, dateRangeTooLong: os erros de período), is-calendar-date.validator.ts, time-of-day.ts (hora HH:mm: isValidTimeOfDay, minutesBetween), is-time-of-day.validator.ts, clock.ts
 │   ├── decorators/          @Roles, @Public, @CurrentUser
 │   ├── permissions/         matriz de permissões, @RequirePermission, PermissionPolicy
 │   ├── enums/               role.enum.ts
-│   ├── events/              auditable-action.event.ts
-│   └── entities/            base.entity.ts, archivable.columns.ts (arquivar em vez de excluir, ver docs/ARCHITECTURE.md seção 10)
-└── modules/                um diretório por módulo de domínio (auth, people, classes, lessons, ...)
+│   ├── events/              auditable-action.event.ts, lesson-cancelled.event.ts (lesson.cancelled, o gancho do estorno de horas, RN-07)
+│   └── entities/            base.entity.ts, archivable.columns.ts (arquivar em vez de excluir, ver docs/ARCHITECTURE.md seção 10), time-of-day.transformer.ts (coluna time lida como HH:mm)
+└── modules/                um diretório por módulo de domínio (auth, people, catalog, classes, lessons, assignments, ...)
     └── <modulo>/
         ├── <modulo>.module.ts
         ├── controllers/  services/  entities/  dto/  enums/  listeners/
@@ -72,7 +73,7 @@ Use Yarn.
 - **Todo teste fica dentro do módulo que testa**, em `__tests__/`. Não existe pasta `test/` global.
 - **Unitários** (`*.spec.ts`): service com repositórios e outros services mockados via `Test.createTestingModule`. Não precisam de banco.
 - **E2E** (`*.e2e.spec.ts`): sobe o módulo em teste (+ `auth` se a rota é protegida) com Postgres real e testa por HTTP com `supertest`. É o vocabulário do NestJS: "e2e" aqui é HTTP até o banco, não navegador. Não há e2e de navegador no projeto. Precisam de Postgres (no CI é um serviço `postgres:16-alpine`). Não existe "teste de integração" no vocabulário do projeto.
-- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `hours/__tests__/attendance-creates-hours.e2e.spec.ts`).
+- **Fluxo entre módulos**: testado no módulo que **reage** ao evento (ex.: `hours/__tests__/lesson-cancelled-reverses-hours.e2e.spec.ts`).
 - Teste e2e importa apenas o `*.module.ts` dos módulos envolvidos. Fixtures são do módulo (`__tests__/fixtures/`).
 - Cada teste e2e limpa as tabelas que tocou.
 
@@ -84,7 +85,7 @@ Use Yarn.
 
 ## Diretrizes de Commit e Pull Request
 
-- Fluxo de branches: `feature/* → develop → staging → main`. PR de card vai para a `develop`; a `main` só recebe PR da `develop`, da `staging` ou de `hotfix/*` (o workflow `branch-flow.yml` falha em qualquer outra origem). Hotfix que entra direto na `main` volta para a `develop` por um PR `main → develop` com merge commit. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop`, em 5 jobs independentes (não há `needs`: todos rodam em paralelo): `qualidade` ("Qualidade": `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn openapi:check`), `testes-unitarios` ("Testes unitários": `yarn test`, sem banco), `build` ("Build": `yarn build`), `teste-e2e` ("Testes e2e": Postgres → `yarn migration:run` → `yarn test:e2e`) e `entidades-migrations` ("Entidades × migrations": `migration:run`, `migration:revert` e `migration:run` num banco limpo; **não** roda `migration:generate`, que o bug de enums do TypeORM torna inutilizável, ver `ci.yml`; o guarda entidade × migration é o e2e de schema de cada módulo, hoje `people/__tests__/people.repository.e2e.spec.ts`). O `docker.yml` só roda em push para `main` (e manualmente), quando mudam `Dockerfile`, `package.json`, `yarn.lock` ou `src/**`.
+- Fluxo de branches: `feature/* → develop → staging → main`. PR de card vai para a `develop`; a `main` só recebe PR da `develop`, da `staging` ou de `hotfix/*` (o workflow `branch-flow.yml` falha em qualquer outra origem). Hotfix que entra direto na `main` volta para a `develop` por um PR `main → develop` com merge commit. O CI (`.github/workflows/ci.yml`) roda em push/PR para `main`, `staging` e `develop`, em 5 jobs independentes (não há `needs`: todos rodam em paralelo): `qualidade` ("Qualidade": `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn openapi:check`), `testes-unitarios` ("Testes unitários": `yarn test`, sem banco), `build` ("Build": `yarn build`), `teste-e2e` ("Testes e2e": Postgres → `yarn migration:run` → `yarn test:e2e`) e `entidades-migrations` ("Entidades × migrations": `migration:run`, `migration:revert` e `migration:run` num banco limpo; **não** roda `migration:generate`, que o bug de enums do TypeORM torna inutilizável, ver `ci.yml`; o guarda entidade × migration é o e2e de schema de cada módulo, hoje `people/__tests__/people.repository.e2e.spec.ts`, `catalog/__tests__/lesson-plans.repository.e2e.spec.ts`, `catalog/__tests__/courses.repository.e2e.spec.ts`, `catalog/__tests__/course-lesson-plans.repository.e2e.spec.ts`, `classes/__tests__/classes.repository.e2e.spec.ts`, `classes/__tests__/enrollments.repository.e2e.spec.ts`, `lessons/__tests__/lessons.repository.e2e.spec.ts`, `assignments/__tests__/lesson-assignments.repository.e2e.spec.ts`, `hours/__tests__/hour-entries.repository.e2e.spec.ts`, `hours/__tests__/hour-category-notes.repository.e2e.spec.ts`, `attendance/__tests__/member-attendance.repository.e2e.spec.ts` e `attendance/__tests__/student-attendance.repository.e2e.spec.ts`). O `docker.yml` só roda em push para `main` (e manualmente), quando mudam `Dockerfile`, `package.json`, `yarn.lock` ou `src/**`.
 - Antes de abrir PR, rodar localmente: `yarn lint`, `yarn format:check`, `yarn typecheck`, `yarn test`, `yarn build`; com o Postgres do compose de pé, `yarn test:e2e`.
 - Usar o template em `.github/pull_request_template.md` (em português): Resumo, Impacto funcional, Migração (indicar se houve/foi necessário rodar), Validações (checklist de lint/format/test/build), Observações.
 

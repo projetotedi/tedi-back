@@ -16,6 +16,25 @@ describe("StudentsController", () => {
     expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
   });
 
+  it("protects listStudents with students.view and no @Roles", () => {
+    const handler = StudentsController.prototype.listStudents;
+
+    expect(Reflect.getMetadata(PERMISSION_KEY, handler)).toBe(Permission.STUDENTS_VIEW);
+    expect(Reflect.getMetadata(ROLES_KEY, handler)).toBeUndefined();
+  });
+
+  it("delegates listStudents to StudentsService.listStudents", async () => {
+    const page = { data: [], total: 0, page: 2, limit: 10 };
+    const listStudents = jest.fn().mockResolvedValue(page);
+    const controller = new StudentsController({ listStudents } as unknown as StudentsService);
+    const query = { page: 2, limit: 10, search: "maria" };
+
+    await expect(controller.listStudents(query)).resolves.toBe(page);
+
+    expect(listStudents).toHaveBeenCalledTimes(1);
+    expect(listStudents).toHaveBeenCalledWith(query);
+  });
+
   it("delegates getStudent to StudentsService.findDetail", async () => {
     const detail = { id: STUDENT_ID } as StudentDetailDto;
     const findDetail = jest.fn().mockResolvedValue(detail);

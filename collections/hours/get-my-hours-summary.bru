@@ -1,0 +1,32 @@
+meta {
+  name: get-my-hours-summary
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/me/hours/summary
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  ~from: 2026-03-01
+  ~to: 2026-03-31
+}
+
+docs {
+  Resumo das horas da pessoa logada (F7.3): totais por status e por categoria e o banco de horas.
+  Requer cookie tedi_session e a permissão account.manageOwn (@RequirePermission; todos os perfis).
+  Período opcional: ?from e ?to (AAAA-MM-DD a partir de 2000-01-01, extremos incluídos). from e to voltam na resposta (null quando abertos).
+  bankMinutes é o banco de horas: a soma de validatedMinutes dos lançamentos approved e adjusted.
+  byStatus traz sempre os 4 status (pending, approved, adjusted, rejected), na ordem, com entries, declaredMinutes e validatedMinutes.
+  byCategory traz sempre as 7 categorias (lesson, planning, event, management, meeting, support, other), na ordem, com entries, declaredMinutes, bankMinutes (validado de approved e adjusted), pendingMinutes (declarado dos pending) e note (a observação da coordenação sobre a categoria, sem período, ou null; GUS-173, set-member-hour-category-note). O que não tem lançamento vem zerado.
+  Lançamentos removidos ficam fora. Todos os totais são números inteiros, em minutos.
+  Retorna 200 HoursSummaryResponseDto.
+  Erros possíveis: 400 VALIDATION_FAILED (data inválida), 400 INVALID_PERIOD (from depois de to), 401.
+}

@@ -1,0 +1,38 @@
+meta {
+  name: create-lesson-plan
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/lesson-plans
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "title": "Teclado, mouse e janelas",
+    "objective": "Familiarizar o aluno com o teclado, o mouse e o uso básico das janelas.",
+    "expectedDurationMinutes": 90,
+    "contents": [
+      "Teclado e mouse",
+      "Janelas do sistema"
+    ],
+    "materialUrl": "https://drive.google.com/file/d/exemplo/view"
+  }
+}
+
+docs {
+  Cria um plano de aula: a unidade reutilizável, sem data, que compõe cursos, turmas e aulas.
+  Requer cookie tedi_session e a permissão lessonPlans.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Obrigatórios: title (até 200 caracteres), expectedDurationMinutes (inteiro de 1 a 1440, em minutos) e contents (lista de 1 a 50 textos não vazios, até 500 caracteres cada; a ordem da lista é a ordem do plano).
+  Opcionais: objective (até 2000 caracteres) e materialUrl (link http ou https, até 500 caracteres; o sistema guarda o link, não o arquivo). null ou "" significa "não informado". Os textos são aparados.
+  Retorna 201 LessonPlanResponseDto, com contents na ordem enviada. createdById é quem criou o plano.
+  Erros possíveis: 400 VALIDATION_FAILED (details[].field), 401, 403 FORBIDDEN.
+}

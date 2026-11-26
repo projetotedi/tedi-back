@@ -5,12 +5,19 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { DataSource, EntityTarget, QueryFailedError } from "typeorm";
 import { config } from "dotenv";
 import { join } from "node:path";
+import { BACKFILL_APPROVED_MEMBERS_SQL } from "@database/migrations/1790836110251-CreateMemberProfiles";
+import { Role } from "@shared/enums/role.enum";
 import { PeopleModule } from "../people.module";
 import { PeopleService } from "../services/people.service";
 import { StudentsService } from "../services/students.service";
+import { MEMBER_EXIT_REASON_MAX_LENGTH } from "../dto/member-exit-limits";
+import { Department } from "../entities/department.entity";
+import { MemberProfile } from "../entities/member-profile.entity";
 import { Person } from "../entities/person.entity";
 import { StudentProfile } from "../entities/student-profile.entity";
 import { AccessibilityNeed } from "../enums/accessibility-need.enum";
+import { MemberRegistrationStatus } from "../enums/member-registration-status.enum";
+import { MemberStatus } from "../enums/member-status.enum";
 
 config();
 
@@ -58,11 +65,13 @@ describe("people repository (e2e)", () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query(`TRUNCATE TABLE student_profiles, people RESTART IDENTITY CASCADE`);
+    await dataSource.query(
+      `TRUNCATE TABLE member_profiles, student_profiles, departments, people RESTART IDENTITY CASCADE`,
+    );
   });
 
   describe("schema", () => {
-    it("has exactly the 12 expected columns", async () => {
+    it("has exactly the 16 expected columns", async () => {
       const rows: Array<{ column_name: string }> = await dataSource.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'people' ORDER BY ordinal_position`,
       );
@@ -79,11 +88,53 @@ describe("people repository (e2e)", () => {
           "password_hash",
           "role",
           "access_enabled",
+          "must_change_password",
           "birth_date",
           "phone",
+          "phone_digits",
+          "last_login_at",
+          "previous_login_at",
         ]),
       );
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(16);
+    });
+
+    it("has phone_digits as a stored generated column with the digits of phone", async () => {
+      const columns: Array<{ is_generated: string; generation_expression: string | null }> =
+        await dataSource.query(
+          `SELECT is_generated, generation_expression FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'people' AND column_name = 'phone_digits'`,
+        );
+      expect(columns).toHaveLength(1);
+      expect(columns[0].is_generated).toBe("ALWAYS");
+      expect(columns[0].generation_expression).toContain("regexp_replace");
+
+      const phoneDigitsOf = async (id: string): Promise<string | null> => {
+        const rows: Array<{ phone_digits: string | null }> = await dataSource.query(
+          `SELECT phone_digits FROM people WHERE id = $1`,
+          [id],
+        );
+        return rows[0].phone_digits;
+      };
+
+      const ana = await service.save({ name: "Ana", phone: "43999990000" });
+      expect(await phoneDigitsOf(ana.id)).toBe("43999990000");
+
+      // A mask only comes in by SQL: the column keeps the digits anyway.
+      await dataSource.query(`UPDATE people SET phone = '(11) 98888-7777' WHERE id = $1`, [ana.id]);
+      expect(await phoneDigitsOf(ana.id)).toBe("11988887777");
+
+      const bruno = await service.save({ name: "Bruno", phone: null });
+      expect(await phoneDigitsOf(bruno.id)).toBeNull();
+
+      // TypeORM reads the column and never writes it: saving a loaded person does not fail.
+      const repository = dataSource.getRepository(Person);
+      const loaded = await repository.findOneByOrFail({ id: ana.id });
+      expect(loaded.phoneDigits).toBe("11988887777");
+      loaded.name = "Ana Souza";
+      loaded.phone = "43988887777";
+      await repository.save(loaded);
+      expect(await phoneDigitsOf(ana.id)).toBe("43988887777");
     });
   });
 
@@ -150,6 +201,73 @@ describe("people repository (e2e)", () => {
     });
   });
 
+  describe("recordLogin", () => {
+    interface LoginRow {
+      last_login_at: Date | null;
+      previous_login_at: Date | null;
+      updated_at: Date;
+      // Same instants as text: microsecond precision, which a JS Date (milliseconds) loses.
+      last_login_text: string | null;
+      previous_login_text: string | null;
+      moved_forward: boolean | null;
+    }
+
+    async function loginRow(id: string): Promise<LoginRow> {
+      const rows: LoginRow[] = await dataSource.query(
+        `SELECT last_login_at, previous_login_at, updated_at,
+                last_login_at::text AS last_login_text,
+                previous_login_at::text AS previous_login_text,
+                last_login_at > previous_login_at AS moved_forward
+           FROM people WHERE id = $1`,
+        [id],
+      );
+      return rows[0];
+    }
+
+    it("starts with both login columns null", async () => {
+      const person = await service.save({ name: "Alice", ra: "a0000001" });
+
+      const row = await loginRow(person.id);
+
+      expect(row.last_login_at).toBeNull();
+      expect(row.previous_login_at).toBeNull();
+    });
+
+    it("recordLogin moves last_login_at to previous_login_at and keeps updated_at", async () => {
+      const person = await service.save({ name: "Alice", ra: "a0000001" });
+      const created = await loginRow(person.id);
+
+      await service.recordLogin(person.id);
+      const first = await loginRow(person.id);
+
+      // First login: only last_login_at is set.
+      expect(first.last_login_at).toBeInstanceOf(Date);
+      expect(first.previous_login_at).toBeNull();
+
+      await service.recordLogin(person.id);
+      const second = await loginRow(person.id);
+
+      // Second login: the first one is now the previous one, and the last one moved forward.
+      expect(second.previous_login_text).toBe(first.last_login_text);
+      expect(second.moved_forward).toBe(true);
+      // A login is not a change to the person: updated_at stays the creation instant.
+      expect(first.updated_at).toEqual(created.updated_at);
+      expect(second.updated_at).toEqual(created.updated_at);
+    });
+
+    it("recordLogin touches only the row of the given person", async () => {
+      const alice = await service.save({ name: "Alice", ra: "a0000001" });
+      const bruno = await service.save({ name: "Bruno", ra: "a0000002" });
+
+      await service.recordLogin(alice.id);
+
+      expect((await loginRow(alice.id)).last_login_at).toBeInstanceOf(Date);
+      const untouched = await loginRow(bruno.id);
+      expect(untouched.last_login_at).toBeNull();
+      expect(untouched.previous_login_at).toBeNull();
+    });
+  });
+
   describe("schema vs entities", () => {
     // Postgres udt_name for each TypeORM column type used by the entities.
     const UDT_NAME: Record<string, string> = {
@@ -159,6 +277,7 @@ describe("people repository (e2e)", () => {
       date: "date",
       timestamptz: "timestamptz",
       boolean: "bool",
+      smallint: "int2",
     };
 
     interface ColumnShape {
@@ -208,9 +327,63 @@ describe("people repository (e2e)", () => {
         .sort(byName);
     }
 
+    interface ForeignKeyShape {
+      constraint_name: string;
+      column_name: string;
+      referenced_table: string;
+      referenced_column: string;
+      delete_rule: string | undefined;
+      update_rule: string | undefined;
+    }
+
+    /** What the migrations created: name, column, target and rules of each foreign key. */
+    async function actualForeignKeys(table: string): Promise<ForeignKeyShape[]> {
+      return dataSource.query(
+        `SELECT tc.constraint_name, kcu.column_name, ccu.table_name AS referenced_table,
+                ccu.column_name AS referenced_column, rc.delete_rule, rc.update_rule
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.key_column_usage kcu
+             ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+           JOIN information_schema.constraint_column_usage ccu
+             ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+           JOIN information_schema.referential_constraints rc
+             ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema
+          WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+            AND tc.table_name = $1
+          ORDER BY tc.constraint_name`,
+        [table],
+      );
+    }
+
+    /** What the entity declares with @ForeignKey. */
+    function declaredForeignKeys(entity: EntityTarget<unknown>): ForeignKeyShape[] {
+      return dataSource
+        .getMetadata(entity)
+        .foreignKeys.map((foreignKey) => ({
+          constraint_name: foreignKey.name,
+          column_name: foreignKey.columnNames[0],
+          referenced_table: foreignKey.referencedTablePath,
+          referenced_column: foreignKey.referencedColumnNames[0],
+          delete_rule: foreignKey.onDelete,
+          update_rule: foreignKey.onUpdate,
+        }))
+        .sort((a, b) => a.constraint_name.localeCompare(b.constraint_name));
+    }
+
+    async function indexDefinition(table: string, name: string): Promise<string[]> {
+      const rows: Array<{ indexdef: string }> = await dataSource.query(
+        `SELECT indexdef FROM pg_indexes
+          WHERE schemaname = 'public' AND tablename = $1 AND indexname = $2`,
+        [table, name],
+      );
+      return rows.map((row) => row.indexdef);
+    }
+
     it("matches the entity metadata column by column (name, type, length, nullability)", async () => {
       expect(await actualColumns("people")).toEqual(declaredColumns(Person));
       expect(await actualColumns("student_profiles")).toEqual(declaredColumns(StudentProfile));
+      expect(await actualColumns("member_profiles")).toEqual(declaredColumns(MemberProfile));
+      expect(await actualColumns("departments")).toEqual(declaredColumns(Department));
     });
 
     it("has the unique index uq_student_profiles_person_id", async () => {
@@ -226,39 +399,166 @@ describe("people repository (e2e)", () => {
     });
 
     it("has the three named foreign keys to people", async () => {
-      const rows: Array<Record<string, string>> = await dataSource.query(
-        `SELECT tc.constraint_name, kcu.column_name, ccu.table_name AS referenced_table,
-                ccu.column_name AS referenced_column, rc.delete_rule, rc.update_rule
-           FROM information_schema.table_constraints tc
-           JOIN information_schema.key_column_usage kcu
-             ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
-           JOIN information_schema.constraint_column_usage ccu
-             ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
-           JOIN information_schema.referential_constraints rc
-             ON rc.constraint_name = tc.constraint_name AND rc.constraint_schema = tc.table_schema
-          WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
-            AND tc.table_name = 'student_profiles'
-          ORDER BY tc.constraint_name`,
-      );
-
-      const declared = dataSource
-        .getMetadata(StudentProfile)
-        .foreignKeys.map((foreignKey) => ({
-          constraint_name: foreignKey.name,
-          column_name: foreignKey.columnNames[0],
-          referenced_table: foreignKey.referencedTablePath,
-          referenced_column: foreignKey.referencedColumnNames[0],
-          delete_rule: foreignKey.onDelete,
-          update_rule: foreignKey.onUpdate,
-        }))
-        .sort((a, b) => a.constraint_name.localeCompare(b.constraint_name));
+      const declared = declaredForeignKeys(StudentProfile);
 
       expect(declared.map((foreignKey) => foreignKey.constraint_name)).toEqual([
         "fk_student_profiles_archived_by_id",
         "fk_student_profiles_created_by_id",
         "fk_student_profiles_person_id",
       ]);
-      expect(rows).toEqual(declared);
+      expect(await actualForeignKeys("student_profiles")).toEqual(declared);
+    });
+
+    it("has the unique indexes uq_member_profiles_person_id and uq_departments_name", async () => {
+      const profileIndex = await indexDefinition("member_profiles", "uq_member_profiles_person_id");
+      const departmentIndex = await indexDefinition("departments", "uq_departments_name");
+
+      expect(profileIndex).toHaveLength(1);
+      expect(profileIndex[0]).toContain("CREATE UNIQUE INDEX");
+      expect(profileIndex[0]).toContain("(person_id)");
+      // The name is unique ignoring case: the index is on lower(name), not on name. It is an
+      // expression index, which the Department entity cannot declare (see its JSDoc), so this
+      // is where it is checked.
+      expect(departmentIndex).toHaveLength(1);
+      expect(departmentIndex[0]).toContain("CREATE UNIQUE INDEX");
+      expect(departmentIndex[0]).toMatch(/lower\(.*name.*\)/i);
+    });
+
+    it("rejects two department names that differ only in case with 23505 on uq_departments_name", async () => {
+      const repository = dataSource.getRepository(Department);
+      await repository.save(repository.create({ name: "Tecnologia" }));
+
+      await expect(
+        repository.save(repository.create({ name: "TECNOLOGIA" })),
+      ).rejects.toMatchObject({ code: "23505", constraint: "uq_departments_name" });
+      // A different name is fine.
+      await repository.save(repository.create({ name: "Comunicação" }));
+    });
+
+    it("has the trigram search indexes on people", async () => {
+      const nameIndex = await indexDefinition("people", "idx_people_name_search");
+      const raIndex = await indexDefinition("people", "idx_people_ra_search");
+
+      expect(nameIndex).toHaveLength(1);
+      expect(nameIndex[0]).toMatch(/USING gin \(.*search_normalize\(.*\bname\b.*\) gin_trgm_ops\)/);
+      expect(raIndex).toHaveLength(1);
+      expect(raIndex[0]).toMatch(/USING gin \(.*search_normalize\(.*\bra\b.*\) gin_trgm_ops\)/);
+
+      const plan = await dataSource.transaction(async (manager) => {
+        await manager.query("SET LOCAL enable_seqscan = off");
+        const rows: Array<{ "QUERY PLAN": string }> = await manager.query(
+          `EXPLAIN SELECT id FROM people
+            WHERE public.search_normalize(name) LIKE public.search_normalize($1) ESCAPE '\\'`,
+          ["%jose%"],
+        );
+        return rows.map((row) => row["QUERY PLAN"]).join("\n");
+      });
+      expect(plan).toContain("idx_people_name_search");
+    });
+
+    it("has the GUS-106 search indexes idx_people_email_search and idx_people_phone_digits_search", async () => {
+      const emailIndex = await indexDefinition("people", "idx_people_email_search");
+      const phoneIndex = await indexDefinition("people", "idx_people_phone_digits_search");
+
+      expect(emailIndex).toHaveLength(1);
+      expect(emailIndex[0]).toMatch(
+        /USING gin \(.*search_normalize\(.*\bemail\b.*\) gin_trgm_ops\)/,
+      );
+      expect(phoneIndex).toHaveLength(1);
+      expect(phoneIndex[0]).toMatch(/USING gin \(phone_digits gin_trgm_ops\)/);
+
+      // The expression of each query is the one of its index (section 12). On a near-empty table
+      // the partial uq_people_email (its WHERE email IS NOT NULL follows from the LIKE) is cheaper
+      // than the GIN, so it is dropped in a transaction that is always rolled back, as
+      // lessons.repository.e2e does with idx_lessons_class_id_date.
+      const queryRunner = dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        await queryRunner.query("SET LOCAL enable_seqscan = off");
+        await queryRunner.query("DROP INDEX uq_people_email");
+        const explain = async (sql: string, term: string): Promise<string> => {
+          const rows: Array<{ "QUERY PLAN": string }> = await queryRunner.query(`EXPLAIN ${sql}`, [
+            term,
+          ]);
+          return rows.map((row) => row["QUERY PLAN"]).join("\n");
+        };
+
+        expect(
+          await explain(
+            `SELECT id FROM people
+              WHERE public.search_normalize(email) LIKE public.search_normalize($1) ESCAPE '\\'`,
+            "%souza%",
+          ),
+        ).toContain("idx_people_email_search");
+        expect(
+          await explain(`SELECT id FROM people WHERE phone_digits LIKE $1`, "%98888%"),
+        ).toContain("idx_people_phone_digits_search");
+      } finally {
+        await queryRunner.rollbackTransaction();
+        await queryRunner.release();
+      }
+    });
+
+    it("has the four named foreign keys of member_profiles", async () => {
+      const declared = declaredForeignKeys(MemberProfile);
+
+      expect(declared.map((foreignKey) => foreignKey.constraint_name)).toEqual([
+        "fk_member_profiles_deactivated_by_id",
+        "fk_member_profiles_department_id",
+        "fk_member_profiles_person_id",
+        "fk_member_profiles_reviewed_by_id",
+      ]);
+      expect(declared.map((foreignKey) => foreignKey.referenced_table)).toEqual([
+        "people",
+        "departments",
+        "people",
+        "people",
+      ]);
+      expect(await actualForeignKeys("member_profiles")).toEqual(declared);
+    });
+
+    it("has the enum type member_profiles_status_enum with the values of MemberStatus, in order", async () => {
+      const rows: Array<{ enumlabel: string }> = await dataSource.query(
+        `SELECT e.enumlabel
+           FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'member_profiles_status_enum'
+          ORDER BY e.enumsortorder`,
+      );
+
+      expect(rows.map((row) => row.enumlabel)).toEqual(["active", "inactive"]);
+      expect(rows.map((row) => row.enumlabel)).toEqual(Object.values(MemberStatus));
+    });
+
+    it("has the check constraint ck_member_profiles_exit_date declared by the entity", async () => {
+      const declared = dataSource
+        .getMetadata(MemberProfile)
+        .checks.map((check) => ({ name: check.name, expression: check.expression }));
+      expect(declared).toEqual([
+        {
+          name: "ck_member_profiles_exit_date",
+          expression: `("status" = 'inactive') = ("exit_date" IS NOT NULL)`,
+        },
+      ]);
+
+      const actual: Array<{ conname: string; definition: string }> = await dataSource.query(
+        `SELECT conname, pg_get_constraintdef(oid) AS definition
+           FROM pg_constraint
+          WHERE conrelid = 'member_profiles'::regclass AND contype = 'c'`,
+      );
+
+      expect(actual.map((check) => check.conname)).toEqual(["ck_member_profiles_exit_date"]);
+      expect(actual[0].definition).toMatch(/status.*'inactive'/);
+      expect(actual[0].definition).toMatch(/exit_date IS NOT NULL/);
+    });
+
+    it("keeps MEMBER_EXIT_REASON_MAX_LENGTH equal to the length of exit_reason, and exit_note as text", async () => {
+      const columns = Object.fromEntries(
+        (await actualColumns("member_profiles")).map((column) => [column.name, column]),
+      );
+
+      expect(columns.exit_reason.length).toBe(MEMBER_EXIT_REASON_MAX_LENGTH);
+      expect(columns.exit_note).toMatchObject({ type: "text", length: null });
     });
 
     it("defaults accessibility_need to none", async () => {
@@ -365,6 +665,256 @@ describe("people repository (e2e)", () => {
         archiveReason: null,
       });
       expect(loaded.accessibilityNeed).toBe(AccessibilityNeed.NONE);
+    });
+
+    it("defaults must_change_password to false", async () => {
+      const person = await service.save({ name: "Maria" });
+
+      const rows: Array<{ must_change_password: boolean }> = await dataSource.query(
+        `SELECT must_change_password FROM people WHERE id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([{ must_change_password: false }]);
+
+      // The entity reads the column back as a boolean, never as null or undefined.
+      const loaded = await dataSource.getRepository(Person).findOneByOrFail({ id: person.id });
+      expect(loaded.mustChangePassword).toBe(false);
+    });
+
+    it("defaults registration_status to pending", async () => {
+      const person = await service.save({ name: "Ana Torres" });
+
+      await dataSource.query(
+        `INSERT INTO member_profiles (id, person_id) VALUES (gen_random_uuid(), $1)`,
+        [person.id],
+      );
+
+      const rows: Array<{ registration_status: string }> = await dataSource.query(
+        `SELECT registration_status FROM member_profiles WHERE person_id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([{ registration_status: "pending" }]);
+    });
+
+    it("rejects a second member profile for the same person with 23505", async () => {
+      const person = await service.save({ name: "Ana Torres" });
+      const repository = dataSource.getRepository(MemberProfile);
+      const newProfile = () => repository.save(repository.create({ personId: person.id }));
+
+      await newProfile();
+
+      await expect(newProfile()).rejects.toMatchObject({
+        code: "23505",
+        constraint: "uq_member_profiles_person_id",
+      });
+    });
+
+    it("round-trips every MemberProfile field, with joinedAt as YYYY-MM-DD", async () => {
+      const reviewer = await service.save({ name: "Coordinator", role: Role.COORDINATOR });
+      const person = await service.save({ name: "Ana Torres", email: "ana.torres@example.com" });
+      const department = await dataSource
+        .getRepository(Department)
+        .save(dataSource.getRepository(Department).create({ name: "Tecnologia" }));
+      const submittedAt = new Date("2026-09-20T12:00:00.000Z");
+      const reviewedAt = new Date("2026-09-21T15:30:00.000Z");
+
+      const repository = dataSource.getRepository(MemberProfile);
+      await repository.save(
+        repository.create({
+          personId: person.id,
+          registrationStatus: MemberRegistrationStatus.APPROVED,
+          requestedRole: Role.DIRECTOR,
+          cpf: "52998224725",
+          address: "Rua das Acácias, 120, apto 42",
+          city: "São Paulo",
+          state: "SP",
+          institutionalEmail: "ana.torres@example.edu",
+          course: "Sistemas de Informação",
+          semester: 7,
+          className: "SI-2024-N",
+          departmentId: department.id,
+          volunteerTermUrl: "https://drive.google.com/file/d/exemplo/view",
+          mainFunction: "Monitora de informática",
+          joinedAt: "2026-09-01",
+          submittedAt,
+          reviewedAt,
+          reviewedById: reviewer.id,
+          reviewNote: "Documentos conferidos.",
+        }),
+      );
+
+      const loaded = await repository.findOneByOrFail({ personId: person.id });
+      expect(loaded).toMatchObject({
+        personId: person.id,
+        registrationStatus: MemberRegistrationStatus.APPROVED,
+        requestedRole: Role.DIRECTOR,
+        cpf: "52998224725",
+        address: "Rua das Acácias, 120, apto 42",
+        city: "São Paulo",
+        state: "SP",
+        institutionalEmail: "ana.torres@example.edu",
+        course: "Sistemas de Informação",
+        semester: 7,
+        className: "SI-2024-N",
+        departmentId: department.id,
+        volunteerTermUrl: "https://drive.google.com/file/d/exemplo/view",
+        mainFunction: "Monitora de informática",
+        joinedAt: "2026-09-01",
+        reviewedById: reviewer.id,
+        reviewNote: "Documentos conferidos.",
+        deletedAt: null,
+      });
+      expect(loaded.submittedAt).toEqual(submittedAt);
+      expect(loaded.reviewedAt).toEqual(reviewedAt);
+
+      // The column is a plain date: no time, no time zone.
+      const rows: Array<{ joined_at: string }> = await dataSource.query(
+        `SELECT joined_at::text AS joined_at FROM member_profiles WHERE person_id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([{ joined_at: "2026-09-01" }]);
+    });
+
+    it("defaults status to active with the exit columns null", async () => {
+      const person = await service.save({ name: "Ana Torres" });
+
+      await dataSource.query(
+        `INSERT INTO member_profiles (id, person_id) VALUES (gen_random_uuid(), $1)`,
+        [person.id],
+      );
+
+      const rows: unknown[] = await dataSource.query(
+        `SELECT status, exit_date, exit_reason, exit_note, deactivated_at, deactivated_by_id
+           FROM member_profiles WHERE person_id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([
+        {
+          status: "active",
+          exit_date: null,
+          exit_reason: null,
+          exit_note: null,
+          deactivated_at: null,
+          deactivated_by_id: null,
+        },
+      ]);
+    });
+
+    it("rejects status inactive without exit_date, and an exit_date on an active profile, with 23514 on ck_member_profiles_exit_date", async () => {
+      const person = await service.save({ name: "Ana Torres" });
+
+      await expect(
+        dataSource.query(
+          `INSERT INTO member_profiles (id, person_id, status) VALUES (gen_random_uuid(), $1, 'inactive')`,
+          [person.id],
+        ),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_member_profiles_exit_date" });
+      await expect(
+        dataSource.query(
+          `INSERT INTO member_profiles (id, person_id, exit_date) VALUES (gen_random_uuid(), $1, '2026-09-30')`,
+          [person.id],
+        ),
+      ).rejects.toMatchObject({ code: "23514", constraint: "ck_member_profiles_exit_date" });
+
+      await dataSource.query(
+        `INSERT INTO member_profiles (id, person_id, status, exit_date)
+         VALUES (gen_random_uuid(), $1, 'inactive', '2026-09-30')`,
+        [person.id],
+      );
+    });
+
+    it("round-trips the exit of an inactive profile, with exitDate as YYYY-MM-DD", async () => {
+      const coordinator = await service.save({ name: "Coordinator", role: Role.COORDINATOR });
+      const person = await service.save({ name: "Ana Torres", role: Role.MEMBER });
+      const deactivatedAt = new Date("2026-10-01T13:00:00.000Z");
+
+      const repository = dataSource.getRepository(MemberProfile);
+      await repository.save(
+        repository.create({
+          personId: person.id,
+          registrationStatus: MemberRegistrationStatus.APPROVED,
+          joinedAt: "2026-03-01",
+          status: MemberStatus.INACTIVE,
+          exitDate: "2026-09-30",
+          exitReason: "Formou-se.",
+          exitNote: "Vai fazer mestrado em outra cidade.",
+          deactivatedAt,
+          deactivatedById: coordinator.id,
+        }),
+      );
+
+      const loaded = await repository.findOneByOrFail({ personId: person.id });
+      expect(loaded).toMatchObject({
+        status: MemberStatus.INACTIVE,
+        exitDate: "2026-09-30",
+        exitReason: "Formou-se.",
+        exitNote: "Vai fazer mestrado em outra cidade.",
+        deactivatedById: coordinator.id,
+      });
+      expect(loaded.deactivatedAt).toEqual(deactivatedAt);
+
+      const rows: Array<{ exit_date: string }> = await dataSource.query(
+        `SELECT exit_date::text AS exit_date FROM member_profiles WHERE person_id = $1`,
+        [person.id],
+      );
+      expect(rows).toEqual([{ exit_date: "2026-09-30" }]);
+    });
+
+    it("backfill approves existing members and directors once and skips coordinators, superadmin, people without role and soft-deleted people", async () => {
+      const member = await service.save({ name: "Member", ra: "a0000001", role: Role.MEMBER });
+      const director = await service.save({
+        name: "Director",
+        ra: "a0000002",
+        role: Role.DIRECTOR,
+      });
+      const coordinator = await service.save({ name: "Coordinator", role: Role.COORDINATOR });
+      const superadmin = await service.save({ name: "Superadmin", role: Role.SUPERADMIN });
+      const noRole = await service.save({ name: "No role", ra: "a0000003" });
+      const deleted = await service.save({ name: "Deleted", ra: "a0000004", role: Role.MEMBER });
+      await dataSource.query(`UPDATE people SET deleted_at = now() WHERE id = $1`, [deleted.id]);
+      // A member that already has a profile (pending) must keep it untouched.
+      const alreadyPending = await service.save({
+        name: "Already pending",
+        ra: "a0000005",
+        role: Role.MEMBER,
+      });
+      const repository = dataSource.getRepository(MemberProfile);
+      await repository.save(
+        repository.create({
+          personId: alreadyPending.id,
+          registrationStatus: MemberRegistrationStatus.PENDING,
+        }),
+      );
+
+      // Twice: the second run must not insert again (NOT EXISTS) nor fail on the unique index.
+      await dataSource.query(BACKFILL_APPROVED_MEMBERS_SQL);
+      await dataSource.query(BACKFILL_APPROVED_MEMBERS_SQL);
+
+      const rows: Array<{
+        person_id: string;
+        registration_status: string;
+        requested_role: string | null;
+        reviewed_at: Date | null;
+      }> = await dataSource.query(
+        `SELECT person_id, registration_status, requested_role, reviewed_at FROM member_profiles`,
+      );
+      const byPerson = new Map(rows.map((row) => [row.person_id, row]));
+
+      expect(rows).toHaveLength(3);
+      expect(byPerson.get(member.id)).toMatchObject({
+        registration_status: "approved",
+        requested_role: "member",
+        reviewed_at: null,
+      });
+      expect(byPerson.get(director.id)).toMatchObject({
+        registration_status: "approved",
+        requested_role: "director",
+        reviewed_at: null,
+      });
+      expect(byPerson.get(alreadyPending.id)).toMatchObject({ registration_status: "pending" });
+      for (const skipped of [coordinator, superadmin, noRole, deleted]) {
+        expect(byPerson.has(skipped.id)).toBe(false);
+      }
     });
   });
 

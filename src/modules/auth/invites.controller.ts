@@ -24,7 +24,8 @@ import { ListInvitesQueryDto } from "./dto/list-invites-query.dto";
  *  POST   /invites               — create invite (Permission.INVITES_MANAGE: coordinator only)
  *  GET    /invites               — list invites (Permission.INVITES_MANAGE: coordinator only)
  *  GET    /auth/invites/:token   — inspect invite without consuming it (public)
- *  POST   /auth/invites/accept   — accept invite and provision Person (public)
+ *  POST   /auth/invites/accept   — accept invite: access → pending member registration;
+ *                                  password_reset → new password (public)
  *  DELETE /invites/:id           — revoke invite (Permission.INVITES_MANAGE: coordinator only)
  */
 @ApiTags("auth")
@@ -76,7 +77,8 @@ export class InvitesController {
    * Public — called by the front-end invite acceptance page before the user
    * fills in their registration form.
    * `person` (name and RA only) is returned for password_reset invites and is
-   * always null for access invites.
+   * always null for access invites. `departments` is the list the sign-up form offers
+   * (access invites; [] for password_reset).
    */
   @Get("auth/invites/:token")
   @Public()
@@ -86,14 +88,20 @@ export class InvitesController {
   }
 
   /**
-   * Accepts an invite and provisions a Person.
-   * Returns 204 No Content on success.
-   * Public — no authentication required.
+   * Accepts an invite. Returns 204 No Content on success. Public — no authentication required.
+   *  - access → creates the member registration as "A validar" (GUS-91): the Person gets no
+   *    access until coordination approves it. Requires `registration`.
+   *  - password_reset → sets the new password. Ignores `registration`.
+   * 400 INVALID_INVITE, 400 VALIDATION_FAILED (registration.*), 400 DEPARTMENT_NOT_FOUND,
+   * 409 RA_ALREADY_IN_USE, 409 EMAIL_ALREADY_IN_USE. On errors the invite is not consumed.
    */
   @Post("auth/invites/accept")
   @Public()
   @HttpCode(204)
-  @ApiNoContentResponse({ description: "Invite accepted. Person account provisioned." })
+  @ApiNoContentResponse({
+    description:
+      "Invite accepted. Access invite: member registration created as pending, without access.",
+  })
   async acceptInvite(@Body() dto: AcceptInviteDto): Promise<void> {
     await this.invitesService.accept(dto);
   }

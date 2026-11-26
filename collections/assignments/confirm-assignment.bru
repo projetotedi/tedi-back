@@ -1,0 +1,30 @@
+meta {
+  name: confirm-assignment
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/assignments/:id/confirm
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000006
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Confirma uma alocação pendente: o membro passa a fazer parte da aula e a cobertura (get-lesson, coverage) passa a contá-lo (F5.2, F5.4). O :id é o id da alocação.
+  Requer cookie tedi_session e a permissão assignments.create (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN. Recusar uma alocação pendente (declined) e aprovar candidatura (assignments.review) são da revisão das candidaturas, outro card.
+  Sem corpo. Grava status confirmed, reviewedById (quem confirmou) e reviewedAt (o instante, o mesmo de updatedAt).
+  Confirmar uma alocação que já está confirmada responde 200 sem alterar nada e sem evento: vale quem confirmou primeiro, e a aula e o membro nem são olhados.
+  Erros, na ordem: 404 ASSIGNMENT_NOT_FOUND, 409 ASSIGNMENT_NOT_PENDING (recusada ou cancelada é definitiva), 409 LESSON_CANCELLED (a aula foi cancelada enquanto a alocação esperava), 409 MEMBER_INACTIVE (o membro perdeu o acesso enquanto a alocação esperava) e 409 LESSON_TEACHER_TAKEN (outro professor foi confirmado enquanto este esperava, RN-02).
+  A alocação fica travada (FOR UPDATE) até o fim da transação, e a aula e o membro ficam travados (FOR SHARE) depois dela: duas confirmações da mesma alocação confirmam uma vez só, e dois professores pendentes confirmados ao mesmo tempo terminam com um só.
+  Retorna 200 LessonAssignmentResponseDto, o mesmo tipo de create-assignment e cancel-assignment. Depois do commit, e só quando foi confirmada agora, registra o evento LESSON_ASSIGNMENT_CONFIRMED, sem a nota.
+  Erros possíveis: 401, 403 FORBIDDEN, 404 ASSIGNMENT_NOT_FOUND (id inexistente ou mal formado), 409 (os códigos acima).
+}

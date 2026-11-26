@@ -1,0 +1,37 @@
+meta {
+  name: list-members
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/members
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+query {
+  page: 1
+  limit: 20
+  ~search: jose
+  ~role: member
+  ~departmentId: 01999a3e-1111-7000-8000-000000000001
+  ~registrationStatus: pending
+  ~status: inactive
+  ~enabled: true
+}
+
+docs {
+  Lista pessoas com acesso e todos os perfis de membro, incluindo cadastros pendentes e recusados. Cadastros recusados aparecem mesmo sem filtro de situação.
+  Requer cookie tedi_session e a permissão members.list (@RequirePermission; diretor, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Filtros: ?page, ?limit, ?search (nome ou RA), ?role, ?departmentId (UUID), ?registrationStatus (pending | approved | rejected), ?status (active | inactive; omitido = todos; quem não tem perfil de membro conta como active), ?enabled (true | false).
+  ?search ignora acentos e maiúsculas, trata % e _ como texto literal e aceita até 100 caracteres. Termo vazio ou só com espaços não filtra.
+  registrationStatus vem do perfil de membro; null indica que a pessoa não tem perfil. Não inferir cadastro pendente usando role null.
+  status é a participação no projeto (inactive só depois de deactivate-member); exitDate e exitReason vêm null enquanto ativo.
+  Retorna { data: MemberListItemResponseDto[], total, page, limit }, com status, exitDate e exitReason em cada linha. Dados pessoais do formulário de cadastro e a observação da saída não são incluídos.
+  Erros possíveis: 400 VALIDATION_FAILED (filtro inválido), 401, 403 FORBIDDEN.
+}

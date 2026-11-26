@@ -1,0 +1,40 @@
+meta {
+  name: confirm-member-attendance
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/lessons/:id/attendance/members
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "entries": [
+      { "assignmentId": "01952ef7-0000-7000-8000-000000000006", "status": "present" },
+      { "assignmentId": "01952ef7-0000-7000-8000-000000000007", "status": "absent" }
+    ]
+  }
+}
+
+docs {
+  Assina a presença de membros de uma aula, em lote (F6.2, GUS-168). O :id é o id da aula; cada entrada é uma alocação CONFIRMADA da aula e o status (present ou absent). De 1 a 100 entradas, tudo ou nada.
+  Requer cookie tedi_session e a permissão attendance.confirmMember (todos os perfis); o escopo é checado entrada por entrada: o membro só assina na aula em que é o professor confirmado (monitores dela), diretoria e coordenação em qualquer aula. Ninguém assina a própria presença, em nenhum perfil (403 SELF_ATTENDANCE_NOT_ALLOWED), então a presença do professor é assinada pela diretoria ou pela coordenação.
+  A primeira assinatura grava a presença. Mandar o mesmo status de novo não muda nada (sem escrita, sem horas, sem evento). Mandar o outro status é correção e exige também attendance.correct (diretoria e coordenação; o membro recebe 403 FORBIDDEN). Não há motivo na correção.
+  Horas (F7.1): present gera um lançamento em hour_entries com origin attendance, categoria lesson, a duração da aula (horário de início ao fim), o título da aula como atividade e o vínculo com a aula e a turma. Hoje nasce approved, revisado por quem assinou (a decisão Q6.6 está em aberto). Corrigir para absent estorna o lançamento: ele é removido logicamente e o histórico ganha uma linha reversed. Cancelar a aula estorna todas as horas de presença dela.
+  Aula de hoje vale; aula depois de hoje (fuso America/Sao_Paulo) responde 409 LESSON_IN_FUTURE; aula cancelada responde 409 LESSON_CANCELLED.
+  Retorna 200 com a lista da aula depois do commit (a mesma de list-member-attendance). Depois do commit registra, nesta ordem, os eventos das horas (HOUR_ENTRY_REVERSED, HOUR_ENTRY_CREATED, HOUR_ENTRY_APPROVED) e os da presença (MEMBER_ATTENDANCE_CONFIRMED na primeira assinatura, MEMBER_ATTENDANCE_CORRECTED na correção).
+  Dois envios ao mesmo tempo para a mesma aula são feitos um depois do outro: o segundo vira no-op.
+  Erros, nesta ordem: 401; 404 LESSON_NOT_FOUND (id mal formado); 400 VALIDATION_FAILED (entries.<i>.assignmentId, entries.<i>.status, entries); 400 DUPLICATE_ASSIGNMENT (a mesma alocação duas vezes, em qualquer caixa, com details); 404 LESSON_NOT_FOUND; 409 LESSON_CANCELLED; 409 LESSON_IN_FUTURE; 400 ASSIGNMENT_NOT_CONFIRMED (details nas posições); 403 SELF_ATTENDANCE_NOT_ALLOWED ou FORBIDDEN_SCOPE (a primeira entrada que falha); 403 FORBIDDEN (correção sem attendance.correct).
+}

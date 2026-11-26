@@ -9,6 +9,10 @@ import { join } from "node:path";
 import cookieParser from "cookie-parser";
 import request from "supertest";
 import { TestModule } from "./test-support/test.module";
+import {
+  insertDepartment,
+  insertMemberProfile,
+} from "@modules/people/__tests__/fixtures/member-registration.fixture";
 import { PeopleService } from "@modules/people/services/people.service";
 import { Role } from "@shared/enums/role.enum";
 import { SESSION_COOKIE_NAME } from "../auth.constants";
@@ -84,7 +88,8 @@ describe("AuthGuard (e2e)", () => {
   });
 
   beforeEach(async () => {
-    await dataSource.query("TRUNCATE TABLE people RESTART IDENTITY CASCADE");
+    // CASCADE from people also truncates member_profiles.
+    await dataSource.query("TRUNCATE TABLE departments, people RESTART IDENTITY CASCADE");
   });
 
   // -----------------------------------------------------------------------
@@ -118,6 +123,170 @@ describe("AuthGuard (e2e)", () => {
         .set("Cookie", buildCookie(token))
         .expect(200)
         .expect({ userId: person.id, role: Role.MEMBER });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GUS-91: the guard fills AuthUser.departmentIds and denies registrations under validation
+  // -----------------------------------------------------------------------
+  describe("member registration (GUS-91)", () => {
+    async function cookieOf(personId: string): Promise<string> {
+      const token = await jwtService.signAsync({ sub: personId }, { secret: TEST_SECRET });
+      return buildCookie(token);
+    }
+
+    it("GET /test/departments returns the department of the approved member profile", async () => {
+      const departmentId = await insertDepartment(dataSource, "Tecnologia");
+      const person = await peopleService.save({
+        name: "Diana",
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+      });
+      await insertMemberProfile(dataSource, {
+        personId: person.id,
+        status: "approved",
+        departmentId,
+      });
+
+      await request(app.getHttpServer())
+        .get("/test/departments")
+        .set("Cookie", await cookieOf(person.id))
+        .expect(200)
+        .expect({ departmentIds: [departmentId] });
+    });
+
+    it("GET /test/departments returns [] for a person without member profile", async () => {
+      const person = await peopleService.save({
+        name: "Coordinator",
+        role: Role.COORDINATOR,
+        accessEnabled: true,
+      });
+
+      await request(app.getHttpServer())
+        .get("/test/departments")
+        .set("Cookie", await cookieOf(person.id))
+        .expect(200)
+        .expect({ departmentIds: [] });
+    });
+
+    it("GET /test/departments returns [] for an approved profile without department", async () => {
+      const person = await peopleService.save({
+        name: "Eduardo",
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+      await insertMemberProfile(dataSource, { personId: person.id, status: "approved" });
+
+      await request(app.getHttpServer())
+        .get("/test/departments")
+        .set("Cookie", await cookieOf(person.id))
+        .expect(200)
+        .expect({ departmentIds: [] });
+    });
+
+    it("GET /test/open returns 401 for a pending or rejected registration, even if the row carries a role and the access flag", async () => {
+      // Pending and rejected rows keep role null and access disabled, so steps 6-7 of the guard
+      // already deny them; this inconsistent row proves the extra check of the registration.
+      for (const status of ["pending", "rejected"] as const) {
+        const person = await peopleService.save({
+          name: `Registration ${status}`,
+          role: Role.MEMBER,
+          accessEnabled: true,
+        });
+        await insertMemberProfile(dataSource, { personId: person.id, status });
+
+        const res = await request(app.getHttpServer())
+          .get("/test/open")
+          .set("Cookie", await cookieOf(person.id))
+          .expect(401);
+        expect(res.body.error).toBe("UNAUTHORIZED");
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GUS-93: an account that must change the password reaches only the routes marked as allowed
+  // -----------------------------------------------------------------------
+  describe("password change required (GUS-93)", () => {
+    async function flaggedPerson(
+      overrides: { role?: Role; accessEnabled?: boolean } = {},
+    ): Promise<{ id: string; cookie: string }> {
+      const person = await peopleService.save({
+        name: "Helena",
+        role: Role.DIRECTOR,
+        accessEnabled: true,
+        mustChangePassword: true,
+        ...overrides,
+      });
+      const token = await jwtService.signAsync({ sub: person.id }, { secret: TEST_SECRET });
+      return { id: person.id, cookie: buildCookie(token) };
+    }
+
+    it("GET /test/open returns 403 PASSWORD_CHANGE_REQUIRED", async () => {
+      const { cookie } = await flaggedPerson();
+
+      const res = await request(app.getHttpServer())
+        .get("/test/open")
+        .set("Cookie", cookie)
+        .expect(403);
+
+      expect(res.body).toMatchObject({
+        statusCode: 403,
+        error: "PASSWORD_CHANGE_REQUIRED",
+        message: "Password change required.",
+      });
+    });
+
+    it("answers it before @Roles: a flagged member gets PASSWORD_CHANGE_REQUIRED on /test/director, not a plain 403", async () => {
+      const { cookie } = await flaggedPerson({ role: Role.MEMBER });
+
+      const res = await request(app.getHttpServer())
+        .get("/test/director")
+        .set("Cookie", cookie)
+        .expect(403);
+
+      expect(res.body.error).toBe("PASSWORD_CHANGE_REQUIRED");
+    });
+
+    it("GET /auth/me stays open and reports mustChangePassword true", async () => {
+      const { id, cookie } = await flaggedPerson();
+
+      const res = await request(app.getHttpServer())
+        .get("/auth/me")
+        .set("Cookie", cookie)
+        .expect(200);
+
+      expect(res.body).toMatchObject({ id, mustChangePassword: true });
+    });
+
+    it("GET /test/public still returns 200 for a flagged session", async () => {
+      const { cookie } = await flaggedPerson();
+
+      await request(app.getHttpServer())
+        .get("/test/public")
+        .set("Cookie", cookie)
+        .expect(200)
+        .expect({ ok: true });
+    });
+
+    it("returns 401, not 403, when the flagged account has its access disabled", async () => {
+      const { cookie } = await flaggedPerson({ accessEnabled: false });
+
+      const res = await request(app.getHttpServer())
+        .get("/test/open")
+        .set("Cookie", cookie)
+        .expect(401);
+
+      expect(res.body.error).toBe("UNAUTHORIZED");
+    });
+
+    it("reads the flag on every request: the block lifts as soon as it is cleared", async () => {
+      const { id, cookie } = await flaggedPerson();
+      await request(app.getHttpServer()).get("/test/open").set("Cookie", cookie).expect(403);
+
+      await dataSource.query(`UPDATE people SET must_change_password = false WHERE id = $1`, [id]);
+
+      await request(app.getHttpServer()).get("/test/open").set("Cookie", cookie).expect(200);
     });
   });
 

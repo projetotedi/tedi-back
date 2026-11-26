@@ -1,0 +1,31 @@
+meta {
+  name: export-hours
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/hours/export
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: text/csv
+}
+
+query {
+  from: 2026-03-01
+  to: 2026-03-31
+  format: csv
+}
+
+docs {
+  Exporta os lançamentos do período em CSV (F7.4), em stream.
+  Requer cookie tedi_session e a permissão hours.export (@RequirePermission). Membro recebe 403 FORBIDDEN. Mesmo escopo da visão geral: a diretoria exporta só o próprio departamento (diretor sem departamento recebe só o cabeçalho); coordenação e superadmin, todos.
+  Arquivo: UTF-8 com BOM, separador ";", CRLF, toda célula entre aspas (aspas internas dobradas), célula que começa com =, +, -, @, TAB ou CR ganha um apóstrofo na frente (contra injeção de fórmula). Content-Type text/csv; o nome vem no Content-Disposition: hours_<from>_<to>.csv (start e end para extremos abertos).
+  Colunas: entry_id; date; person_id; member_name; department; category; activity; origin; status; declared_minutes; validated_minutes; review_note; reviewed_at. Uma linha por lançamento não removido do período, em ordem de data e id. As notas da pessoa não saem.
+  format só aceita csv (xlsx: 400 VALIDATION_FAILED; XLSX fica para outro card). Período inválido e formato inválido respondem em JSON, antes de qualquer byte do arquivo.
+  O arquivo é lido em lotes de 500 enquanto é enviado; um erro no meio do download derruba a conexão (o arquivo chega quebrado, nunca cortado como se estivesse inteiro).
+  Erros possíveis: 400 VALIDATION_FAILED, 400 INVALID_PERIOD, 401, 403 FORBIDDEN.
+}

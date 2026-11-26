@@ -1,0 +1,44 @@
+meta {
+  name: log-hours-for-member
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/members/:id/hour-entries
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000020
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "activity": "Planejamento da aula de teclado e mouse",
+    "category": "planning",
+    "date": "2026-03-10",
+    "declaredMinutes": 150,
+    "notes": "Revisei os exercícios do plano 3.",
+    "lessonId": null
+  }
+}
+
+docs {
+  Lança horas em nome de um membro (F7.1). O lançamento nasce pending, com origin on_behalf e createdById = quem lançou.
+  Requer cookie tedi_session e a permissão hours.logForOthers (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Escopo: a diretoria só lança para membro do próprio departamento (fora dele, ou sem departamento: 403 FORBIDDEN_SCOPE); coordenação e superadmin lançam para qualquer membro.
+  O id é de uma pessoa com cadastro de membro aprovado. Cadastro pendente ou recusado, aluno, coordenação e superadmin sem perfil de membro, id inexistente ou mal formado: 404 MEMBER_NOT_FOUND, antes do 403.
+  Para lançar as próprias horas use POST /me/hour-entries: o próprio id aqui responde 400 SELF_ON_BEHALF_NOT_ALLOWED.
+  O corpo e as regras são os mesmos de log-my-hours: declaredMinutes inteiro de 1 a 1440, lesson recusada (RN-03), data futura recusada (400 HOUR_ENTRY_DATE_IN_FUTURE), vínculo opcional com classId e lessonId e os mesmos erros dele (GUS-172), campos extras descartados.
+  O membro vê o lançamento no extrato dele e pode removê-lo enquanto estiver pending.
+  Retorna 201 HourEntryResponseDto. Grava o evento created (com quem lançou) no histórico e registra HOUR_ENTRY_CREATED.
+  Ordem dos erros: 404 MEMBER_NOT_FOUND para id mal formado (vem do pipe da rota, antes do corpo), 400 VALIDATION_FAILED, 400 SELF_ON_BEHALF_NOT_ALLOWED, 404 MEMBER_NOT_FOUND, 403 FORBIDDEN_SCOPE, os erros do vínculo (400 LESSON_NOT_FOUND, CLASS_NOT_FOUND, LESSON_NOT_IN_CLASS; 409 LESSON_CANCELLED, CLASS_ARCHIVED), 400 HOUR_ENTRY_DATE_IN_FUTURE.
+  Erros possíveis: 400 (os códigos acima), 401, 403 FORBIDDEN, 403 FORBIDDEN_SCOPE, 404 MEMBER_NOT_FOUND, 409 LESSON_CANCELLED, 409 CLASS_ARCHIVED.
+}

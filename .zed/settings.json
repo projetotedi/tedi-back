@@ -29,5 +29,6 @@
       }
     }
   },
-  "file_scan_exclusions": ["**/node_modules", "**/dist", "**/coverage", "**/.env"]
+  "project_panel": { "hide_gitignore": false },
+  "file_scan_exclusions": ["**/node_modules", "**/dist", "**/coverage"]
 }

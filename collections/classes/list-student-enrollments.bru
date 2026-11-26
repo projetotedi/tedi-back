@@ -1,0 +1,28 @@
+meta {
+  name: list-student-enrollments
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/students/:id/enrollments
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000001
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Histórico de matrículas do aluno (RF-031), para a ficha do aluno. O :id é o id da Person do aluno. A rota mora em classes/ porque o controller tem a tag classes (a matrícula é do módulo classes).
+  Requer cookie tedi_session e a permissão students.view (@RequirePermission; todos os perfis).
+  Traz toda matrícula não removida, da mais nova para a mais antiga (enrolledAt), turmas arquivadas inclusive: { id, status, enrolledAt, statusChangedAt, class { id, code, name, edition { id, name } }, course { id, name, category, status }, attendanceRate }. Sem paginação (dezenas por aluno). attendanceRate é a frequência da matrícula (F6.3, GUS-166): presenças sobre as chamadas registradas dela em aulas não canceladas, de 0 a 1 com duas casas (0.75 = 75%); a falta justificada conta como falta, e a aula cancelada depois da chamada sai da conta. null quando a matrícula ainda não tem chamada registrada.
+  summary: activeClasses (matrículas ativas), completedCourses (um por curso com matrícula completed, derivado das matrículas, RN-16: { courseId, name, completedAt }, com completedAt = a data mais recente de conclusão daquele curso, em ordem de completedAt e nome) e firstEnrollmentAt (a primeira matrícula, ou null).
+  Aluno arquivado responde 200. O motivo da mudança de situação nunca aparece aqui.
+  Erros possíveis: 401, 404 STUDENT_NOT_FOUND (id inexistente, mal formado ou de quem não é aluno).
+}

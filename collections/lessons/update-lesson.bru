@@ -1,0 +1,42 @@
+meta {
+  name: update-lesson
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/lessons/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000004
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "title": "Teclado, mouse e janelas (turma noturna)",
+    "location": "Laboratório 2, bloco A",
+    "expectedStudents": 12,
+    "status": "confirmed"
+  }
+}
+
+docs {
+  Edita uma aula (F4.3).
+  Requer cookie tedi_session e a permissão lessons.manage (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
+  Todos os campos são opcionais: omitir não altera. objective, location, expectedStudents, expectedMonitors, subject e postNotes aceitam null (ou "") para limpar o valor. title e status podem ser omitidos, mas nunca enviados como null (400). As mesmas regras de limite do POST valem para o que for enviado. postNotes (até 5000 caracteres) são as notas pós-aula: texto livre, não registre informação de saúde.
+  status aceita planned, confirmed e done, em qualquer direção: as regras de transição entre situações ainda não existem. cancelled é recusado com 400 VALIDATION_FAILED (field status): para cancelar use cancel-lesson, que registra o motivo.
+  classId, lessonPlanId e sequenceOrder não são editáveis (RN-20): a aula pertence a uma turma e o plano é a origem dela. date, startTime e endTime também não: só mudam pela remarcação (reschedule-lesson), para a data original nunca ser contornada. Se vierem no corpo, são ignorados, sem mudar a aula e sem acusar erro.
+  Corpo vazio, ou sem mudança de valor, responde 200 sem alterar nada e sem evento.
+  Aula cancelada é definitiva: 409 LESSON_CANCELLED. Turma arquivada é somente leitura (RN-27): 409 CLASS_ARCHIVED, mesmo para um corpo que não mudaria nada. A linha da aula fica travada durante a edição: duas edições ao mesmo tempo são feitas uma depois da outra.
+  Retorna 200 LessonResponseDto e registra o evento LESSON_UPDATED só com os campos alterados. postNotes aparece em changedFields, mas o texto nunca vai para o evento (RNF-13).
+  Ordem dos erros: 404, 409 LESSON_CANCELLED, 409 CLASS_ARCHIVED (a validação do corpo, 400 VALIDATION_FAILED, vem antes de todos).
+  Erros possíveis: 400 VALIDATION_FAILED, 401, 403 FORBIDDEN, 404 LESSON_NOT_FOUND (id inexistente ou mal formado), 409 LESSON_CANCELLED, 409 CLASS_ARCHIVED.
+}

@@ -1,0 +1,35 @@
+meta {
+  name: validate-hour-entries
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/hour-entries/validate
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "ids": [
+      "01952ef7-0000-7000-8000-000000000010",
+      "01952ef7-0000-7000-8000-000000000011",
+      "01952ef7-0000-7000-8000-000000000012"
+    ]
+  }
+}
+
+docs {
+  Valida lançamentos em lote (F7.3): cada um vira approved com validatedMinutes = declaredMinutes.
+  Requer cookie tedi_session e a permissão hours.review (@RequirePermission; só coordenação e superadmin). Diretoria e membro recebem 403 FORBIDDEN.
+  De 1 a 100 ids. Tudo ou nada: qualquer erro desfaz o lote inteiro. Os lançamentos são travados (FOR UPDATE) em ordem de id, então dois lotes com ids em comum não se bloqueiam em círculo, e validar e remover o mesmo lançamento ao mesmo tempo dá 200 + 409 ou 204 + 400.
+  Retorna 200 com os HourEntryResponseDto, na ordem do corpo. Grava um evento approved no histórico de cada lançamento e registra um HOUR_ENTRY_APPROVED por lançamento, depois do commit.
+  Ordem dos erros: 400 VALIDATION_FAILED (lista vazia, mais de 100, id mal formado), 400 DUPLICATE_HOUR_ENTRY (id repetido, em qualquer caixa), 400 HOUR_ENTRY_NOT_FOUND (inexistente ou removido), 409 SELF_REVIEW_NOT_ALLOWED (lançamento de quem valida), 409 ENTRY_NOT_PENDING (já revisado). Os quatro últimos trazem details[].field = "ids.<posição>".
+  Erros possíveis: 400, 401, 403 FORBIDDEN, 409.
+}

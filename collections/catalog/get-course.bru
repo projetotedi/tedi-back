@@ -1,0 +1,32 @@
+meta {
+  name: get-course
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/courses/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 01952ef7-0000-7000-8000-000000000002
+}
+
+headers {
+  Accept: application/json
+}
+
+docs {
+  Ficha do curso: dados, pré-requisitos, cursos que o exigem, sequência de planos de aula em ordem e carga horária prevista, tudo numa chamada só.
+  Requer cookie tedi_session e a permissão catalog.view (@RequirePermission; membro, diretoria, coordenação e superadmin).
+  Dados: id, name, description, objective (null quando não informado), category, status (active ou archived, derivado de archivedAt), createdAt e updatedAt (que também muda com os pré-requisitos e com a sequência). createdBy traz só id e name de quem criou o curso e vem null quando essa pessoa foi removida.
+  prerequisites são os cursos que este exige e requiredBy são os cursos que exigem este (RF-021). Cada item traz id, name, category e status. As duas listas vêm ordenadas por nome (pt-BR) e vazias quando não há. Cursos arquivados continuam nas duas, com status archived.
+  lessonPlans é a sequência em ordem de position (a partir de 1), com o mesmo item de GET /courses/:id/lesson-plans: lessonPlanId, title, contents, expectedDurationMinutes, materialUrl, courseCount e archivedAt (plano arquivado depois de entrar na sequência continua nela, com archivedAt preenchido). plannedWorkloadMinutes é a soma das expectedDurationMinutes, calculada na hora e nunca digitada (RN-24), e lessonPlanCount é o número de planos. Curso sem planos responde lessonPlans [], plannedWorkloadMinutes 0 e lessonPlanCount 0.
+  Curso arquivado continua acessível, somente leitura: responde 200 com status archived.
+  As turmas do curso não vêm aqui: ficam em GET /courses/:id/classes (GUS-102).
+  Leitura apenas: sem evento de auditoria.
+  Retorna 200 CourseDetailDto.
+  Erros possíveis: 401, 403 FORBIDDEN, 404 COURSE_NOT_FOUND (id inexistente ou mal formado).
+}

@@ -124,6 +124,7 @@ describe("AccessController (e2e)", () => {
     email: string;
     role: Role;
     accessEnabled?: boolean;
+    mustChangePassword?: boolean;
   }): Promise<{ cookie: string; id: string }> {
     const passwordHash = await passwordService.hashPassword("Senha@123");
     const person = await peopleService.save({
@@ -133,6 +134,7 @@ describe("AccessController (e2e)", () => {
       passwordHash,
       role: opts.role,
       accessEnabled: opts.accessEnabled ?? true,
+      mustChangePassword: opts.mustChangePassword ?? false,
     });
     const token = await jwtService.signAsync({ sub: person.id });
     return { cookie: `${SESSION_COOKIE_NAME}=${token}`, id: person.id };
@@ -236,6 +238,111 @@ describe("AccessController (e2e)", () => {
         .set("Cookie", director.cookie)
         .expect(403);
       expect(res.body.error).toBe("FORBIDDEN");
+    });
+  });
+
+  describe("Text search (GUS-115)", () => {
+    let coordinator: { cookie: string; id: string };
+    let maria: string;
+    let jose: string;
+    let ana50: string;
+    let ana500: string;
+
+    async function savePerson(name: string, ra: string): Promise<string> {
+      const person = await peopleService.save({
+        name,
+        ra,
+        email: `${ra}@example.com`,
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+      return person.id;
+    }
+
+    async function search(term: string): Promise<string[]> {
+      const res = await request(app.getHttpServer())
+        .get("/access")
+        .query({ search: term })
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      return (res.body.data as Array<{ id: string }>).map((person) => person.id);
+    }
+
+    beforeEach(async () => {
+      coordinator = await createCoordinator();
+      maria = await savePerson("Maria Souza", "a1000001");
+      await savePerson("Mário Lima", "a1000002");
+      jose = await savePerson("José da Conceição", "2024000123");
+      ana50 = await savePerson("Ana 50% Teste", "a1000003");
+      ana500 = await savePerson("Ana 500 Teste", "a1000004");
+    });
+
+    it("returns the same people for maria, MÁRIA and mária", async () => {
+      expect(await search("maria")).toEqual([maria]);
+      expect(await search("MÁRIA")).toEqual([maria]);
+      expect(await search("mária")).toEqual([maria]);
+    });
+
+    it("finds José when searching jose", async () => {
+      expect(await search("jose")).toEqual([jose]);
+    });
+
+    it("finds José da Conceição by conceicao and JOSÉ", async () => {
+      expect(await search("conceicao")).toEqual([jose]);
+      expect(await search("JOSÉ")).toEqual([jose]);
+    });
+
+    it("finds by a partial RA", async () => {
+      expect(await search("2024000")).toEqual([jose]);
+    });
+
+    it("treats 50% as literal text", async () => {
+      expect(await search("50%")).toEqual([ana50]);
+      expect((await search("50")).sort()).toEqual([ana50, ana500].sort());
+    });
+
+    it("ignores an empty or blank search", async () => {
+      expect(await search("")).toHaveLength(6);
+      expect(await search("   ")).toHaveLength(6);
+    });
+
+    it("ignores NUL characters in the search instead of failing with 500", async () => {
+      const onlyNul = await request(app.getHttpServer())
+        .get("/access?search=%00")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect(onlyNul.body.total).toBe(6);
+
+      const mixed = await request(app.getHttpServer())
+        .get("/access?search=Ma%00ria")
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+      expect((mixed.body.data as Array<{ id: string }>).map((person) => person.id)).toEqual([
+        maria,
+      ]);
+    });
+
+    it("accepts a search of 100 characters and rejects one of 101 with 400 VALIDATION_FAILED", async () => {
+      await request(app.getHttpServer())
+        .get("/access")
+        .query({ search: "a".repeat(100) })
+        .set("Cookie", coordinator.cookie)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get("/access")
+        .query({ search: "a".repeat(101) })
+        .set("Cookie", coordinator.cookie)
+        .expect(400);
+
+      expect(res.body).toEqual({
+        statusCode: 400,
+        message: "Bad request.",
+        error: "VALIDATION_FAILED",
+        details: [
+          { field: "search", message: "search must be shorter than or equal to 100 characters" },
+        ],
+      });
     });
   });
 
@@ -425,6 +532,41 @@ describe("AccessController (e2e)", () => {
         .expect(200);
 
       expect(loginRes.body.role).toBe("member");
+    });
+
+    it("GUS-93: accepting the reset link clears a pending password change", async () => {
+      const coord = await createCoordinator();
+      const flagged = await createPerson({
+        name: "Initial Coordinator",
+        ra: "flagged001",
+        email: "flagged@example.com",
+        role: Role.SUPERADMIN,
+        mustChangePassword: true,
+      });
+
+      const resetRes = await request(app.getHttpServer())
+        .post(`/access/${flagged.id}/password-reset`)
+        .set("Cookie", coord.cookie)
+        .expect(201);
+      const token = new URL(resetRes.body.url as string).searchParams.get("token") ?? "";
+
+      await request(app.getHttpServer())
+        .post("/auth/invites/accept")
+        .send({ token, password: "NovaSenh@456" })
+        .expect(204);
+
+      // The person chose this password through the link: logging in no longer asks for a change.
+      const loginRes = await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ ra: "flagged001", password: "NovaSenh@456" })
+        .expect(200);
+      expect(loginRes.body.mustChangePassword).toBe(false);
+
+      const rows = (await dataSource.query(
+        "SELECT must_change_password FROM people WHERE id = $1",
+        [flagged.id],
+      )) as Array<{ must_change_password: boolean }>;
+      expect(rows).toEqual([{ must_change_password: false }]);
     });
 
     it("CA81-7: coordinator can generate reset for own account", async () => {

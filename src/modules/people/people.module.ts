@@ -1,16 +1,55 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { Clock } from "@shared/dates/clock";
+import { PermissionsModule } from "@shared/permissions/permissions.module";
+import { DepartmentsController } from "./controllers/departments.controller";
+import { MembersController } from "./controllers/members.controller";
+import { MemberRegistrationsController } from "./controllers/member-registrations.controller";
+import { MyProfileController } from "./controllers/my-profile.controller";
 import { StudentsController } from "./controllers/students.controller";
+import { Department } from "./entities/department.entity";
+import { MemberProfile } from "./entities/member-profile.entity";
 import { Person } from "./entities/person.entity";
 import { StudentProfile } from "./entities/student-profile.entity";
+import { DepartmentsService } from "./services/departments.service";
+import { MembersService } from "./services/members.service";
+import { MyProfileService } from "./services/my-profile.service";
 import { PeopleService } from "./services/people.service";
+import { StudentEnrollmentsRegistry } from "./services/student-enrollments.registry";
 import { StudentsService } from "./services/students.service";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Person, StudentProfile])],
-  controllers: [StudentsController],
-  providers: [PeopleService, StudentsService, Clock],
-  exports: [PeopleService, StudentsService],
+  imports: [
+    TypeOrmModule.forFeature([Person, StudentProfile, MemberProfile, Department]),
+    // PermissionPolicy: MembersService.getMember checks the department scope of the member record.
+    PermissionsModule,
+  ],
+  controllers: [
+    // MyProfileController (GET /members/me) goes FIRST: it has to be registered before any
+    // controller with a `members/:id` route (GUS-144), or that route would catch "me" as an id.
+    MyProfileController,
+    StudentsController,
+    MemberRegistrationsController,
+    DepartmentsController,
+    MembersController,
+  ],
+  providers: [
+    PeopleService,
+    StudentsService,
+    MembersService,
+    MyProfileService,
+    DepartmentsService,
+    StudentEnrollmentsRegistry,
+    Clock,
+  ],
+  // classes registers the reader of the active enrollments in StudentEnrollmentsRegistry (GUS-108):
+  // StudentsService.archive asks it before archiving a student.
+  exports: [
+    PeopleService,
+    StudentsService,
+    MembersService,
+    DepartmentsService,
+    StudentEnrollmentsRegistry,
+  ],
 })
 export class PeopleModule {}
