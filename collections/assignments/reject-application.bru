@@ -22,9 +22,9 @@ docs {
   Recusa uma candidatura pendente (botão Recusar do modal Candidaturas pendentes). O :id é o id da candidatura.
   Requer cookie tedi_session e a permissão assignments.review (@RequirePermission; diretoria de qualquer departamento, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
   Sem corpo e sem motivo. Grava status declined, reviewedById (quem recusou) e reviewedAt (o instante, o mesmo de updatedAt). A linha fica. Recusar libera a vaga: a candidatura sai da fila, o lugar do membro na aula fica livre (declined não ocupa lugar), ele vê a situação em list-my-assignments e pode se candidatar de novo; a aula volta para list-open-lessons dele se ainda tiver vaga.
-  Não olha a aula nem o membro: candidatura de aula cancelada ou que já passou também é recusada.
+  Não olha o membro. Lê a aula só para saber se a candidatura expirou (GUS-179): a de aula cancelada ou de antes de hoje responde 409 APPLICATION_NOT_PENDING; a de hoje ainda é recusada, mesmo com a aula done.
   Recusar uma candidatura que já está recusada responde 200 sem alterar nada e sem evento.
-  Erros, na ordem: 404 APPLICATION_NOT_FOUND (id inexistente, mal formado ou de uma alocação direta) e 409 APPLICATION_NOT_PENDING (aprovada ou cancelada; a aprovada sai por cancel-assignment).
+  Erros, na ordem: 404 APPLICATION_NOT_FOUND (id inexistente, mal formado ou de uma alocação direta) e 409 APPLICATION_NOT_PENDING (aprovada, cancelada ou expirada; a aprovada sai por cancel-assignment).
   A candidatura fica travada (FOR UPDATE) até o fim da transação: aprovar e recusar a mesma candidatura ao mesmo tempo decide uma vez só.
   Retorna 200 LessonAssignmentResponseDto, com a nota. Depois do commit, e só quando foi recusada agora, registra o evento LESSON_ASSIGNMENT_DECLINED, sem a nota.
   Erros possíveis: 401, 403 FORBIDDEN, 404 APPLICATION_NOT_FOUND, 409 APPLICATION_NOT_PENDING.
