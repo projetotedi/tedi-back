@@ -7,6 +7,7 @@ import {
   LessonsService,
   LessonStatus,
   LessonSummary,
+  LessonWithClassActivity,
 } from "@modules/lessons/services/lessons.service";
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
 import { MembersService, MemberSummary } from "@modules/people/services/members.service";
@@ -120,6 +121,16 @@ function buildLesson(overrides: Partial<LessonSummary> = {}): LessonSummary {
   };
 }
 
+function buildLessonWithClass(
+  overrides: Partial<LessonWithClassActivity> = {},
+): LessonWithClassActivity {
+  return {
+    ...buildLesson(),
+    classActive: true,
+    ...overrides,
+  };
+}
+
 function buildMember(overrides: Partial<MemberSummary> = {}): MemberSummary {
   return {
     id: PERSON_ID,
@@ -158,6 +169,7 @@ describe("AssignmentsService", () => {
   let order: string[];
   let state: {
     lesson: LessonSummary | null;
+    lessonWithClass: LessonWithClassActivity | null;
     member: MemberSummary | null;
     assignment: LessonAssignment | null;
     hasActiveAssignment: boolean;
@@ -172,7 +184,11 @@ describe("AssignmentsService", () => {
   const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
   const clock = { now: jest.fn() };
-  const lessons = { getLessonSummary: jest.fn(), findLessonSummaries: jest.fn() };
+  const lessons = {
+    getLessonSummary: jest.fn(),
+    getLessonWithClassActivity: jest.fn(),
+    findLessonSummaries: jest.fn(),
+  };
   const members = { getMemberSummary: jest.fn() };
   const people = { findRefsByIds: jest.fn() };
 
@@ -194,6 +210,7 @@ describe("AssignmentsService", () => {
     order = [];
     state = {
       lesson: buildLesson(),
+      lessonWithClass: buildLessonWithClass(),
       member: buildMember(),
       assignment: buildAssignment(),
       hasActiveAssignment: false,
@@ -251,6 +268,10 @@ describe("AssignmentsService", () => {
     lessons.getLessonSummary.mockImplementation(async () => {
       order.push("get-lesson");
       return state.lesson;
+    });
+    lessons.getLessonWithClassActivity.mockImplementation(async () => {
+      order.push("get-lesson");
+      return state.lessonWithClass;
     });
     lessons.findLessonSummaries.mockImplementation(async () => {
       order.push("find-lessons");
@@ -371,10 +392,10 @@ describe("AssignmentsService", () => {
       expect(without.note).toBeNull();
     });
 
-    it("reads the lesson and then the member, both FOR SHARE and in the transaction, before the checks and the insert", async () => {
+    it("reads the lesson with class activity and then the member, both FOR SHARE and in the transaction, before the checks and the insert", async () => {
       await service.create(LESSON_ID, dto, ACTOR_ID);
 
-      expect(lessons.getLessonSummary).toHaveBeenCalledWith(LESSON_ID, manager, {
+      expect(lessons.getLessonWithClassActivity).toHaveBeenCalledWith(LESSON_ID, manager, {
         forShare: true,
       });
       expect(members.getMemberSummary).toHaveBeenCalledWith(PERSON_ID, manager, {
@@ -412,7 +433,7 @@ describe("AssignmentsService", () => {
     });
 
     it("stores the ids of the database, not the way the request spells them", async () => {
-      state.lesson = buildLesson({ id: LESSON_ID });
+      state.lessonWithClass = buildLessonWithClass({ id: LESSON_ID });
       state.member = buildMember({ id: PERSON_ID });
 
       await service.create(
@@ -429,7 +450,7 @@ describe("AssignmentsService", () => {
 
     describe("errors", () => {
       it("throws 404 LESSON_NOT_FOUND when the lesson does not exist, and reads nothing else", async () => {
-        state.lesson = null;
+        state.lessonWithClass = null;
 
         const failure = await httpFailure(service.create(LESSON_ID, dto, ACTOR_ID));
 
@@ -443,8 +464,11 @@ describe("AssignmentsService", () => {
         expect(eventEmitter.emit).not.toHaveBeenCalled();
       });
 
-      it("throws 409 LESSON_CANCELLED for a cancelled lesson, before looking at the member", async () => {
-        state.lesson = buildLesson({ status: LessonStatus.CANCELLED });
+      it("throws 409 LESSON_CANCELLED for a cancelled lesson, before checking class activity or looking at the member", async () => {
+        state.lessonWithClass = buildLessonWithClass({
+          status: LessonStatus.CANCELLED,
+          classActive: false,
+        });
 
         const failure = await httpFailure(service.create(LESSON_ID, dto, ACTOR_ID));
 
@@ -457,10 +481,25 @@ describe("AssignmentsService", () => {
         expect(manager.save).not.toHaveBeenCalled();
       });
 
+      it("throws 409 CLASS_NOT_ACTIVE when the lesson's class is not active, before looking at the member", async () => {
+        state.lessonWithClass = buildLessonWithClass({ classActive: false });
+
+        const failure = await httpFailure(service.create(LESSON_ID, dto, ACTOR_ID));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(failure.getResponse()).toEqual({
+          error: "CLASS_NOT_ACTIVE",
+          message: "Assignments and applications are only allowed in active classes.",
+        });
+        expect(members.getMemberSummary).not.toHaveBeenCalled();
+        expect(manager.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
       it.each([LessonStatus.PLANNED, LessonStatus.CONFIRMED, LessonStatus.DONE])(
         "accepts an assignment in a %s lesson: only a cancelled one is refused",
         async (status) => {
-          state.lesson = buildLesson({ status });
+          state.lessonWithClass = buildLessonWithClass({ status });
 
           const result = await service.create(LESSON_ID, dto, ACTOR_ID);
 
@@ -571,13 +610,16 @@ describe("AssignmentsService", () => {
         expect(confirmedMonitor.status).toBe(AssignmentStatus.CONFIRMED);
       });
 
-      it("answers the errors in this order: the lesson, the member, the place, the teacher", async () => {
+      it("answers the errors in this order: the lesson, class activity, the member, the place, the teacher", async () => {
         const teacher = {
           ...dto,
           role: AssignmentRole.TEACHER,
           status: AssignmentStatus.CONFIRMED,
         };
-        state.lesson = buildLesson({ status: LessonStatus.CANCELLED });
+        state.lessonWithClass = buildLessonWithClass({
+          status: LessonStatus.CANCELLED,
+          classActive: false,
+        });
         state.member = buildMember({ active: false });
         state.hasActiveAssignment = true;
         state.hasConfirmedTeacher = true;
@@ -585,11 +627,15 @@ describe("AssignmentsService", () => {
         expect(codeOf(await httpFailure(service.create(LESSON_ID, teacher, ACTOR_ID)))).toBe(
           "LESSON_CANCELLED",
         );
-        state.lesson = null;
+        state.lessonWithClass = buildLessonWithClass({ classActive: false });
+        expect(codeOf(await httpFailure(service.create(LESSON_ID, teacher, ACTOR_ID)))).toBe(
+          "CLASS_NOT_ACTIVE",
+        );
+        state.lessonWithClass = null;
         expect(codeOf(await httpFailure(service.create(LESSON_ID, teacher, ACTOR_ID)))).toBe(
           "LESSON_NOT_FOUND",
         );
-        state.lesson = buildLesson();
+        state.lessonWithClass = buildLessonWithClass();
         state.member = null;
         expect(codeOf(await httpFailure(service.create(LESSON_ID, teacher, ACTOR_ID)))).toBe(
           "MEMBER_NOT_FOUND",

@@ -3,12 +3,22 @@ import {
   alreadyApplied,
   applicationNotFound,
   applicationNotPending,
+  classNotActive,
   lessonInPast,
   roleFull,
 } from "../services/assignment-errors";
 
 describe("the errors of the applications (GUS-160)", () => {
   it.each<[string, () => HttpException, number, Record<string, unknown>]>([
+    [
+      "classNotActive",
+      classNotActive,
+      409,
+      {
+        error: "CLASS_NOT_ACTIVE",
+        message: "Assignments and applications are only allowed in active classes.",
+      },
+    ],
     [
       "alreadyApplied",
       alreadyApplied,

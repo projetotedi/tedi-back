@@ -30,6 +30,7 @@ import {
   assignmentNotActive,
   assignmentNotFound,
   assignmentNotPending,
+  classNotActive,
   duplicateRoleInLesson,
   lessonCancelled,
   lessonNotFound,
@@ -70,16 +71,20 @@ type CancelOutcome =
  * violation of the index (23505) is mapped to the same one when a request races past them.
  *
  * Locks, always in this order, so no two writes wait for each other in a circle:
- * - making one: the lesson FOR SHARE, then the member FOR SHARE, then the insert;
+ * - making one: the lesson FOR SHARE, then the class FOR SHARE, then the member FOR SHARE, then
+ *   the insert;
  * - confirming one: the assignment FOR UPDATE, then the lesson FOR SHARE, then the member FOR SHARE,
  *   then the update;
  * - cancelling one: the assignment FOR UPDATE.
  * The FOR SHARE on the lesson conflicts with the FOR UPDATE that `LessonsService` takes to edit,
  * cancel or reschedule, so nobody is assigned to a lesson that was cancelled a moment before; the
- * FOR SHARE on the member conflicts with the FOR UPDATE that the change of access takes, so nobody
- * is assigned to a member whose access was disabled a moment before. Shared locks do not conflict
- * with each other, so two assignments to the same lesson, or of the same member, do not wait for one
- * another. `lessons` and `people` never lock an assignment, so there is no wait in a circle.
+ * FOR SHARE on the class conflicts with the FOR UPDATE that `ClassesService` takes to update or
+ * archive, so nobody is assigned to a lesson whose class was just archived or finished; the FOR
+ * SHARE on the member conflicts with the FOR UPDATE that the change of access takes, so nobody is
+ * assigned to a member whose access was disabled a moment before. Shared locks do not conflict
+ * with each other, so two assignments to the same lesson, or of the same member, do not wait for
+ * one another. `lessons`, `classes` and `people` never lock an assignment, so there is no wait in a
+ * circle.
  */
 @Injectable()
 export class AssignmentsService {
@@ -99,16 +104,18 @@ export class AssignmentsService {
    * actor and `reviewedAt` is now: whoever made it already confirmed is who decided it.
    *
    * Errors, in the order they are answered: 400 VALIDATION_FAILED (the DTO), 404 LESSON_NOT_FOUND,
-   * 409 LESSON_CANCELLED (a cancelled lesson does not happen), 400 MEMBER_NOT_FOUND (the `personId`
-   * is in the body, so it is not a 404; a student is not a member), 409 MEMBER_INACTIVE (no access,
-   * or a registration that is still pending or was rejected), 409 DUPLICATE_ROLE_IN_LESSON (the
-   * member already holds an active place in the lesson, as the same role or as the other one, RN-01)
-   * and 409 LESSON_TEACHER_TAKEN (a teacher asked confirmed while the lesson already has a confirmed
-   * one, RN-02). Several pending teachers are fine: they are candidates.
+   * 409 LESSON_CANCELLED (a cancelled lesson does not happen), 409 CLASS_NOT_ACTIVE (the class is
+   * archived, completed or cancelled), 400 MEMBER_NOT_FOUND (the `personId` is in the body, so it is
+   * not a 404; a student is not a member), 409 MEMBER_INACTIVE (no access, or a registration that is
+   * still pending or was rejected), 409 DUPLICATE_ROLE_IN_LESSON (the member already holds an active
+   * place in the lesson, as the same role or as the other one, RN-01) and 409 LESSON_TEACHER_TAKEN
+   * (a teacher asked confirmed while the lesson already has a confirmed one, RN-02). Several
+   * pending teachers are fine: they are candidates.
    *
-   * The lesson and the member are locked FOR SHARE until the commit, so neither can be cancelled or
-   * disabled between the checks and the insert. Past the pre-checks, the partial unique indexes have
-   * the last word: their violations are mapped to the same two 409.
+   * The lesson, its class and the member are locked FOR SHARE until the commit, so none of them can
+   * be cancelled, archived/finished or disabled between the checks and the insert. Past the
+   * pre-checks, the partial unique indexes have the last word: their violations are mapped to the
+   * same two 409.
    *
    * Emits LESSON_ASSIGNMENT_CREATED after the commit, without the note.
    */
@@ -120,9 +127,12 @@ export class AssignmentsService {
     const now = this.clock.now();
 
     const created = await this.runInTransaction(async (manager) => {
-      const lesson = await this.lessons.getLessonSummary(lessonId, manager, { forShare: true });
+      const lesson = await this.lessons.getLessonWithClassActivity(lessonId, manager, {
+        forShare: true,
+      });
       if (lesson === null) throw lessonNotFound();
       if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
+      if (!lesson.classActive) throw classNotActive();
 
       const member = await this.members.getMemberSummary(dto.personId, manager, {
         forShare: true,

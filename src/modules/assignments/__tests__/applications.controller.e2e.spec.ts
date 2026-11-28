@@ -31,7 +31,7 @@ import { CatalogModule } from "@modules/catalog/catalog.module";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { LessonPlansService } from "@modules/catalog/services/lesson-plans.service";
 import { ClassesModule } from "@modules/classes/classes.module";
-import { ClassesService } from "@modules/classes/services/classes.service";
+import { ClassesService, ClassStatus } from "@modules/classes/services/classes.service";
 import { LessonsModule } from "@modules/lessons/lessons.module";
 import { LessonsService } from "@modules/lessons/services/lessons.service";
 import { PeopleModule } from "@modules/people/people.module";
@@ -500,7 +500,7 @@ describe("Applications (e2e)", () => {
    * `release` commits it. The caller releases it in a `finally`, so a failed assertion does not
    * leave the transaction open and the suite stuck.
    */
-  async function holdRow(table: "lessons" | "people", id: string, lock: string) {
+  async function holdRow(table: "lessons" | "classes" | "people", id: string, lock: string) {
     const holder = dataSource.createQueryRunner();
     await holder.connect();
     await holder.startTransaction();
@@ -654,6 +654,75 @@ describe("Applications (e2e)", () => {
       const res = await applyTo(lessonId, ana, { role: "monitor" }).expect(409);
 
       expect(res.body.error).toBe("LESSON_CANCELLED");
+      expect(await countAssignments()).toBe(0);
+    });
+
+    it("accepts an application in planned and in_progress classes (201)", async () => {
+      await apply(ana, "monitor", lessonId);
+
+      const inProgressClass = await createClassOf(
+        await createCourse("Segurança Digital"),
+        "SEG-IP",
+      );
+      await classesService.update(
+        inProgressClass,
+        { status: ClassStatus.IN_PROGRESS },
+        director.id,
+      );
+      const inProgressLesson = await createLesson({
+        classId: inProgressClass,
+        date: "2026-03-17",
+        expectedMonitors: 2,
+      });
+
+      await apply(bruno, "monitor", inProgressLesson);
+
+      expect(await countAssignments()).toBe(2);
+    });
+
+    it("answers 409 CLASS_NOT_ACTIVE for an archived, completed or cancelled class, and saves nothing", async () => {
+      const courseId = await createCourse("Segurança Digital");
+      const archivedClass = await createClassOf(courseId, "SEG-ARCH");
+      const completedClass = await createClassOf(courseId, "SEG-COMP");
+      const cancelledClass = await createClassOf(courseId, "SEG-CANC");
+
+      const archivedLesson = await createLesson({ classId: archivedClass, expectedMonitors: 2 });
+      const completedLesson = await createLesson({ classId: completedClass, expectedMonitors: 2 });
+      const cancelledLesson = await createLesson({ classId: cancelledClass, expectedMonitors: 2 });
+
+      await classesService.archive(archivedClass, undefined, director.id);
+      await classesService.update(completedClass, { status: ClassStatus.COMPLETED }, director.id);
+      await classesService.update(cancelledClass, { status: ClassStatus.CANCELLED }, director.id);
+
+      const events = collectEvents();
+      for (const targetLessonId of [archivedLesson, completedLesson, cancelledLesson]) {
+        const res = await applyTo(targetLessonId, ana, { role: "monitor" }).expect(409);
+
+        expect(res.body).toEqual({
+          statusCode: 409,
+          error: "CLASS_NOT_ACTIVE",
+          message: "Assignments and applications are only allowed in active classes.",
+        });
+      }
+      expect(await countAssignments()).toBe(0);
+      expect(events).toHaveLength(0);
+    });
+
+    it("waits for an archive or status update of the class that is in flight, and then answers 409 CLASS_NOT_ACTIVE", async () => {
+      const classLock = await holdRow("classes", classId, "FOR UPDATE");
+      const pending = applyTo(lessonId, ana, { role: "monitor" }).then((res) => res);
+
+      try {
+        expect(await blockedStatement()).toMatch(/"SchoolClass"/);
+        expect(await countAssignments()).toBe(0);
+        await classLock.run(`UPDATE classes SET status = 'completed' WHERE id = $1`, [classId]);
+      } finally {
+        await classLock.release();
+      }
+
+      const res = await pending;
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe("CLASS_NOT_ACTIVE");
       expect(await countAssignments()).toBe(0);
     });
 
@@ -1543,26 +1612,48 @@ describe("Applications (e2e)", () => {
       ]);
     });
 
-    it("leaves out lessons outside the period, cancelled lessons and lessons of archived classes", async () => {
+    it("leaves out lessons outside the period, cancelled lessons and lessons of archived classes, while keeping completed and cancelled classes in items", async () => {
       const far = await createLesson({ date: "2026-04-20" });
       const cancelled = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
-      const archivedClass = await createClassOf(await createCourse("Segurança Digital"), "SEG-B");
+      const courseSec = await createCourse("Segurança Digital");
+      const archivedClass = await createClassOf(courseSec, "SEG-B");
+      const completedClass = await createClassOf(courseSec, "SEG-C");
+      const cancelledClass = await createClassOf(courseSec, "SEG-D");
       const ofArchivedClass = await createLesson({
         classId: archivedClass,
         date: "2026-03-12",
         expectedMonitors: 2,
       });
+      const ofCompletedClass = await createLesson({
+        classId: completedClass,
+        date: "2026-03-13",
+        expectedMonitors: 2,
+      });
+      const ofCancelledClass = await createLesson({
+        classId: cancelledClass,
+        date: "2026-03-14",
+        expectedMonitors: 2,
+      });
       await apply(ana, "teacher", far);
       await apply(ana, "monitor", cancelled);
       await apply(ana, "monitor", ofArchivedClass);
+      await apply(ana, "monitor", ofCompletedClass);
+      await apply(ana, "monitor", ofCancelledClass);
       await apply(ana, "monitor", lessonId);
       await cancelLesson(cancelled);
       await classesService.archive(archivedClass, undefined, director.id);
+      await classesService.update(completedClass, { status: ClassStatus.COMPLETED }, director.id);
+      await classesService.update(cancelledClass, { status: ClassStatus.CANCELLED }, director.id);
 
       const body = (await getMine(ana).expect(200)).body as MyAssignmentsBody;
 
-      expect(body.items.map((item) => item.lesson.id)).toEqual([lessonId]);
-      expect(body.totals.pending).toBe(1);
+      expect(body.items.map((item) => item.lesson.id)).toEqual([
+        lessonId,
+        ofCompletedClass,
+        ofCancelledClass,
+      ]);
+      expect(body.totals.pending).toBe(3);
+      expect(body.totals.openLessons).toBe(0);
     });
 
     it("defaults to today and 27 days after it, and takes from and to", async () => {
@@ -1729,20 +1820,39 @@ describe("Applications (e2e)", () => {
       ]);
     });
 
-    it("leaves out past lessons even when from is before today, cancelled lessons and lessons of archived classes", async () => {
+    it("leaves out past lessons even when from is before today, cancelled lessons and lessons of archived, completed or cancelled classes", async () => {
       await createLesson({ date: "2026-03-05", expectedMonitors: 2 });
       const today = await createLesson({ date: TODAY, expectedMonitors: 2 });
       const cancelled = await createLesson({ date: "2026-03-17", expectedMonitors: 2 });
-      const archivedClass = await createClassOf(await createCourse("Segurança Digital"), "SEG-B");
+      const courseSec = await createCourse("Segurança Digital");
+      const inProgressClass = await createClassOf(courseSec, "SEG-IP");
+      const archivedClass = await createClassOf(courseSec, "SEG-B");
+      const completedClass = await createClassOf(courseSec, "SEG-C");
+      const cancelledClass = await createClassOf(courseSec, "SEG-D");
+      const ofInProgressClass = await createLesson({
+        classId: inProgressClass,
+        date: "2026-03-11",
+        expectedMonitors: 2,
+      });
       await createLesson({ classId: archivedClass, date: "2026-03-12", expectedMonitors: 2 });
+      await createLesson({ classId: completedClass, date: "2026-03-13", expectedMonitors: 2 });
+      await createLesson({ classId: cancelledClass, date: "2026-03-14", expectedMonitors: 2 });
       await cancelLesson(cancelled);
+      await classesService.update(
+        inProgressClass,
+        { status: ClassStatus.IN_PROGRESS },
+        director.id,
+      );
       await classesService.archive(archivedClass, undefined, director.id);
+      await classesService.update(completedClass, { status: ClassStatus.COMPLETED }, director.id);
+      await classesService.update(cancelledClass, { status: ClassStatus.CANCELLED }, director.id);
 
       const res = await getOpen(ana, { from: "2026-03-01", to: "2026-03-31" }).expect(200);
 
       expect((res.body as OpenLessonBody[]).map((item) => item.lesson.id)).toEqual([
         today,
         lessonId,
+        ofInProgressClass,
       ]);
     });
 

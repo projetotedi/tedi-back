@@ -9,7 +9,7 @@ import { CatalogModule } from "@modules/catalog/catalog.module";
 import { PeopleModule } from "@modules/people/people.module";
 import { PeopleService } from "@modules/people/services/people.service";
 import { ClassesModule } from "../classes.module";
-import { ClassRef, ClassesService } from "../services/classes.service";
+import { ClassRef, ClassesService, ClassStatus } from "../services/classes.service";
 import { insertClass, insertCourse, insertEdition } from "./fixtures/classes.fixture";
 
 config();
@@ -131,6 +131,7 @@ describe("ClassesService.listClassRefs (e2e)", () => {
       code: "INFO-A",
       name: "Informática Básica, turma A",
       courseId: courseX,
+      status: ClassStatus.PLANNED,
       archivedAt: null,
       creationRank: 1,
     });
@@ -139,12 +140,32 @@ describe("ClassesService.listClassRefs (e2e)", () => {
       code: "INFO-B",
       name: null,
       courseId: courseY,
+      status: ClassStatus.PLANNED,
       archivedAt: null,
       creationRank: 2,
     });
     expect(refs[2].id).toBe(c);
     // The rank is a number, not the text a bigint would arrive as.
     expect(typeof refs[2].creationRank).toBe("number");
+  });
+
+  it("includes the status of each class", async () => {
+    await addClass("INFO-A");
+    const inProgress = await addClass("INFO-B");
+    const completed = await addClass("INFO-C");
+    const cancelled = await addClass("INFO-D");
+    await service.update(inProgress, { status: ClassStatus.IN_PROGRESS }, actorId);
+    await service.update(completed, { status: ClassStatus.COMPLETED }, actorId);
+    await service.update(cancelled, { status: ClassStatus.CANCELLED }, actorId);
+
+    const refs = await service.listClassRefs();
+
+    expect(refs.map((ref) => [ref.code, ref.status])).toEqual([
+      ["INFO-A", ClassStatus.PLANNED],
+      ["INFO-B", ClassStatus.IN_PROGRESS],
+      ["INFO-C", ClassStatus.COMPLETED],
+      ["INFO-D", ClassStatus.CANCELLED],
+    ]);
   });
 
   it("keeps the rank of an archived class, and shows it only with includeArchived", async () => {

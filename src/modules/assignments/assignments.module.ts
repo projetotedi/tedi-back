@@ -22,8 +22,10 @@ import { MyAssignmentsService } from "./services/my-assignments.service";
   // - LessonsModule: the lesson an assignment is made for (LessonsService.getLessonSummary and
   //   findLessonSummaries), the registry where the counter of the confirmed staff plugs in
   //   (LessonCoverageRegistry) and, for the applications (GUS-160), the agenda with the class of each
-  //   lesson (LessonListingService.findAgendaBetween and findAgendaByIds). The arrow is
-  //   assignments -> lessons: lessons never imports this module;
+  //   lesson (LessonListingService.findAgendaBetween and findAgendaByIds). Whether the class of the
+  //   lesson is active comes through it too (GUS-178): getLessonWithClassActivity for the two writes
+  //   that create, and `classActive` on the agenda. The arrow is assignments -> lessons: lessons
+  //   never imports this module;
   // - PeopleModule: whether the person is an active member (MembersService.getMemberSummary) and
   //   the name of the members (PeopleService.findRefsByIds);
   // - PermissionsModule: PermissionPolicy checks the department scope of GET /members/:id/assignments

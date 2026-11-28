@@ -72,6 +72,7 @@ function buildAgendaRef(overrides: Partial<LessonAgendaRef> = {}): LessonAgendaR
     location: "Laboratório 2",
     status: LessonStatus.PLANNED,
     expectedMonitors: 3,
+    classActive: true,
     class: {
       id: "01999a3e-7c1b-7000-8000-0000000000c1",
       code: "INFO-A",

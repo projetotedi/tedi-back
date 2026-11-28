@@ -13,6 +13,7 @@ import {
   LessonsService,
   LessonStatus,
   LessonSummary,
+  LessonWithClassActivity,
 } from "@modules/lessons/services/lessons.service";
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
 import { MembersService, MemberSummary } from "@modules/people/services/members.service";
@@ -98,6 +99,7 @@ function buildAgendaRef(overrides: Partial<LessonAgendaRef> = {}): LessonAgendaR
     location: "Laboratório 2",
     status: LessonStatus.PLANNED,
     expectedMonitors: 3,
+    classActive: true,
     class: { id: CLASS_ID, code: "INFO-A", name: "Informática Básica, turma A" },
     ...overrides,
   };
@@ -113,6 +115,16 @@ function buildLesson(overrides: Partial<LessonSummary> = {}): LessonSummary {
     endTime: "15:30",
     status: LessonStatus.PLANNED,
     expectedMonitors: 2,
+    ...overrides,
+  };
+}
+
+function buildLessonWithClass(
+  overrides: Partial<LessonWithClassActivity> = {},
+): LessonWithClassActivity {
+  return {
+    ...buildLesson(),
+    classActive: true,
     ...overrides,
   };
 }
@@ -160,6 +172,7 @@ describe("ApplicationsService", () => {
   let order: string[];
   let state: {
     lesson: LessonSummary | null;
+    lessonWithClass: LessonWithClassActivity | null;
     member: MemberSummary | null;
     hasActiveAssignment: boolean;
     staff: Map<string, ConfirmedStaffCount>;
@@ -180,7 +193,7 @@ describe("ApplicationsService", () => {
   const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
   const clock = { now: jest.fn() };
-  const lessons = { getLessonSummary: jest.fn() };
+  const lessons = { getLessonSummary: jest.fn(), getLessonWithClassActivity: jest.fn() };
   const members = { getMemberSummary: jest.fn() };
   const staffCounter = { countConfirmedStaff: jest.fn() };
   const listing = { findAgendaByIds: jest.fn() };
@@ -204,6 +217,7 @@ describe("ApplicationsService", () => {
     order = [];
     state = {
       lesson: buildLesson(),
+      lessonWithClass: buildLessonWithClass(),
       member: buildMember(),
       hasActiveAssignment: false,
       staff: new Map(),
@@ -261,6 +275,10 @@ describe("ApplicationsService", () => {
     lessons.getLessonSummary.mockImplementation(async () => {
       order.push("get-lesson");
       return state.lesson;
+    });
+    lessons.getLessonWithClassActivity.mockImplementation(async () => {
+      order.push("get-lesson");
+      return state.lessonWithClass;
     });
     members.getMemberSummary.mockImplementation(async () => {
       order.push("get-member");
@@ -347,7 +365,7 @@ describe("ApplicationsService", () => {
       expect(manager.create.mock.calls.map((call) => call[1].note)).toEqual([NOTE, null, null]);
     });
 
-    it("reads the lesson and the member FOR SHARE in the transaction, checks the place and the vacancy, then inserts, in this order, and takes no advisory lock", async () => {
+    it("reads the lesson with class activity and the member FOR SHARE in the transaction, checks the place and the vacancy, then inserts, in this order, and takes no advisory lock", async () => {
       await service.apply(LESSON_ID, monitor, MEMBER);
 
       expect(order).toEqual([
@@ -359,7 +377,9 @@ describe("ApplicationsService", () => {
         "commit",
         "emit-audit",
       ]);
-      expect(lessons.getLessonSummary).toHaveBeenCalledWith(LESSON_ID, manager, { forShare: true });
+      expect(lessons.getLessonWithClassActivity).toHaveBeenCalledWith(LESSON_ID, manager, {
+        forShare: true,
+      });
       expect(members.getMemberSummary).toHaveBeenCalledWith(PERSON_ID, manager, {
         forShare: true,
       });
@@ -394,7 +414,7 @@ describe("ApplicationsService", () => {
     });
 
     it("writes the ids of the database, not the spelling of the URL", async () => {
-      state.lesson = buildLesson({ id: LESSON_ID });
+      state.lessonWithClass = buildLessonWithClass({ id: LESSON_ID });
 
       await service.apply(LESSON_ID.toUpperCase(), monitor, MEMBER);
 
@@ -412,7 +432,7 @@ describe("ApplicationsService", () => {
     });
 
     it("throws 404 LESSON_NOT_FOUND when the lesson does not exist, and reads nothing else", async () => {
-      state.lesson = null;
+      state.lessonWithClass = null;
 
       const failure = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));
 
@@ -422,8 +442,12 @@ describe("ApplicationsService", () => {
       expect(manager.save).not.toHaveBeenCalled();
     });
 
-    it("throws 409 LESSON_CANCELLED before looking at the date or the member", async () => {
-      state.lesson = buildLesson({ status: LessonStatus.CANCELLED, date: "2026-03-01" });
+    it("throws 409 LESSON_CANCELLED before checking class activity, the date or the member", async () => {
+      state.lessonWithClass = buildLessonWithClass({
+        status: LessonStatus.CANCELLED,
+        date: "2026-03-01",
+        classActive: false,
+      });
 
       const failure = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));
 
@@ -432,17 +456,32 @@ describe("ApplicationsService", () => {
       expect(order).toEqual(["get-lesson"]);
     });
 
+    it("throws 409 CLASS_NOT_ACTIVE when the class is not active, before checking the date or the member", async () => {
+      state.lessonWithClass = buildLessonWithClass({ date: "2026-03-01", classActive: false });
+
+      const failure = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));
+
+      expect(failure.getStatus()).toBe(409);
+      expect(failure.getResponse()).toEqual({
+        error: "CLASS_NOT_ACTIVE",
+        message: "Assignments and applications are only allowed in active classes.",
+      });
+      expect(members.getMemberSummary).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
     it("throws 409 LESSON_IN_PAST for a lesson before today in America/Sao_Paulo, and accepts today (clock at 02:00 UTC is still yesterday there)", async () => {
       // 2026-03-10 02:00 UTC is 2026-03-09 23:00 in São Paulo: today is still the 9th.
       clock.now.mockReturnValue(new Date("2026-03-10T02:00:00.000Z"));
 
-      state.lesson = buildLesson({ date: "2026-03-08" });
+      state.lessonWithClass = buildLessonWithClass({ date: "2026-03-08" });
       const failure = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));
       expect(failure.getStatus()).toBe(409);
       expect(codeOf(failure)).toBe("LESSON_IN_PAST");
       expect(members.getMemberSummary).not.toHaveBeenCalled();
 
-      state.lesson = buildLesson({ date: "2026-03-09" });
+      state.lessonWithClass = buildLessonWithClass({ date: "2026-03-09" });
       await expect(service.apply(LESSON_ID, monitor, MEMBER)).resolves.toMatchObject({
         status: AssignmentStatus.PENDING,
       });
@@ -451,7 +490,7 @@ describe("ApplicationsService", () => {
 
     it("throws 409 LESSON_IN_PAST for a lesson already marked done, of today and of a later day, before looking at the member", async () => {
       for (const date of ["2026-03-09", "2026-03-17"]) {
-        state.lesson = buildLesson({ date, status: LessonStatus.DONE });
+        state.lessonWithClass = buildLessonWithClass({ date, status: LessonStatus.DONE });
 
         const failure = await httpFailure(service.apply(LESSON_ID, monitor, MEMBER));
 
@@ -465,7 +504,10 @@ describe("ApplicationsService", () => {
       expect(manager.save).not.toHaveBeenCalled();
 
       // Today, while it is not done, is still taken.
-      state.lesson = buildLesson({ date: "2026-03-09", status: LessonStatus.CONFIRMED });
+      state.lessonWithClass = buildLessonWithClass({
+        date: "2026-03-09",
+        status: LessonStatus.CONFIRMED,
+      });
       await expect(service.apply(LESSON_ID, monitor, MEMBER)).resolves.toMatchObject({
         status: AssignmentStatus.PENDING,
       });
@@ -513,10 +555,10 @@ describe("ApplicationsService", () => {
       failures.push(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER)));
 
       state.staff = new Map();
-      state.lesson = buildLesson({ expectedMonitors: null });
+      state.lessonWithClass = buildLessonWithClass({ expectedMonitors: null });
       failures.push(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER)));
 
-      state.lesson = buildLesson({ expectedMonitors: 0 });
+      state.lessonWithClass = buildLessonWithClass({ expectedMonitors: 0 });
       failures.push(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER)));
 
       expect(failures.map((failure) => [failure.getStatus(), codeOf(failure)])).toEqual(
@@ -547,19 +589,25 @@ describe("ApplicationsService", () => {
       expect(staffCounter.countConfirmedStaff).toHaveBeenCalledTimes(1);
     });
 
-    it("answers the errors in this order: lesson, cancelled, past, member, place, vacancy", async () => {
-      state.lesson = null;
+    it("answers the errors in this order: lesson, cancelled, class not active, past, member, place, vacancy", async () => {
+      state.lessonWithClass = null;
       state.member = null;
       state.hasActiveAssignment = true;
       state.staff = new Map([[LESSON_ID, { teachers: 0, monitors: 2 }]]);
       const codes: string[] = [];
 
       codes.push(codeOf(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER))));
-      state.lesson = buildLesson({ status: LessonStatus.CANCELLED, date: "2026-03-01" });
+      state.lessonWithClass = buildLessonWithClass({
+        status: LessonStatus.CANCELLED,
+        date: "2026-03-01",
+        classActive: false,
+      });
       codes.push(codeOf(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER))));
-      state.lesson = buildLesson({ date: "2026-03-01" });
+      state.lessonWithClass = buildLessonWithClass({ date: "2026-03-01", classActive: false });
       codes.push(codeOf(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER))));
-      state.lesson = buildLesson();
+      state.lessonWithClass = buildLessonWithClass({ date: "2026-03-01" });
+      codes.push(codeOf(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER))));
+      state.lessonWithClass = buildLessonWithClass();
       codes.push(codeOf(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER))));
       state.member = buildMember();
       codes.push(codeOf(await httpFailure(service.apply(LESSON_ID, monitor, MEMBER))));
@@ -569,6 +617,7 @@ describe("ApplicationsService", () => {
       expect(codes).toEqual([
         "LESSON_NOT_FOUND",
         "LESSON_CANCELLED",
+        "CLASS_NOT_ACTIVE",
         "LESSON_IN_PAST",
         "MEMBER_INACTIVE",
         "ALREADY_APPLIED",

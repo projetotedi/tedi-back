@@ -47,6 +47,9 @@ import { LessonsService } from "./services/lessons.service";
   // - assignments (GUS-160): the agenda with the class of each lesson ("Minhas aulas", the lessons
   //   with an open place and the pending applications), through LessonListingService
   //   (findAgendaBetween and findAgendaByIds), since assignments cannot import ClassesModule;
+  // - assignments (GUS-178): whether the class of a lesson is active, for the same reason: the
+  //   lesson and its class FOR SHARE in a write (LessonsService.getLessonWithClassActivity) and
+  //   `classActive` on every ref of the agenda;
   // - attendance (GUS-168): the lesson whose attendance is signed (getLessonSummary FOR SHARE) and
   //   the lessons of the history of a member (findLessonSummaries);
   // - attendance (GUS-166): the port of the roll call of the students (LessonRollCallRegistry), where

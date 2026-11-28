@@ -60,7 +60,7 @@ export class LessonAssignmentsController {
   @ApiConflictResponse({
     type: ApiErrorDto,
     description:
-      "LESSON_CANCELLED | MEMBER_INACTIVE | DUPLICATE_ROLE_IN_LESSON | LESSON_TEACHER_TAKEN",
+      "LESSON_CANCELLED | CLASS_NOT_ACTIVE | MEMBER_INACTIVE | DUPLICATE_ROLE_IN_LESSON | LESSON_TEACHER_TAKEN",
   })
   createAssignment(
     @Param("id", LESSON_ID) lessonId: string,

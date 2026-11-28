@@ -96,11 +96,12 @@ export class MyAssignmentsService {
 
   /**
    * The lessons with an open place for the member ("Aulas com vaga para você"): the lessons of the
-   * period that still take applications (`isClosedForApplications`: from today on and not done, even
-   * when `from` is before today), where she holds no place (a declined application or a cancelled assignment does
-   * not keep the lesson out) and that have an open place for some role (`openRolesOf`, the rule
-   * `applyToLesson` checks). Each with its coverage and its open roles, the soonest lesson first.
-   * Not paginated: its length is `totals.openLessons` of "Minhas aulas" for the same period.
+   * period of an active class (`classActive`) that still take applications (`isClosedForApplications`:
+   * from today on and not done, even when `from` is before today), where she holds no place (a
+   * declined application or a cancelled assignment does not keep the lesson out) and that have an
+   * open place for some role (`openRolesOf`, the rule `applyToLesson` checks). Each with its
+   * coverage and its open roles, the soonest lesson first. Not paginated: its length is
+   * `totals.openLessons` of "Minhas aulas" for the same period.
    *
    * 400 INVALID_DATE_RANGE and 400 DATE_RANGE_TOO_LONG come before anything is read.
    */
@@ -147,10 +148,10 @@ export class MyAssignmentsService {
 
   /**
    * The ONE definition of "a lesson with an open place for you", shared by the list and by the total
-   * of "Minhas aulas": the lessons that still take applications (the rule `applyToLesson` checks
-   * with LESSON_IN_PAST) where the member holds no place, with the
-   * confirmed staff counted ONCE for all of them, kept when `openRolesOf` is not empty. With no
-   * candidate left it counts nothing.
+   * of "Minhas aulas": the lessons of active classes (`classActive`) that still take applications
+   * (the rules `applyToLesson` checks with CLASS_NOT_ACTIVE and LESSON_IN_PAST) where the member
+   * holds no place, with the confirmed staff counted ONCE for all of them, kept when `openRolesOf`
+   * is not empty. With no candidate left it counts nothing.
    */
   private async openLessonsOf(
     agenda: readonly LessonAgendaRef[],
@@ -158,7 +159,8 @@ export class MyAssignmentsService {
     today: string,
   ): Promise<StaffedLesson[]> {
     const candidates = agenda.filter(
-      (ref) => !isClosedForApplications(ref, today) && !holdsPlace(latest.get(ref.id)),
+      (ref) =>
+        ref.classActive && !isClosedForApplications(ref, today) && !holdsPlace(latest.get(ref.id)),
     );
     if (candidates.length === 0) return [];
 

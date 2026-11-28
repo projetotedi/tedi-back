@@ -9,7 +9,11 @@ import {
   LessonPlansService,
   LessonPlanSummary,
 } from "@modules/catalog/services/lesson-plans.service";
-import { ClassesService, ClassSummary } from "@modules/classes/services/classes.service";
+import {
+  ClassesService,
+  ClassStatus,
+  ClassSummary,
+} from "@modules/classes/services/classes.service";
 import { Clock } from "@shared/dates/clock";
 import {
   AUDITABLE_ACTION_EVENT,
@@ -1085,6 +1089,86 @@ describe("LessonsService", () => {
       expect(summary?.endTime).toBe("15:30");
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getLessonWithClassActivity()", () => {
+    it("returns null without reading the class when the lesson does not exist or id is not a UUID", async () => {
+      state.lesson = null;
+      await expect(
+        service.getLessonWithClassActivity(LESSON_ID, manager as unknown as EntityManager),
+      ).resolves.toBeNull();
+      await expect(service.getLessonWithClassActivity("not-a-uuid")).resolves.toBeNull();
+
+      expect(classes.getClassSummary).not.toHaveBeenCalled();
+    });
+
+    it("locks the lesson FOR SHARE and then the class FOR SHARE, in that order", async () => {
+      const result = await service.getLessonWithClassActivity(
+        LESSON_ID,
+        manager as unknown as EntityManager,
+        { forShare: true },
+      );
+
+      expect(order).toEqual(["load-lesson", "get-class"]);
+      expect(manager.findOne).toHaveBeenCalledWith(Lesson, {
+        select: expect.objectContaining({ id: true, classId: true }),
+        where: { id: LESSON_ID },
+        lock: { mode: "pessimistic_read" },
+      });
+      expect(classes.getClassSummary).toHaveBeenCalledWith(CLASS_ID, manager, { forShare: true });
+      expect(result).toMatchObject({ id: LESSON_ID, classId: CLASS_ID, classActive: true });
+    });
+
+    it("reads without locks when forShare is omitted", async () => {
+      await service.getLessonWithClassActivity(LESSON_ID, manager as unknown as EntityManager);
+
+      expect(manager.findOne).toHaveBeenCalledWith(
+        Lesson,
+        expect.not.objectContaining({ lock: expect.anything() }),
+      );
+      expect(classes.getClassSummary).toHaveBeenCalledWith(CLASS_ID, manager, {});
+    });
+
+    it.each([
+      [ClassStatus.PLANNED, null, true],
+      [ClassStatus.IN_PROGRESS, null, true],
+      [ClassStatus.COMPLETED, null, false],
+      [ClassStatus.CANCELLED, null, false],
+      [ClassStatus.PLANNED, ARCHIVED_AT, false],
+      [ClassStatus.IN_PROGRESS, ARCHIVED_AT, false],
+      [ClassStatus.COMPLETED, ARCHIVED_AT, false],
+      [ClassStatus.CANCELLED, ARCHIVED_AT, false],
+    ])(
+      "answers, for a %s class with archivedAt %s, classActive %s",
+      async (status, archivedAt, expectedActive) => {
+        state.schoolClass = buildClass({ status, archivedAt });
+
+        const result = await service.getLessonWithClassActivity(LESSON_ID);
+
+        expect(result?.classActive).toBe(expectedActive);
+      },
+    );
+
+    it("still returns a cancelled lesson with its status and classActive", async () => {
+      state.lesson = buildLesson({ status: LessonStatus.CANCELLED });
+      state.schoolClass = buildClass({ status: ClassStatus.COMPLETED });
+
+      const result = await service.getLessonWithClassActivity(LESSON_ID);
+
+      expect(result).toMatchObject({
+        id: LESSON_ID,
+        status: LessonStatus.CANCELLED,
+        classActive: false,
+      });
+    });
+
+    it("throws when the class of an existing lesson is missing", async () => {
+      state.schoolClass = null;
+
+      await expect(service.getLessonWithClassActivity(LESSON_ID)).rejects.toThrow(
+        "the foreign key requires it",
+      );
     });
   });
 

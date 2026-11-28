@@ -39,6 +39,7 @@ import {
   alreadyApplied,
   applicationNotFound,
   applicationNotPending,
+  classNotActive,
   lessonCancelled,
   lessonInPast,
   lessonNotFound,
@@ -75,10 +76,10 @@ interface ReviewOutcome {
  *
  * Locks, always in this order, so no two writes wait for each other in a circle (docs/ARCHITECTURE.md
  * section 15.1 lists every transaction that locks these rows):
- * - applying: the lesson FOR SHARE, then the member FOR SHARE, then the insert. No advisory lock: a
- *   pending application takes no place, so an "open" read a moment late only makes a pending
- *   application that the approval refuses later with ROLE_FULL. Two applications of the same member
- *   at the same time are settled by the partial unique index of the active place;
+ * - applying: the lesson FOR SHARE, then the class FOR SHARE, then the member FOR SHARE, then the
+ *   insert. No advisory lock: a pending application takes no place, so an "open" read a moment late
+ *   only makes a pending application that the approval refuses later with ROLE_FULL. Two applications
+ *   of the same member at the same time are settled by the partial unique index of the active place;
  * - approving: the application FOR UPDATE, then the lesson FOR SHARE, then the member FOR SHARE,
  *   then the advisory lock of the lesson (`lessonStaffLockKey`), then the count of the confirmed
  *   staff, made again under it, then the update. FOR SHARE does not conflict with FOR SHARE, so two
@@ -117,14 +118,16 @@ export class ApplicationsService {
    * the body has no `personId`.
    *
    * Errors, in the order they are answered: 400 VALIDATION_FAILED (the DTO), 404 LESSON_NOT_FOUND,
-   * 409 LESSON_CANCELLED, 409 LESSON_IN_PAST (a lesson before today in America/Sao_Paulo, or already
-   * done: `isClosedForApplications`; today is still taken while it is not done), 409 MEMBER_INACTIVE (she is not an active member, or no longer a member), 409
-   * ALREADY_APPLIED (she already holds a place in the lesson, as either role and from either source:
-   * she learns that she is in, not that it is full) and 409 ROLE_FULL (no open place for the role).
+   * 409 LESSON_CANCELLED, 409 CLASS_NOT_ACTIVE (the class is archived, completed or cancelled), 409
+   * LESSON_IN_PAST (a lesson before today in America/Sao_Paulo, or already done:
+   * `isClosedForApplications`; today is still taken while it is not done), 409 MEMBER_INACTIVE
+   * (she is not an active member, or no longer a member), 409 ALREADY_APPLIED (she already holds a
+   * place in the lesson, as either role and from either source: she learns that she is in, not that
+   * it is full) and 409 ROLE_FULL (no open place for the role).
    *
-   * The lesson and the member are locked FOR SHARE until the commit, so neither can be cancelled or
-   * disabled between the checks and the insert. Past the pre-checks, the constraints have the last
-   * word: their violations are mapped to the same errors.
+   * The lesson, its class and the member are locked FOR SHARE until the commit, so none of them can
+   * be cancelled, archived/finished or disabled between the checks and the insert. Past the
+   * pre-checks, the constraints have the last word: their violations are mapped to the same errors.
    *
    * Emits LESSON_ASSIGNMENT_APPLIED after the commit, without the note, with the member as actor.
    */
@@ -137,9 +140,12 @@ export class ApplicationsService {
     const today = todayInAppTimeZone(now);
 
     const created = await this.runInTransaction(async (manager) => {
-      const lesson = await this.lessons.getLessonSummary(lessonId, manager, { forShare: true });
+      const lesson = await this.lessons.getLessonWithClassActivity(lessonId, manager, {
+        forShare: true,
+      });
       if (lesson === null) throw lessonNotFound();
       if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
+      if (!lesson.classActive) throw classNotActive();
       if (isClosedForApplications(lesson, today)) throw lessonInPast();
 
       const member = await this.members.getMemberSummary(actor.id, manager, { forShare: true });

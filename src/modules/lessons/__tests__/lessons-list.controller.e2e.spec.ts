@@ -1400,6 +1400,7 @@ describe("Lessons list and calendar (e2e)", () => {
           location: "Laboratório 2",
           status: LessonStatus.PLANNED,
           expectedMonitors: 3,
+          classActive: true,
           class: { id: classA, code: "INFO-A", name: "Informática Básica, turma A" },
         },
         {
@@ -1412,6 +1413,7 @@ describe("Lessons list and calendar (e2e)", () => {
           location: null,
           status: LessonStatus.PLANNED,
           expectedMonitors: null,
+          classActive: true,
           class: { id: classB, code: "SEG-B", name: "SEG-B" },
         },
       ]);
@@ -1439,11 +1441,13 @@ describe("Lessons list and calendar (e2e)", () => {
         "not-a-uuid",
       ]);
 
-      expect(agenda.map((ref) => [ref.title, ref.status, ref.class.code])).toEqual([
-        ["Planejada", LessonStatus.PLANNED, "INFO-A"],
-        ["Da turma arquivada", LessonStatus.PLANNED, "INFO-C"],
-        ["Cancelada", LessonStatus.CANCELLED, "INFO-A"],
-      ]);
+      expect(agenda.map((ref) => [ref.title, ref.status, ref.class.code, ref.classActive])).toEqual(
+        [
+          ["Planejada", LessonStatus.PLANNED, "INFO-A", true],
+          ["Da turma arquivada", LessonStatus.PLANNED, "INFO-C", false],
+          ["Cancelada", LessonStatus.CANCELLED, "INFO-A", true],
+        ],
+      );
     });
   });
 });

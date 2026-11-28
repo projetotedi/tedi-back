@@ -71,7 +71,8 @@ import { EnrollmentsService } from "./services/enrollments.service";
   ],
   // lessons reads the class (period, archived) through ClassesService.getClassSummary (GUS-151) and
   // the classes of its list and calendar (code, course, color slot) through
-  // ClassesService.listClassRefs (GUS-153).
+  // ClassesService.listClassRefs (GUS-153); for the assignments (GUS-178), whether the class of a
+  // lesson is active (isActiveClass over the status and the archive of either read).
   // attendance (GUS-166): the class of a lesson FOR SHARE (ClassesService.getClassSummary), who the
   // roll call of a lesson is made of (EnrollmentRosterService) and the port where it plugs in the
   // reader of the attendance of the enrollments (EnrollmentAttendanceRegistry: the attendance rate
