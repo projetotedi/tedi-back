@@ -4,6 +4,7 @@ import { LessonStatus, LessonSummary } from "@modules/lessons/services/lessons.s
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
+import { AssignmentStatusReason } from "../enums/assignment-status-reason.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 import {
   toAssignmentLesson,
@@ -22,6 +23,10 @@ const REVIEWED_AT = new Date("2026-03-02T12:00:00.000Z");
 
 const NOTE = "Cobre a segunda hora da aula.";
 
+/** The day of the lesson of the fixtures: it is still today, nothing expired. */
+const TODAY = "2026-03-10";
+const TOMORROW = "2026-03-11";
+
 const CAN_SEE_NOTE = { canSeeNote: true };
 const CANNOT_SEE_NOTE = { canSeeNote: false };
 
@@ -39,6 +44,7 @@ function buildAssignment(overrides: Partial<LessonAssignment> = {}): LessonAssig
     reviewedAt: REVIEWED_AT,
     cancelledById: null,
     cancelledAt: null,
+    statusReason: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     deletedAt: null,
@@ -46,7 +52,7 @@ function buildAssignment(overrides: Partial<LessonAssignment> = {}): LessonAssig
   });
 }
 
-function buildLesson(): LessonSummary {
+function buildLesson(overrides: Partial<LessonSummary> = {}): LessonSummary {
   return {
     id: LESSON_ID,
     classId: "01999a3e-7c1b-7000-8000-0000000000c1",
@@ -56,6 +62,7 @@ function buildLesson(): LessonSummary {
     endTime: "15:30",
     status: LessonStatus.PLANNED,
     expectedMonitors: 2,
+    ...overrides,
   };
 }
 
@@ -159,6 +166,7 @@ describe("toLessonAssignmentResponse", () => {
       person: { id: PERSON_ID, name: "Monitor Um" },
       role: AssignmentRole.MONITOR,
       status: AssignmentStatus.CONFIRMED,
+      statusReason: null,
       source: AssignmentSource.DIRECT,
       note: NOTE,
       createdById: ACTOR_ID,
@@ -191,6 +199,7 @@ describe("toLessonAssignmentResponse", () => {
       reviewedAt: undefined,
       cancelledById: undefined,
       cancelledAt: undefined,
+      statusReason: undefined,
     });
 
     const response = toLessonAssignmentResponse(bare, PERSON, CAN_SEE_NOTE);
@@ -201,15 +210,55 @@ describe("toLessonAssignmentResponse", () => {
       "reviewedAt",
       "cancelledById",
       "cancelledAt",
+      "statusReason",
     ] as const) {
       expect(response[field]).toBeNull();
     }
+  });
+
+  describe("the status (GUS-179)", () => {
+    it("answers the stored status and the reason the system ended it with", () => {
+      const response = toLessonAssignmentResponse(
+        buildAssignment({
+          status: AssignmentStatus.EXPIRED,
+          source: AssignmentSource.APPLICATION,
+          statusReason: AssignmentStatusReason.LESSON_CANCELLED,
+        }),
+        PERSON,
+        CAN_SEE_NOTE,
+      );
+
+      expect(response.status).toBe(AssignmentStatus.EXPIRED);
+      expect(response.statusReason).toBe(AssignmentStatusReason.LESSON_CANCELLED);
+    });
+
+    it("answers the status the caller read for it, when it gives one", () => {
+      const pending = buildAssignment({
+        status: AssignmentStatus.PENDING,
+        source: AssignmentSource.APPLICATION,
+      });
+
+      const response = toLessonAssignmentResponse(
+        pending,
+        PERSON,
+        CAN_SEE_NOTE,
+        AssignmentStatus.EXPIRED,
+      );
+
+      expect(response.status).toBe(AssignmentStatus.EXPIRED);
+      expect(response.statusReason).toBeNull();
+      expect(pending.status).toBe(AssignmentStatus.PENDING);
+    });
   });
 });
 
 describe("toMemberAssignmentResponse", () => {
   it("has the lesson, the role, the status and the source, and no note, whatever the assignment has", () => {
-    const response = toMemberAssignmentResponse(buildAssignment({ note: NOTE }), buildLesson());
+    const response = toMemberAssignmentResponse(
+      buildAssignment({ note: NOTE }),
+      buildLesson(),
+      TODAY,
+    );
 
     expect(Object.keys(response).sort()).toEqual([
       "createdAt",
@@ -218,6 +267,7 @@ describe("toMemberAssignmentResponse", () => {
       "role",
       "source",
       "status",
+      "statusReason",
     ]);
     expect(JSON.stringify(response)).not.toContain(NOTE);
     expect(response.lesson).toEqual({
@@ -228,6 +278,38 @@ describe("toMemberAssignmentResponse", () => {
       endTime: "15:30",
       status: LessonStatus.PLANNED,
     });
+  });
+});
+
+describe("toMemberAssignmentResponse: the status as of today (GUS-179)", () => {
+  const application = buildAssignment({
+    status: AssignmentStatus.PENDING,
+    source: AssignmentSource.APPLICATION,
+  });
+
+  it("answers expired for a pending application of a lesson before today, and pending on its day", () => {
+    expect(toMemberAssignmentResponse(application, buildLesson(), TOMORROW).status).toBe(
+      AssignmentStatus.EXPIRED,
+    );
+    expect(toMemberAssignmentResponse(application, buildLesson(), TODAY).status).toBe(
+      AssignmentStatus.PENDING,
+    );
+  });
+
+  it("shows the reason of an assignment ended by the cancellation of its lesson", () => {
+    const cancelled = buildAssignment({
+      status: AssignmentStatus.CANCELLED,
+      statusReason: AssignmentStatusReason.LESSON_CANCELLED,
+    });
+
+    const response = toMemberAssignmentResponse(
+      cancelled,
+      buildLesson({ status: LessonStatus.CANCELLED }),
+      TODAY,
+    );
+
+    expect(response.status).toBe(AssignmentStatus.CANCELLED);
+    expect(response.statusReason).toBe(AssignmentStatusReason.LESSON_CANCELLED);
   });
 });
 
@@ -264,6 +346,7 @@ describe("toMyAssignmentResponse (GUS-160)", () => {
     const response = toMyAssignmentResponse(
       buildAssignment({ note: NOTE, source: AssignmentSource.APPLICATION }),
       buildAgendaRef(),
+      TODAY,
     );
 
     expect(response).toEqual({
@@ -271,9 +354,24 @@ describe("toMyAssignmentResponse (GUS-160)", () => {
       lesson: toAssignmentLesson(buildAgendaRef()),
       role: AssignmentRole.MONITOR,
       status: AssignmentStatus.CONFIRMED,
+      statusReason: null,
       source: AssignmentSource.APPLICATION,
     });
     expect(JSON.stringify(response)).not.toContain(NOTE);
+  });
+
+  it("answers expired for a pending application of a lesson before today (GUS-179)", () => {
+    const application = buildAssignment({
+      status: AssignmentStatus.PENDING,
+      source: AssignmentSource.APPLICATION,
+    });
+
+    expect(toMyAssignmentResponse(application, buildAgendaRef(), TOMORROW).status).toBe(
+      AssignmentStatus.EXPIRED,
+    );
+    expect(toMyAssignmentResponse(application, buildAgendaRef(), TODAY).status).toBe(
+      AssignmentStatus.PENDING,
+    );
   });
 });
 

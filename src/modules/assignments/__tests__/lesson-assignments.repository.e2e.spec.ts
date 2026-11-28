@@ -18,6 +18,7 @@ import { ASSIGNMENT_NOTE_MAX_LENGTH } from "../dto/assignment-limits";
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
+import { AssignmentStatusReason } from "../enums/assignment-status-reason.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 
 config();
@@ -316,8 +317,15 @@ describe("lesson assignments repository (e2e)", () => {
     it("has the enum type lesson_assignments_status_enum with the values of AssignmentStatus, in order", async () => {
       const labels = await enumLabels("lesson_assignments_status_enum");
 
-      expect(labels).toEqual(["pending", "confirmed", "declined", "cancelled"]);
+      expect(labels).toEqual(["pending", "confirmed", "declined", "cancelled", "expired"]);
       expect(labels).toEqual(Object.values(AssignmentStatus));
+    });
+
+    it("has the enum type lesson_assignments_status_reason_enum with the values of AssignmentStatusReason, in order (GUS-179)", async () => {
+      const labels = await enumLabels("lesson_assignments_status_reason_enum");
+
+      expect(labels).toEqual(["lesson_cancelled"]);
+      expect(labels).toEqual(Object.values(AssignmentStatusReason));
     });
 
     it("has the enum type lesson_assignments_source_enum with the values of AssignmentSource, in order", async () => {
@@ -554,7 +562,7 @@ describe("lesson assignments repository (e2e)", () => {
       );
     });
 
-    it("accepts a new active assignment after the previous one is cancelled or declined", async () => {
+    it("accepts a new active assignment after the previous one is cancelled, declined or expired", async () => {
       const { actor, ids } = await setUp();
       const first = await createAssignment(ids, {
         role: AssignmentRole.TEACHER,
@@ -587,6 +595,18 @@ describe("lesson assignments repository (e2e)", () => {
         },
       );
       await createAssignment({ ...ids, personId: declined.id });
+
+      // An expired application (GUS-179) frees it as well.
+      const expired = await peopleService.save({
+        name: "Monitor Cinco",
+        role: Role.MEMBER,
+        accessEnabled: true,
+      });
+      await createAssignment(
+        { ...ids, personId: expired.id },
+        { status: AssignmentStatus.EXPIRED, source: AssignmentSource.APPLICATION },
+      );
+      await createAssignment({ ...ids, personId: expired.id });
     });
 
     it("ignores soft-deleted rows in both indexes", async () => {
@@ -622,7 +642,11 @@ describe("lesson assignments repository (e2e)", () => {
       await expect(
         createAssignment(ids, { status: AssignmentStatus.CANCELLED }),
       ).rejects.toMatchObject({ code: "23514", constraint: "ck_lesson_assignments_cancellation" });
-      for (const status of [AssignmentStatus.PENDING, AssignmentStatus.DECLINED]) {
+      for (const status of [
+        AssignmentStatus.PENDING,
+        AssignmentStatus.DECLINED,
+        AssignmentStatus.EXPIRED,
+      ]) {
         await expect(
           createAssignment(ids, {
             status,
@@ -777,6 +801,18 @@ describe("lesson assignments repository (e2e)", () => {
       }
     });
 
+    it("rejects a status reason outside its enum with 22P02 (GUS-179)", async () => {
+      const { ids } = await setUp();
+
+      await expect(
+        dataSource.query(
+          `INSERT INTO lesson_assignments (id, lesson_id, person_id, role, created_by_id, status_reason)
+           VALUES (gen_random_uuid(), $1, $2, 'monitor', $3, 'aula cancelada')`,
+          [ids.lessonId, ids.personId, ids.createdById],
+        ),
+      ).rejects.toMatchObject({ code: "22P02" });
+    });
+
     it("rejects an assignment without a lesson, a person, a role or an author with 23502", async () => {
       const { ids } = await setUp();
 
@@ -824,6 +860,7 @@ describe("lesson assignments repository (e2e)", () => {
         reviewedAt,
         cancelledById: actor.id,
         cancelledAt,
+        statusReason: AssignmentStatusReason.LESSON_CANCELLED,
       });
 
       const loaded = await dataSource
@@ -839,6 +876,7 @@ describe("lesson assignments repository (e2e)", () => {
         createdById: actor.id,
         reviewedById: actor.id,
         cancelledById: actor.id,
+        statusReason: AssignmentStatusReason.LESSON_CANCELLED,
         deletedAt: null,
       });
       expect(loaded.reviewedAt).toEqual(reviewedAt);
@@ -867,6 +905,7 @@ describe("lesson assignments repository (e2e)", () => {
         reviewedAt: null,
         cancelledById: null,
         cancelledAt: null,
+        statusReason: null,
       });
     });
 

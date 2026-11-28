@@ -25,10 +25,14 @@ import { CreateAssignmentDto } from "../dto/create-assignment.dto";
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
+import { AssignmentStatusReason } from "../enums/assignment-status-reason.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 import { AssignmentsService } from "../services/assignments.service";
 
+/** 09:00 in São Paulo: today is 2026-03-09 there. */
 const NOW = new Date("2026-03-09T12:00:00.000Z");
+/** A lesson day before today in São Paulo. */
+const PAST_DAY = "2026-03-02";
 const CREATED_AT = new Date("2026-03-01T12:00:00.000Z");
 const REVIEWED_AT = new Date("2026-03-02T12:00:00.000Z");
 
@@ -167,7 +171,13 @@ describe("AssignmentsService", () => {
     lessonSummaries: LessonSummary[];
   };
 
-  const manager = { create: jest.fn(), save: jest.fn(), findOne: jest.fn(), exists: jest.fn() };
+  const manager = {
+    create: jest.fn(),
+    save: jest.fn(),
+    findOne: jest.fn(),
+    exists: jest.fn(),
+    update: jest.fn(),
+  };
   const assignmentRepository = { find: jest.fn() };
   const dataSource = { transaction: jest.fn(), getRepository: jest.fn() };
   const eventEmitter = { emit: jest.fn() };
@@ -220,6 +230,10 @@ describe("AssignmentsService", () => {
       if (target !== LessonAssignment) return null;
       order.push("load-assignment");
       return state.assignment;
+    });
+    manager.update.mockImplementation(async () => {
+      order.push("expire-application");
+      return { affected: 1 };
     });
     manager.exists.mockImplementation(
       async (_target: unknown, options: { where: Record<string, unknown> }) => {
@@ -313,6 +327,7 @@ describe("AssignmentsService", () => {
         person: { id: PERSON_ID, name: "Monitor Um" },
         role: AssignmentRole.MONITOR,
         status: AssignmentStatus.PENDING,
+        statusReason: null,
         source: AssignmentSource.DIRECT,
         note: null,
         createdById: ACTOR_ID,
@@ -425,6 +440,109 @@ describe("AssignmentsService", () => {
         LessonAssignment,
         expect.objectContaining({ lessonId: LESSON_ID, personId: PERSON_ID }),
       );
+    });
+
+    describe("an application of a lesson before today (GUS-179)", () => {
+      const overdue = () =>
+        buildAssignment({
+          id: "01999a3e-7c1b-7000-8000-0000000000a9",
+          status: AssignmentStatus.PENDING,
+          source: AssignmentSource.APPLICATION,
+        });
+
+      it("writes the pending application of the member expired, then checks the place and creates the assignment", async () => {
+        state.lesson = buildLesson({ date: PAST_DAY });
+        state.assignment = overdue();
+
+        await service.create(LESSON_ID, dto, ACTOR_ID);
+
+        expect(manager.findOne).toHaveBeenCalledWith(LessonAssignment, {
+          where: {
+            lessonId: LESSON_ID,
+            personId: PERSON_ID,
+            source: AssignmentSource.APPLICATION,
+            status: AssignmentStatus.PENDING,
+          },
+        });
+        expect(manager.update).toHaveBeenCalledWith(
+          LessonAssignment,
+          { id: "01999a3e-7c1b-7000-8000-0000000000a9", status: AssignmentStatus.PENDING },
+          { status: AssignmentStatus.EXPIRED, updatedAt: NOW },
+        );
+        expect(order).toEqual([
+          "get-lesson",
+          "get-member",
+          "load-assignment",
+          "expire-application",
+          "check-active",
+          "save",
+          "commit",
+          "emit-audit",
+          "emit-audit",
+        ]);
+      });
+
+      it("emits LESSON_ASSIGNMENT_EXPIRED and then LESSON_ASSIGNMENT_CREATED, after the commit, with the actor", async () => {
+        state.lesson = buildLesson({ date: PAST_DAY });
+        state.assignment = overdue();
+
+        await service.create(LESSON_ID, dto, ACTOR_ID);
+
+        const [expired, created] = auditEvents();
+        expect(expired).toEqual(
+          Object.assign(new AuditableActionEvent(), {
+            actorId: ACTOR_ID,
+            action: AuditableAction.LESSON_ASSIGNMENT_EXPIRED,
+            targetType: "lesson_assignment",
+            targetId: "01999a3e-7c1b-7000-8000-0000000000a9",
+            before: { status: AssignmentStatus.PENDING },
+            after: {
+              status: AssignmentStatus.EXPIRED,
+              lessonId: LESSON_ID,
+              personId: PERSON_ID,
+              role: AssignmentRole.MONITOR,
+              statusReason: null,
+            },
+            occurredAt: NOW,
+          }),
+        );
+        expect(created.action).toBe(AuditableAction.LESSON_ASSIGNMENT_CREATED);
+        expect(created.targetId).toBe(ASSIGNMENT_ID);
+      });
+
+      it("creates as before in a lesson before today where the member has no pending application", async () => {
+        state.lesson = buildLesson({ date: PAST_DAY });
+        state.assignment = null;
+
+        await service.create(LESSON_ID, dto, ACTOR_ID);
+
+        expect(manager.update).not.toHaveBeenCalled();
+        expect(auditEvents().map((event) => event.action)).toEqual([
+          AuditableAction.LESSON_ASSIGNMENT_CREATED,
+        ]);
+      });
+
+      it("looks for no application in a lesson of today or later: a pending one still waits for its review", async () => {
+        for (const date of ["2026-03-09", "2026-03-10"]) {
+          state.lesson = buildLesson({ date });
+
+          await service.create(LESSON_ID, dto, ACTOR_ID);
+        }
+
+        expect(manager.findOne).not.toHaveBeenCalled();
+        expect(manager.update).not.toHaveBeenCalled();
+      });
+
+      it("emits nothing when the creation is refused after the application expired: the transaction is undone", async () => {
+        state.lesson = buildLesson({ date: PAST_DAY });
+        state.assignment = overdue();
+        state.hasActiveAssignment = true;
+
+        const failure = await httpFailure(service.create(LESSON_ID, dto, ACTOR_ID));
+
+        expect(codeOf(failure)).toBe("DUPLICATE_ROLE_IN_LESSON");
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
     });
 
     describe("errors", () => {
@@ -810,6 +928,46 @@ describe("AssignmentsService", () => {
       ]);
     });
 
+    it("answers expired for a pending application of a lesson before today, and keeps a pending direct one pending (GUS-179)", async () => {
+      state.lesson = buildLesson({ date: PAST_DAY });
+      state.assignmentsFound = [
+        buildAssignment({ source: AssignmentSource.APPLICATION }),
+        buildAssignment({ id: "01999a3e-7c1b-7000-8000-0000000000a2" }),
+      ];
+
+      const result = await service.listByLesson(LESSON_ID, DIRECTOR);
+
+      expect(result.map((item) => item.status)).toEqual([
+        AssignmentStatus.EXPIRED,
+        AssignmentStatus.PENDING,
+      ]);
+    });
+
+    it("answers the assignments the cancellation of the lesson ended with their reason (GUS-179)", async () => {
+      state.lesson = buildLesson({ status: LessonStatus.CANCELLED });
+      state.assignmentsFound = [
+        buildAssignment({
+          status: AssignmentStatus.CANCELLED,
+          cancelledAt: NOW,
+          cancelledById: ACTOR_ID,
+          statusReason: AssignmentStatusReason.LESSON_CANCELLED,
+        }),
+        buildAssignment({
+          id: "01999a3e-7c1b-7000-8000-0000000000a2",
+          source: AssignmentSource.APPLICATION,
+          status: AssignmentStatus.EXPIRED,
+          statusReason: AssignmentStatusReason.LESSON_CANCELLED,
+        }),
+      ];
+
+      const result = await service.listByLesson(LESSON_ID, DIRECTOR);
+
+      expect(result.map((item) => [item.status, item.statusReason])).toEqual([
+        [AssignmentStatus.CANCELLED, AssignmentStatusReason.LESSON_CANCELLED],
+        [AssignmentStatus.EXPIRED, AssignmentStatusReason.LESSON_CANCELLED],
+      ]);
+    });
+
     it("takes no transaction, no lock and emits no event", async () => {
       state.assignmentsFound = [buildAssignment()];
 
@@ -1054,6 +1212,38 @@ describe("AssignmentsService", () => {
       expect(manager.save).not.toHaveBeenCalled();
     });
 
+    it("throws 409 ASSIGNMENT_NOT_PENDING for an application of a lesson before today: it expired (GUS-179)", async () => {
+      state.assignment = buildAssignment({ source: AssignmentSource.APPLICATION });
+      state.lesson = buildLesson({ date: PAST_DAY });
+
+      const failure = await httpFailure(service.confirm(ASSIGNMENT_ID, ACTOR_ID));
+
+      expect(failure.getStatus()).toBe(409);
+      expect(codeOf(failure)).toBe("ASSIGNMENT_NOT_PENDING");
+      expect(members.getMemberSummary).not.toHaveBeenCalled();
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("confirms a pending direct assignment of a lesson before today: the record after the fact (A12)", async () => {
+      state.lesson = buildLesson({ date: PAST_DAY });
+
+      await expect(service.confirm(ASSIGNMENT_ID, ACTOR_ID)).resolves.toMatchObject({
+        status: AssignmentStatus.CONFIRMED,
+      });
+    });
+
+    it("throws 409 ASSIGNMENT_NOT_PENDING for an assignment stored as expired, before reading the lesson", async () => {
+      state.assignment = buildAssignment({
+        source: AssignmentSource.APPLICATION,
+        status: AssignmentStatus.EXPIRED,
+      });
+
+      const failure = await httpFailure(service.confirm(ASSIGNMENT_ID, ACTOR_ID));
+
+      expect(codeOf(failure)).toBe("ASSIGNMENT_NOT_PENDING");
+      expect(lessons.getLessonSummary).not.toHaveBeenCalled();
+    });
+
     it("throws 409 MEMBER_INACTIVE when the member lost her access while the assignment waited", async () => {
       state.member = buildMember({ active: false });
 
@@ -1228,7 +1418,7 @@ describe("AssignmentsService", () => {
         where: { id: ASSIGNMENT_ID },
         lock: { mode: "pessimistic_write" },
       });
-      // It is allowed whatever the lesson is: cancelling a lesson does not cancel its assignments.
+      // A direct assignment does not depend on its lesson to be cancelled.
       expect(lessons.getLessonSummary).not.toHaveBeenCalled();
       expect(members.getMemberSummary).not.toHaveBeenCalled();
       expect(order).toEqual(["load-assignment", "save", "commit", "emit-audit", "find-people"]);
@@ -1279,6 +1469,55 @@ describe("AssignmentsService", () => {
       });
       expect(manager.save).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 ASSIGNMENT_NOT_ACTIVE for an expired one: stored expired, or a pending application of a lesson before today or cancelled (GUS-179)", async () => {
+      const cases: { assignment: LessonAssignment; lesson: LessonSummary }[] = [
+        {
+          assignment: buildAssignment({
+            source: AssignmentSource.APPLICATION,
+            status: AssignmentStatus.EXPIRED,
+          }),
+          lesson: buildLesson(),
+        },
+        {
+          assignment: buildAssignment({ source: AssignmentSource.APPLICATION }),
+          lesson: buildLesson({ date: PAST_DAY }),
+        },
+        {
+          assignment: buildAssignment({ source: AssignmentSource.APPLICATION }),
+          lesson: buildLesson({ status: LessonStatus.CANCELLED }),
+        },
+      ];
+
+      for (const { assignment, lesson } of cases) {
+        state.assignment = assignment;
+        state.lesson = lesson;
+
+        const failure = await httpFailure(service.cancel(ASSIGNMENT_ID, ACTOR_ID));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(codeOf(failure)).toBe("ASSIGNMENT_NOT_ACTIVE");
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("reads the lesson without a lock for a pending application, and cancels one of a lesson of today or later", async () => {
+      state.assignment = buildAssignment({ source: AssignmentSource.APPLICATION });
+
+      const result = await service.cancel(ASSIGNMENT_ID, ACTOR_ID);
+
+      expect(lessons.getLessonSummary).toHaveBeenCalledWith(LESSON_ID, manager);
+      expect(order).toEqual([
+        "load-assignment",
+        "get-lesson",
+        "save",
+        "commit",
+        "emit-audit",
+        "find-people",
+      ]);
+      expect(result.status).toBe(AssignmentStatus.CANCELLED);
     });
 
     it("emits LESSON_ASSIGNMENT_CANCELLED after the commit, without the note, saying what it was", async () => {
@@ -1446,6 +1685,7 @@ describe("AssignmentsService", () => {
         },
         role: AssignmentRole.TEACHER,
         status: AssignmentStatus.CONFIRMED,
+        statusReason: null,
         source: AssignmentSource.DIRECT,
         createdAt: CREATED_AT,
       });
@@ -1567,8 +1807,37 @@ describe("AssignmentsService", () => {
         "role",
         "source",
         "status",
+        "statusReason",
       ]);
       expect(JSON.stringify(item)).not.toContain(NOTE);
+    });
+
+    it("answers expired for a pending application of a lesson before today, and the reason of what the cancellation of a lesson ended (GUS-179)", async () => {
+      state.assignmentsFound = [
+        buildAssignment({
+          id: "01999a3e-7c1b-7000-8000-0000000000a1",
+          source: AssignmentSource.APPLICATION,
+        }),
+        buildAssignment({
+          id: "01999a3e-7c1b-7000-8000-0000000000a2",
+          lessonId: OTHER_LESSON_ID,
+          status: AssignmentStatus.CANCELLED,
+          cancelledAt: NOW,
+          cancelledById: ACTOR_ID,
+          statusReason: AssignmentStatusReason.LESSON_CANCELLED,
+        }),
+      ];
+      state.lessonSummaries = [
+        buildLesson({ id: LESSON_ID, date: PAST_DAY }),
+        buildLesson({ id: OTHER_LESSON_ID, date: "2026-03-17", status: LessonStatus.CANCELLED }),
+      ];
+
+      const result = await service.listByMember(PERSON_ID, COORDINATOR);
+
+      expect(result.map((item) => [item.status, item.statusReason])).toEqual([
+        [AssignmentStatus.CANCELLED, AssignmentStatusReason.LESSON_CANCELLED],
+        [AssignmentStatus.EXPIRED, null],
+      ]);
     });
 
     it("takes no transaction, no lock and emits no event", async () => {

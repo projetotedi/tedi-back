@@ -327,6 +327,7 @@ describe("ApplicationsService", () => {
         person: { id: PERSON_ID, name: "Ana Torres" },
         role: AssignmentRole.MONITOR,
         status: AssignmentStatus.PENDING,
+        statusReason: null,
         source: AssignmentSource.APPLICATION,
         note: null,
         createdById: PERSON_ID,
@@ -703,6 +704,7 @@ describe("ApplicationsService", () => {
         person: { id: PERSON_ID, name: "Ana Torres" },
         role: AssignmentRole.MONITOR,
         status: AssignmentStatus.CONFIRMED,
+        statusReason: null,
         source: AssignmentSource.APPLICATION,
         note: NOTE,
         createdById: PERSON_ID,
@@ -866,15 +868,36 @@ describe("ApplicationsService", () => {
       });
     });
 
-    it("approves an application of a lesson that already happened", async () => {
-      state.lesson = buildLesson({ date: "2026-03-02", status: LessonStatus.DONE });
+    it("approves an application of a lesson of today, even one already done", async () => {
+      state.lesson = buildLesson({ date: "2026-03-09", status: LessonStatus.DONE });
 
       await expect(service.approve(APPLICATION_ID, REVIEWER_ID)).resolves.toMatchObject({
         status: AssignmentStatus.CONFIRMED,
       });
     });
 
-    it("answers the errors in this order: not pending, cancelled, member, role full", async () => {
+    it("throws 409 APPLICATION_NOT_PENDING for an application of a lesson before today: it expired (GUS-179)", async () => {
+      state.lesson = buildLesson({ date: "2026-03-08", status: LessonStatus.DONE });
+
+      const failure = await httpFailure(service.approve(APPLICATION_ID, REVIEWER_ID));
+
+      expect(failure.getStatus()).toBe(409);
+      expect(codeOf(failure)).toBe("APPLICATION_NOT_PENDING");
+      expect(order).toEqual(["load-application", "get-lesson"]);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws 409 APPLICATION_NOT_PENDING for an application stored as expired, before reading the lesson", async () => {
+      state.application = buildApplication({ status: AssignmentStatus.EXPIRED });
+
+      const failure = await httpFailure(service.approve(APPLICATION_ID, REVIEWER_ID));
+
+      expect(codeOf(failure)).toBe("APPLICATION_NOT_PENDING");
+      expect(lessons.getLessonSummary).not.toHaveBeenCalled();
+    });
+
+    it("answers the errors in this order: not pending, cancelled, expired with the lesson, member, role full", async () => {
       state.application = buildApplication({ status: AssignmentStatus.DECLINED });
       state.lesson = buildLesson({ status: LessonStatus.CANCELLED, expectedMonitors: null });
       state.member = null;
@@ -882,6 +905,8 @@ describe("ApplicationsService", () => {
 
       codes.push(codeOf(await httpFailure(service.approve(APPLICATION_ID, REVIEWER_ID))));
       state.application = buildApplication();
+      codes.push(codeOf(await httpFailure(service.approve(APPLICATION_ID, REVIEWER_ID))));
+      state.lesson = buildLesson({ date: "2026-03-08", expectedMonitors: null });
       codes.push(codeOf(await httpFailure(service.approve(APPLICATION_ID, REVIEWER_ID))));
       state.lesson = buildLesson({ expectedMonitors: null });
       codes.push(codeOf(await httpFailure(service.approve(APPLICATION_ID, REVIEWER_ID))));
@@ -891,6 +916,7 @@ describe("ApplicationsService", () => {
       expect(codes).toEqual([
         "APPLICATION_NOT_PENDING",
         "LESSON_CANCELLED",
+        "APPLICATION_NOT_PENDING",
         "MEMBER_INACTIVE",
         "ROLE_FULL",
       ]);
@@ -991,15 +1017,22 @@ describe("ApplicationsService", () => {
       expect(clock.now).toHaveBeenCalledTimes(1);
     });
 
-    it("locks only the application FOR UPDATE: reads neither the lesson nor the member, takes no advisory lock", async () => {
+    it("locks only the application FOR UPDATE: reads the lesson without a lock, not the member, takes no advisory lock", async () => {
       await service.reject(APPLICATION_ID, REVIEWER_ID);
 
-      expect(order).toEqual(["load-application", "save", "commit", "emit-audit", "find-people"]);
+      expect(order).toEqual([
+        "load-application",
+        "get-lesson",
+        "save",
+        "commit",
+        "emit-audit",
+        "find-people",
+      ]);
       expect(manager.findOne).toHaveBeenCalledWith(LessonAssignment, {
         where: { id: APPLICATION_ID, source: AssignmentSource.APPLICATION },
         lock: { mode: "pessimistic_write" },
       });
-      expect(lessons.getLessonSummary).not.toHaveBeenCalled();
+      expect(lessons.getLessonSummary).toHaveBeenCalledWith(LESSON_ID, manager);
       expect(members.getMemberSummary).not.toHaveBeenCalled();
       expect(manager.query).not.toHaveBeenCalled();
       expect(staffCounter.countConfirmedStaff).not.toHaveBeenCalled();
@@ -1023,13 +1056,50 @@ describe("ApplicationsService", () => {
       expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
-    it("throws 404 APPLICATION_NOT_FOUND and 409 APPLICATION_NOT_PENDING for a confirmed and for a cancelled one", async () => {
+    it("declines an application of a lesson of today", async () => {
+      state.lesson = buildLesson({ date: "2026-03-09", status: LessonStatus.DONE });
+
+      await expect(service.reject(APPLICATION_ID, REVIEWER_ID)).resolves.toMatchObject({
+        status: AssignmentStatus.DECLINED,
+      });
+    });
+
+    it("throws 409 APPLICATION_NOT_PENDING for an application of a lesson before today or cancelled: it expired (GUS-179)", async () => {
+      for (const lesson of [
+        buildLesson({ date: "2026-03-08" }),
+        buildLesson({ status: LessonStatus.CANCELLED }),
+      ]) {
+        state.lesson = lesson;
+
+        const failure = await httpFailure(service.reject(APPLICATION_ID, REVIEWER_ID));
+
+        expect(failure.getStatus()).toBe(409);
+        expect(codeOf(failure)).toBe("APPLICATION_NOT_PENDING");
+      }
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("throws, as a broken invariant, when the lesson of the application is not found", async () => {
+      state.lesson = null;
+
+      await expect(service.reject(APPLICATION_ID, REVIEWER_ID)).rejects.toThrow(
+        "the foreign key requires it",
+      );
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it("throws 404 APPLICATION_NOT_FOUND and 409 APPLICATION_NOT_PENDING for a confirmed, a cancelled and an expired one", async () => {
       state.application = null;
       const notFound = await httpFailure(service.reject(APPLICATION_ID, REVIEWER_ID));
       expect(notFound.getStatus()).toBe(404);
       expect(codeOf(notFound)).toBe("APPLICATION_NOT_FOUND");
 
-      for (const status of [AssignmentStatus.CONFIRMED, AssignmentStatus.CANCELLED]) {
+      for (const status of [
+        AssignmentStatus.CONFIRMED,
+        AssignmentStatus.CANCELLED,
+        AssignmentStatus.EXPIRED,
+      ]) {
         state.application = buildApplication({
           status,
           reviewedById: REVIEWER_ID,
@@ -1197,8 +1267,44 @@ describe("ApplicationsService", () => {
 
       expect(order).toEqual(["find-applications", "find-agenda", "count-staff", "find-people"]);
       expect(listing.findAgendaByIds).toHaveBeenCalledWith([LESSON_ID, OTHER_LESSON_ID]);
-      expect(staffCounter.countConfirmedStaff).toHaveBeenCalledWith([LESSON_ID, OTHER_LESSON_ID]);
+      // The lessons that are listed, in the order of the agenda, and their members once each.
+      expect(staffCounter.countConfirmedStaff).toHaveBeenCalledWith([OTHER_LESSON_ID, LESSON_ID]);
+      expect(people.findRefsByIds).toHaveBeenCalledWith([OTHER_PERSON_ID, PERSON_ID]);
+    });
+
+    it("leaves out the applications of a lesson before today and of a cancelled lesson: they expired (GUS-179)", async () => {
+      seedQueue();
+      // F2 was yesterday in São Paulo.
+      state.agenda = [
+        buildAgendaRef({ id: OTHER_LESSON_ID, date: "2026-03-08" }),
+        buildAgendaRef({ id: LESSON_ID, date: "2026-03-10" }),
+      ];
+
+      const result = await service.listPending(COORDINATOR);
+
+      expect(result.total).toBe(2);
+      expect(result.lessons.map((group) => group.lesson.id)).toEqual([LESSON_ID]);
+      expect(staffCounter.countConfirmedStaff).toHaveBeenCalledWith([LESSON_ID]);
       expect(people.findRefsByIds).toHaveBeenCalledWith([PERSON_ID, OTHER_PERSON_ID]);
+
+      state.agenda = [
+        buildAgendaRef({ id: OTHER_LESSON_ID, date: "2026-03-09" }),
+        buildAgendaRef({ id: LESSON_ID, status: LessonStatus.CANCELLED }),
+      ];
+      const withCancelled = await service.listPending(COORDINATOR);
+      expect(withCancelled.total).toBe(1);
+      expect(withCancelled.lessons.map((group) => group.lesson.id)).toEqual([OTHER_LESSON_ID]);
+    });
+
+    it("answers { total: 0, lessons: [] } without the staff and the names when every application expired", async () => {
+      seedQueue();
+      state.agenda = [
+        buildAgendaRef({ id: OTHER_LESSON_ID, date: "2026-03-08" }),
+        buildAgendaRef({ id: LESSON_ID, status: LessonStatus.CANCELLED }),
+      ];
+
+      await expect(service.listPending(COORDINATOR)).resolves.toEqual({ total: 0, lessons: [] });
+      expect(order).toEqual(["find-applications", "find-agenda"]);
     });
 
     it("counts in total the applications it lists, and leaves out one whose lesson does not come back", async () => {

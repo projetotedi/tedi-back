@@ -444,6 +444,7 @@ describe("Assignments (e2e)", () => {
         person: { id: ana.id, name: "Ana Torres" },
         role: "monitor",
         status: "pending",
+        statusReason: null,
         source: "direct",
         note: NOTE,
         createdById: director.id,
@@ -713,6 +714,39 @@ describe("Assignments (e2e)", () => {
         await assign(ana, {}, { lesson: doneLesson });
 
         expect(await countAssignments()).toBe(2);
+      });
+
+      it("assigns a member to a lesson before today where her application expired: the application gives its place up (GUS-179)", async () => {
+        // The lessons of this file are in March 2026, before the day the suite runs.
+        const application = await insertAssignment(dataSource, {
+          lessonId,
+          personId: ana.id,
+          createdById: ana.id,
+          source: "application",
+        });
+        const listed = await getLessonAssignments(lessonId, director).expect(200);
+        expect(listed.body).toEqual([
+          expect.objectContaining({ id: application, status: "expired" }),
+        ]);
+        const events = collectEvents();
+
+        const res = await postAssignment(
+          lessonId,
+          director,
+          assignmentBody({ personId: ana.id, status: "confirmed" }),
+        ).expect(201);
+
+        expect(res.body).toMatchObject({ status: "confirmed", source: "direct" });
+        expect(await storedAssignment(application)).toMatchObject({
+          status: "expired",
+          cancelled_at: null,
+          reviewed_at: null,
+        });
+        expect(events.map((event) => [event.action, event.targetId])).toEqual([
+          [AuditableAction.LESSON_ASSIGNMENT_EXPIRED, application],
+          [AuditableAction.LESSON_ASSIGNMENT_CREATED, res.body.id],
+        ]);
+        expect(events[0].actorId).toBe(director.id);
       });
     });
 
@@ -1381,14 +1415,28 @@ describe("Assignments (e2e)", () => {
       }
     });
 
-    it("answers 409 LESSON_CANCELLED when the lesson was cancelled while the assignment waited", async () => {
+    it("answers 409 LESSON_CANCELLED for a pending assignment of a lesson cancelled before GUS-179", async () => {
       const created = await assign(ana);
-      await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
+      // Cancelled straight in the table, as a lesson cancelled before its assignments were ended.
+      await dataSource.query(
+        `UPDATE lessons SET status = 'cancelled', cancelled_at = now(), cancelled_by_id = $2 WHERE id = $1`,
+        [lessonId, director.id],
+      );
 
       const res = await confirmAssignment(created.id, director).expect(409);
 
       expect(res.body.error).toBe("LESSON_CANCELLED");
       expect(await storedAssignment(created.id)).toMatchObject({ status: "pending" });
+    });
+
+    it("answers 409 ASSIGNMENT_NOT_PENDING once the lesson is cancelled: the cancellation cancelled the assignment (GUS-179)", async () => {
+      const created = await assign(ana);
+      await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
+
+      const res = await confirmAssignment(created.id, director).expect(409);
+
+      expect(res.body.error).toBe("ASSIGNMENT_NOT_PENDING");
+      expect(await storedAssignment(created.id)).toMatchObject({ status: "cancelled" });
     });
 
     it("answers 409 MEMBER_INACTIVE when the member lost her access while the assignment waited", async () => {
@@ -1624,14 +1672,32 @@ describe("Assignments (e2e)", () => {
       expect(await storedAssignment(declinedId)).toMatchObject({ status: "declined" });
     });
 
-    it("cancels an assignment of a cancelled lesson: cancelling a lesson does not cancel its assignments", async () => {
+    it("answers 200 without writing for an assignment the cancellation of its lesson already cancelled (GUS-179)", async () => {
       const created = await assign(ana, { status: "confirmed" });
       await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
-      expect(await storedAssignment(created.id)).toMatchObject({ status: "confirmed" });
+      const cancelled = await storedAssignment(created.id);
+      expect(cancelled).toMatchObject({ status: "cancelled", cancelled_by_id: director.id });
+
+      const res = await cancelAssignment(created.id, coordinator).expect(200);
+
+      expect(res.body).toMatchObject({
+        status: "cancelled",
+        statusReason: "lesson_cancelled",
+        cancelledById: director.id,
+      });
+      expect(await storedAssignment(created.id)).toEqual(cancelled);
+    });
+
+    it("cancels a confirmed assignment of a lesson cancelled before GUS-179", async () => {
+      const created = await assign(ana, { status: "confirmed" });
+      await dataSource.query(
+        `UPDATE lessons SET status = 'cancelled', cancelled_at = now(), cancelled_by_id = $2 WHERE id = $1`,
+        [lessonId, director.id],
+      );
 
       const res = await cancelAssignment(created.id, director).expect(200);
 
-      expect(res.body.status).toBe("cancelled");
+      expect(res.body).toMatchObject({ status: "cancelled", statusReason: null });
     });
 
     it("cancels an assignment of a member whose access was disabled", async () => {
@@ -1736,6 +1802,7 @@ describe("Assignments (e2e)", () => {
           },
           role: "teacher",
           status: "confirmed",
+          statusReason: null,
           source: "direct",
           createdAt: expect.any(String),
         },
@@ -1803,13 +1870,45 @@ describe("Assignments (e2e)", () => {
       ).toBe("application");
     });
 
-    it("shows a lesson that was cancelled afterwards with its status", async () => {
+    it("shows a lesson that was cancelled afterwards with its status, and the assignment cancelled with the reason (GUS-179)", async () => {
       await assign(ana, { status: "confirmed" });
       await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
 
       const res = await getMemberAssignments(ana.id, coordinator).expect(200);
 
-      expect((res.body as MemberAssignmentBody[])[0].lesson.status).toBe("cancelled");
+      expect(res.body).toEqual([
+        expect.objectContaining({
+          lesson: expect.objectContaining({ status: "cancelled" }),
+          status: "cancelled",
+          statusReason: "lesson_cancelled",
+        }),
+      ]);
+    });
+
+    it("answers expired for a pending application of a lesson before today, and pending for a pending direct one (GUS-179)", async () => {
+      const past = await createLesson({ title: "Passada", date: "2026-03-17" });
+      await insertAssignment(dataSource, {
+        lessonId: past,
+        personId: ana.id,
+        createdById: ana.id,
+        source: "application",
+      });
+      await assign(ana, {}, { lesson: lessonId });
+
+      const res = await getMemberAssignments(ana.id, coordinator).expect(200);
+
+      expect(
+        (res.body as MemberAssignmentBody[]).map((item) => [
+          item.lesson.title,
+          item.source,
+          item.status,
+        ]),
+      ).toEqual(
+        expect.arrayContaining([
+          ["Passada", "application", "expired"],
+          [expect.any(String), "direct", "pending"],
+        ]),
+      );
     });
 
     it("answers an empty list for a member with no assignment", async () => {
