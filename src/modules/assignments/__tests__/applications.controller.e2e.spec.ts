@@ -469,8 +469,8 @@ describe("Applications (e2e)", () => {
   /** The row as the table has it. */
   async function storedAssignment(id: string): Promise<Record<string, unknown>> {
     const rows: Array<Record<string, unknown>> = await dataSource.query(
-      `SELECT lesson_id, person_id, role, status, source, note, created_by_id, reviewed_by_id,
-              reviewed_at, cancelled_by_id, cancelled_at, deleted_at, updated_at
+      `SELECT lesson_id, person_id, role, status, status_reason, source, note, created_by_id,
+              reviewed_by_id, reviewed_at, cancelled_by_id, cancelled_at, deleted_at, updated_at
          FROM lesson_assignments WHERE id = $1`,
       [id],
     );
@@ -550,6 +550,7 @@ describe("Applications (e2e)", () => {
         person: { id: ana.id, name: "Ana Torres" },
         role: "monitor",
         status: "pending",
+        statusReason: null,
         source: "application",
         note: NOTE,
         createdById: ana.id,
@@ -934,7 +935,7 @@ describe("Applications (e2e)", () => {
       ]);
     });
 
-    it("lists a pending application of a cancelled lesson and of a past lesson, so it can be declined", async () => {
+    it("leaves out a pending application of a past lesson and of a lesson cancelled before GUS-179: they expired", async () => {
       const past = await createLesson({ date: "2026-03-05", expectedMonitors: 2 });
       // The route refuses a past lesson: this one was sent before the lesson happened.
       const ofPast = await insertAssignment(dataSource, {
@@ -944,22 +945,48 @@ describe("Applications (e2e)", () => {
         source: "application",
       });
       const ofCancelled = await apply(ana);
+      // Cancelled straight in the table: a lesson cancelled before its applications were expired.
       await cancelLesson(lessonId);
+      const today = await createLesson({ date: TODAY, expectedMonitors: 2 });
+      const waiting = await apply(carla, "monitor", today);
 
       const res = await getPending(coordinator).expect(200);
 
+      expect(res.body.total).toBe(1);
       expect(
-        res.body.lessons.map((group: { lesson: { date: string; status: string } }) => [
-          group.lesson.date,
-          group.lesson.status,
-        ]),
-      ).toEqual([
-        ["2026-03-05", "planned"],
-        ["2026-03-10", "cancelled"],
-      ]);
-      await reject(ofPast, coordinator).expect(200);
-      await reject(ofCancelled.id, coordinator).expect(200);
+        res.body.lessons.map((group: { applications: AssignmentBody[] }) =>
+          group.applications.map((item) => item.id),
+        ),
+      ).toEqual([[waiting.id]]);
+      // Stored as pending, they are read as expired: nobody can decide them anymore.
+      for (const id of [ofPast, ofCancelled.id]) {
+        expect(await storedAssignment(id)).toMatchObject({ status: "pending" });
+        expect((await reject(id, coordinator).expect(409)).body.error).toBe(
+          "APPLICATION_NOT_PENDING",
+        );
+      }
+    });
+
+    it("empties the queue of a lesson cancelled through the route: its pending applications are written expired (GUS-179)", async () => {
+      const first = await apply(ana);
+      const second = await apply(bruno, "teacher");
+      expect((await getPending(coordinator).expect(200)).body.total).toBe(2);
+
+      await request(app.getHttpServer())
+        .patch(`/lessons/${lessonId}/cancel`)
+        .set("Cookie", coordinator.cookie)
+        .send({ reason: "Feriado municipal." })
+        .expect(200);
+
       expect((await getPending(coordinator).expect(200)).body).toEqual({ total: 0, lessons: [] });
+      for (const id of [first.id, second.id]) {
+        expect(await storedAssignment(id)).toMatchObject({
+          status: "expired",
+          status_reason: "lesson_cancelled",
+          cancelled_at: null,
+          reviewed_at: null,
+        });
+      }
     });
 
     it("shows the coverage counting only confirmed assignments: a pending application does not raise it", async () => {
@@ -1154,7 +1181,7 @@ describe("Applications (e2e)", () => {
       expect(await countConfirmed(lessonId, "teacher")).toBe(1);
     });
 
-    it("approves an application of a lesson that already happened", async () => {
+    it("answers 409 APPLICATION_NOT_PENDING to an application of a lesson that already happened: it expired (GUS-179)", async () => {
       const past = await createLesson({ date: "2026-03-05", expectedMonitors: 2 });
       const application = await insertAssignment(dataSource, {
         lessonId: past,
@@ -1163,7 +1190,18 @@ describe("Applications (e2e)", () => {
         source: "application",
       });
 
-      const res = await approve(application, director).expect(200);
+      const res = await approve(application, director).expect(409);
+
+      expect(res.body.error).toBe("APPLICATION_NOT_PENDING");
+      expect(await storedAssignment(application)).toMatchObject({ status: "pending" });
+      expect(await coverageOf(past)).toMatchObject({ monitors: { confirmed: 0 } });
+    });
+
+    it("approves an application of a lesson of today", async () => {
+      const today = await createLesson({ date: TODAY, expectedMonitors: 2 });
+      const application = await apply(ana, "monitor", today);
+
+      const res = await approve(application.id, director).expect(200);
 
       expect(res.body.status).toBe("confirmed");
     });
@@ -1398,13 +1436,18 @@ describe("Applications (e2e)", () => {
       expect((await storedAssignment(approved.id)).status).toBe("confirmed");
     });
 
-    it("declines an application of a cancelled lesson", async () => {
+    it("answers 409 APPLICATION_NOT_PENDING to an application of a cancelled lesson: it expired (GUS-179)", async () => {
       const application = await apply(ana);
-      await cancelLesson(lessonId);
+      await request(app.getHttpServer())
+        .patch(`/lessons/${lessonId}/cancel`)
+        .set("Cookie", coordinator.cookie)
+        .send({ reason: "Feriado municipal." })
+        .expect(200);
 
-      const res = await reject(application.id, coordinator).expect(200);
+      const res = await reject(application.id, coordinator).expect(409);
 
-      expect(res.body.status).toBe("declined");
+      expect(res.body.error).toBe("APPLICATION_NOT_PENDING");
+      expect(await storedAssignment(application.id)).toMatchObject({ status: "expired" });
     });
 
     it("emits LESSON_ASSIGNMENT_DECLINED once, after the commit, without the note, and nothing for the no-op", async () => {
@@ -1472,6 +1515,7 @@ describe("Applications (e2e)", () => {
           },
           role: "teacher",
           status: "confirmed",
+          statusReason: null,
           source: "direct",
         },
         {
@@ -1489,6 +1533,7 @@ describe("Applications (e2e)", () => {
           },
           role: "monitor",
           status: "pending",
+          statusReason: null,
           source: "application",
         },
       ]);

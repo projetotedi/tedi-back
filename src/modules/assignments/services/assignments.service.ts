@@ -5,6 +5,7 @@ import { LessonsService, LessonStatus } from "@modules/lessons/services/lessons.
 import { PersonRefDto } from "@modules/people/dto/person-ref.response.dto";
 import { MembersService } from "@modules/people/services/members.service";
 import { PeopleService } from "@modules/people/services/people.service";
+import { todayInAppTimeZone } from "@shared/dates/calendar-date";
 import { Clock } from "@shared/dates/clock";
 import { AuthUser } from "@shared/decorators/auth-user.type";
 import { AUDITABLE_ACTION_EVENT, AuditableAction } from "@shared/events/auditable-action.event";
@@ -42,6 +43,7 @@ import {
   toLessonAssignmentResponse,
   toMemberAssignmentResponse,
 } from "./assignment-response.mapper";
+import { isExpiredApplication, statusAsOf } from "./assignment-status";
 
 type ConfirmOutcome =
   | { changed: false; assignment: LessonAssignment }
@@ -70,16 +72,20 @@ type CancelOutcome =
  * violation of the index (23505) is mapped to the same one when a request races past them.
  *
  * Locks, always in this order, so no two writes wait for each other in a circle:
- * - making one: the lesson FOR SHARE, then the member FOR SHARE, then the insert;
+ * - making one: the lesson FOR SHARE, then the member FOR SHARE, then (in a lesson before today
+ *   only) the update of an application of the member that expired, then the insert;
  * - confirming one: the assignment FOR UPDATE, then the lesson FOR SHARE, then the member FOR SHARE,
  *   then the update;
- * - cancelling one: the assignment FOR UPDATE.
+ * - cancelling one: the assignment FOR UPDATE (and, for a pending application, the lesson read
+ *   without a lock).
  * The FOR SHARE on the lesson conflicts with the FOR UPDATE that `LessonsService` takes to edit,
  * cancel or reschedule, so nobody is assigned to a lesson that was cancelled a moment before; the
  * FOR SHARE on the member conflicts with the FOR UPDATE that the change of access takes, so nobody
  * is assigned to a member whose access was disabled a moment before. Shared locks do not conflict
  * with each other, so two assignments to the same lesson, or of the same member, do not wait for one
- * another. `lessons` and `people` never lock an assignment, so there is no wait in a circle.
+ * another. `people` never locks an assignment; the cancellation of a lesson holds its assignments
+ * FOR KEY SHARE before it locks the lesson (`LessonCancellationHandlerService`), so there is no wait
+ * in a circle.
  */
 @Injectable()
 export class AssignmentsService {
@@ -110,7 +116,13 @@ export class AssignmentsService {
    * disabled between the checks and the insert. Past the pre-checks, the partial unique indexes have
    * the last word: their violations are mapped to the same two 409.
    *
-   * Emits LESSON_ASSIGNMENT_CREATED after the commit, without the note.
+   * In a lesson before today, a pending application of the same member expired (GUS-179), but it is
+   * still stored as pending and holds her place in the index: the direct assignment writes it
+   * `expired` before the pre-checks, so the record of who was there after the fact (A12) is not
+   * refused as DUPLICATE_ROLE_IN_LESSON.
+   *
+   * Emits LESSON_ASSIGNMENT_EXPIRED (when an application gave its place up) and then
+   * LESSON_ASSIGNMENT_CREATED after the commit, without the note.
    */
   async create(
     lessonId: string,
@@ -118,6 +130,7 @@ export class AssignmentsService {
     actorId: string,
   ): Promise<LessonAssignmentResponseDto> {
     const now = this.clock.now();
+    const today = todayInAppTimeZone(now);
 
     const created = await this.runInTransaction(async (manager) => {
       const lesson = await this.lessons.getLessonSummary(lessonId, manager, { forShare: true });
@@ -129,6 +142,11 @@ export class AssignmentsService {
       });
       if (member === null) throw memberNotFoundInBody();
       if (!member.active) throw memberInactive();
+
+      const expired =
+        lesson.date < today
+          ? await this.expireApplicationOf(manager, lesson.id, member.id, now)
+          : null;
 
       if (await hasActiveAssignment(manager, lesson.id, member.id)) {
         throw duplicateRoleInLesson();
@@ -158,10 +176,25 @@ export class AssignmentsService {
         }),
       );
 
-      return { assignment, person: { id: member.id, name: member.name } };
+      return { assignment, expired, person: { id: member.id, name: member.name } };
     });
 
-    const { assignment } = created;
+    const { assignment, expired } = created;
+    if (expired !== null) {
+      this.emit(
+        AuditableAction.LESSON_ASSIGNMENT_EXPIRED,
+        actorId,
+        expired.id,
+        { status: AssignmentStatus.PENDING },
+        {
+          status: AssignmentStatus.EXPIRED,
+          lessonId: expired.lessonId,
+          personId: expired.personId,
+          role: expired.role,
+          statusReason: null,
+        },
+      );
+    }
     this.emit(AuditableAction.LESSON_ASSIGNMENT_CREATED, actorId, assignment.id, null, {
       lessonId: assignment.lessonId,
       personId: assignment.personId,
@@ -174,11 +207,12 @@ export class AssignmentsService {
   }
 
   /**
-   * The assignments of a lesson, every status (a cancelled or declined one is history, and the
-   * front tells them apart by `status`), each with the id and the name of the member. Ordered by
-   * role (the teacher first), then by status in the order of the enum (pending, confirmed,
-   * declined, cancelled), then by when it was made, then by id. Not paginated: a lesson has a few
-   * people. 404 LESSON_NOT_FOUND for an id that is not a lesson.
+   * The assignments of a lesson, every status (a cancelled, declined or expired one is history, and
+   * the front tells them apart by `status`), each with the id and the name of the member. A pending
+   * application of a lesson before today is answered as `expired` (`statusAsOf`, GUS-179). Ordered
+   * by role (the teacher first), then by the stored status in the order of the enum (pending,
+   * confirmed, declined, cancelled, expired), then by when it was made, then by id. Not paginated:
+   * a lesson has a few people. 404 LESSON_NOT_FOUND for an id that is not a lesson.
    *
    * Every profile reads the list (`lessons.view`), but the note of an assignment is free text that
    * can hold personal data (RNF-13): the items come with `note: null` unless the actor can manage
@@ -193,6 +227,7 @@ export class AssignmentsService {
     if (lesson === null) throw lessonNotFound();
 
     const visibility = { canSeeNote: this.policy.can(actor, Permission.ASSIGNMENTS_CREATE) };
+    const today = todayInAppTimeZone(this.clock.now());
 
     const assignments = await this.dataSource.getRepository(LessonAssignment).find({
       where: { lessonId: lesson.id },
@@ -210,6 +245,7 @@ export class AssignmentsService {
         assignment,
         peopleById.get(assignment.personId) ?? null,
         visibility,
+        statusAsOf(assignment, lesson, today),
       ),
     );
   }
@@ -221,10 +257,11 @@ export class AssignmentsService {
    *
    * Confirming an assignment that is already confirmed is a no-op that answers 200: no write and no
    * event, and the lesson and the member are not even looked at. Otherwise, errors, in the order
-   * they are answered: 404 ASSIGNMENT_NOT_FOUND, 409 ASSIGNMENT_NOT_PENDING (a declined or cancelled
-   * one is final), 409 LESSON_CANCELLED, 409 MEMBER_INACTIVE (her access was disabled while the
-   * assignment waited) and 409 LESSON_TEACHER_TAKEN (another teacher was confirmed while this one
-   * waited, RN-02).
+   * they are answered: 404 ASSIGNMENT_NOT_FOUND, 409 ASSIGNMENT_NOT_PENDING (a declined, cancelled
+   * or expired one is final), 409 LESSON_CANCELLED, 409 ASSIGNMENT_NOT_PENDING (an application of a
+   * lesson before today expired, GUS-179; a pending direct assignment is still confirmed after the
+   * lesson, A12), 409 MEMBER_INACTIVE (her access was disabled while the assignment waited) and 409
+   * LESSON_TEACHER_TAKEN (another teacher was confirmed while this one waited, RN-02).
    *
    * The assignment is locked FOR UPDATE until the commit, so two confirmations (or a confirmation
    * and a cancellation) of it are serialized; the lesson and the member are locked FOR SHARE after
@@ -234,6 +271,7 @@ export class AssignmentsService {
    */
   async confirm(assignmentId: string, actorId: string): Promise<LessonAssignmentResponseDto> {
     const now = this.clock.now();
+    const today = todayInAppTimeZone(now);
 
     const outcome = await this.runInTransaction(async (manager): Promise<ConfirmOutcome> => {
       const assignment = await this.loadAssignment(manager, assignmentId);
@@ -249,6 +287,7 @@ export class AssignmentsService {
         );
       }
       if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
+      if (isExpiredApplication(assignment, lesson, today)) throw assignmentNotPending();
 
       const member = await this.members.getMemberSummary(assignment.personId, manager, {
         forShare: true,
@@ -299,15 +338,18 @@ export class AssignmentsService {
    * Cancels an assignment that is pending or confirmed: status `cancelled`, with the instant and who
    * did it. The row stays (nothing is deleted), the member is free to be assigned to the lesson
    * again with a new assignment, and the coverage stops counting her. It has no body and no reason.
-   * It is allowed for a cancelled lesson too: cancelling a lesson does not cancel its assignments.
+   * Cancelling the lesson already cancels its assignments (GUS-179), so on a cancelled lesson this
+   * is a no-op, or what ends an assignment of a lesson cancelled before that card.
    *
    * Cancelling an assignment that is already cancelled is a no-op that answers 200: no write and no
    * event, and the first instant stays. Otherwise, errors: 404 ASSIGNMENT_NOT_FOUND and 409
-   * ASSIGNMENT_NOT_ACTIVE (a declined one was never in place).
+   * ASSIGNMENT_NOT_ACTIVE (a declined one was never in place, and an expired one is final: stored
+   * as expired, or a pending application of a lesson before today, `isExpiredApplication`).
    *
    * The assignment is locked FOR UPDATE until the commit, so two cancellations of it are serialized
-   * and the second one finds it cancelled. `cancelledAt` and `updatedAt` are the same instant, read
-   * once from the clock.
+   * and the second one finds it cancelled. Only for a pending application, the lesson is read
+   * without a lock, to know whether it expired. `cancelledAt` and `updatedAt` are the same instant,
+   * read once from the clock.
    *
    * Emits LESSON_ASSIGNMENT_CANCELLED after the commit, only when it was cancelled now.
    */
@@ -317,7 +359,13 @@ export class AssignmentsService {
     const outcome = await this.runInTransaction(async (manager): Promise<CancelOutcome> => {
       const assignment = await this.loadAssignment(manager, assignmentId);
       if (assignment.status === AssignmentStatus.CANCELLED) return { changed: false, assignment };
-      if (assignment.status === AssignmentStatus.DECLINED) throw assignmentNotActive();
+      if (
+        assignment.status === AssignmentStatus.DECLINED ||
+        assignment.status === AssignmentStatus.EXPIRED ||
+        (await this.hasExpiredWithLesson(manager, assignment, now))
+      ) {
+        throw assignmentNotActive();
+      }
 
       const previousStatus = assignment.status;
       assignment.status = AssignmentStatus.CANCELLED;
@@ -353,10 +401,11 @@ export class AssignmentsService {
 
   /**
    * The assignments of a member, every status, each with the lesson it is for (id, title, day,
-   * times and status of the lesson), the latest lesson first: by day, then by start time, both
-   * descending, then the newest assignment first. Not paginated, and without the class or the
-   * course of the lesson (they would need the other modules). The lessons come from ONE call to
-   * `LessonsService.findLessonSummaries`.
+   * times and status of the lesson) and why the system ended it (`statusReason`, GUS-179); a pending
+   * application of a lesson before today is answered as `expired`. The latest lesson first: by day,
+   * then by start time, both descending, then the newest assignment first. Not paginated, and
+   * without the class or the course of the lesson (they would need the other modules). The lessons
+   * come from ONE call to `LessonsService.findLessonSummaries`.
    *
    * 404 MEMBER_NOT_FOUND for an id that is not a member: unknown, malformed, or a person with neither
    * an access role nor a member profile. That comes BEFORE the scope check. Scope (`members.view`):
@@ -384,6 +433,7 @@ export class AssignmentsService {
       assignments.map((assignment) => assignment.lessonId),
     );
     const lessonsById = new Map(summaries.map((lesson) => [lesson.id, lesson]));
+    const today = todayInAppTimeZone(this.clock.now());
 
     // An assignment whose lesson is gone (a lesson is never deleted, so this is a row of the past
     // that the lessons no longer answer for) has nothing to show, and is left out.
@@ -399,7 +449,7 @@ export class AssignmentsService {
           b.assignment.createdAt.getTime() - a.assignment.createdAt.getTime() ||
           a.assignment.id.localeCompare(b.assignment.id),
       )
-      .map(({ assignment, lesson }) => toMemberAssignmentResponse(assignment, lesson));
+      .map(({ assignment, lesson }) => toMemberAssignmentResponse(assignment, lesson, today));
   }
 
   /**
@@ -415,6 +465,61 @@ export class AssignmentsService {
     } catch (error) {
       throw this.mapConstraintError(error);
     }
+  }
+
+  /**
+   * Whether the assignment is a pending application that expired with its lesson
+   * (`isExpiredApplication`). The lesson is read without a lock, and only for a pending
+   * application: no other assignment depends on its lesson to be cancelled.
+   */
+  private async hasExpiredWithLesson(
+    manager: EntityManager,
+    assignment: LessonAssignment,
+    now: Date,
+  ): Promise<boolean> {
+    if (
+      assignment.status !== AssignmentStatus.PENDING ||
+      assignment.source !== AssignmentSource.APPLICATION
+    ) {
+      return false;
+    }
+    const lesson = await this.lessons.getLessonSummary(assignment.lessonId, manager);
+    if (lesson === null) {
+      throw new Error(
+        `Lesson ${assignment.lessonId} of assignment ${assignment.id} was not found, but the foreign key requires it.`,
+      );
+    }
+    return isExpiredApplication(assignment, lesson, todayInAppTimeZone(now));
+  }
+
+  /**
+   * The pending application of the member in the lesson, written `expired` so a direct assignment
+   * can take her place (`create`, in a lesson before today only), or null when she has none. It is
+   * a plain UPDATE, with no FOR UPDATE first: nothing can decide an application that expired, and
+   * the FOR KEY SHARE of the cancellation of a lesson does not conflict with it.
+   */
+  private async expireApplicationOf(
+    manager: EntityManager,
+    lessonId: string,
+    personId: string,
+    now: Date,
+  ): Promise<LessonAssignment | null> {
+    const application = await manager.findOne(LessonAssignment, {
+      where: {
+        lessonId,
+        personId,
+        source: AssignmentSource.APPLICATION,
+        status: AssignmentStatus.PENDING,
+      },
+    });
+    if (application === null) return null;
+
+    const { affected } = await manager.update(
+      LessonAssignment,
+      { id: application.id, status: AssignmentStatus.PENDING },
+      { status: AssignmentStatus.EXPIRED, updatedAt: now },
+    );
+    return affected === 0 ? null : application;
   }
 
   /** The assignment, locked FOR UPDATE until the end of the transaction. */

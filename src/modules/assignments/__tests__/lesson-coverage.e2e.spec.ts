@@ -486,15 +486,32 @@ describe("coverage of the lessons (e2e)", () => {
       });
     });
 
-    it("keeps belowExpectedMonitors false for a cancelled lesson, though it shows who was confirmed", async () => {
+    it("counts nobody in a cancelled lesson, and keeps belowExpectedMonitors false (GUS-179)", async () => {
       await assign(ana, "teacher", "confirmed");
       await assign(bruno, "monitor", "confirmed");
       expect((await coverageOf()).belowExpectedMonitors).toBe(true);
 
       await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
 
-      // Cancelling the lesson does not cancel its assignments: the coverage shows them, and does
-      // not report a shortage in a lesson that does not happen.
+      // Cancelling the lesson cancels its assignments, and a lesson that does not happen does not
+      // report a shortage.
+      expect(await coverageOf()).toEqual({
+        coverage: coverage(0, 0, 2),
+        belowExpectedMonitors: false,
+      });
+    });
+
+    it("shows who was confirmed in a lesson cancelled before GUS-179, still without a shortage", async () => {
+      await assign(ana, "teacher", "confirmed");
+      await assign(bruno, "monitor", "confirmed");
+      // Cancelled straight in the table: the assignments were left as they were.
+      await dataSource.query(
+        `UPDATE lessons SET status = 'cancelled', cancel_reason = 'Feriado.', cancelled_at = now(),
+                cancelled_by_id = $2
+          WHERE id = $1`,
+        [lessonId, director.id],
+      );
+
       expect(await coverageOf()).toEqual({
         coverage: coverage(1, 1, 2),
         belowExpectedMonitors: false,
@@ -562,9 +579,11 @@ describe("coverage of the lessons (e2e)", () => {
         .set("Cookie", director.cookie)
         .send({ reason: "Feriado municipal." })
         .expect(200);
+      // Cancelling the lesson cancels its assignments in the same transaction (GUS-179): the answer
+      // already counts nobody.
       expect(cancelled.body).toMatchObject({
         status: "cancelled",
-        coverage: coverage(1, 1, 1),
+        coverage: coverage(0, 0, 1),
         belowExpectedMonitors: false,
       });
     });
@@ -723,18 +742,17 @@ describe("coverage of the lessons (e2e)", () => {
       expect((await itemOf(route, open)).belowExpectedMonitors).toBe(false);
     });
 
-    it("is never below for a cancelled lesson, and it keeps the teacher that was confirmed in it", async () => {
+    it("is never below for a cancelled lesson, and it has no teacher: the cancellation cancelled her (GUS-179)", async () => {
       await assign(ana, "teacher", "confirmed");
       expect((await itemOf(route)).belowExpectedMonitors).toBe(true);
 
       await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
 
-      // Cancelling the lesson does not cancel its assignments: the teacher stays on the row, and a
-      // lesson that does not happen has no shortage of monitors.
+      // A lesson that does not happen has no shortage of monitors, and no teacher.
       const item = await itemOf(route);
       expect(item.status).toBe("cancelled");
       expect(item.belowExpectedMonitors).toBe(false);
-      expect(item.teacher).toEqual({ id: ana.id, name: "Ana Torres" });
+      expect(item.teacher).toBeNull();
     });
 
     it("agrees with the detail of the lesson on belowExpectedMonitors, at every step", async () => {

@@ -6,6 +6,7 @@ import { Clock } from "@shared/dates/clock";
 import { ClassLessonsController } from "./controllers/class-lessons.controller";
 import { LessonsController } from "./controllers/lessons.controller";
 import { Lesson } from "./entities/lesson.entity";
+import { LessonCancellationRegistry } from "./services/lesson-cancellation.registry";
 import { LessonCoverageRegistry } from "./services/lesson-coverage.registry";
 import { LessonCreationService } from "./services/lesson-creation.service";
 import { LessonGenerationService } from "./services/lesson-generation.service";
@@ -36,6 +37,7 @@ import { LessonsService } from "./services/lessons.service";
     LessonCreationService,
     LessonCoverageRegistry,
     LessonRollCallRegistry,
+    LessonCancellationRegistry,
     Clock,
   ],
   // What the other modules read from the lessons:
@@ -53,10 +55,18 @@ import { LessonsService } from "./services/lessons.service";
   //   it plugs in the counter behind `attendance` of every answer and `attendancePending` of the list
   //   and the calendar; from LessonsService, the lesson of the roll call (getLessonSummary FOR
   //   SHARE) and the cancelled lessons left out of the attendance rate (findLessonSummaries). The
-  //   arrow stays attendance -> lessons.
+  //   arrow stays attendance -> lessons;
+  // - assignments (GUS-179): the port of the cancellation of a lesson (LessonCancellationRegistry),
+  //   where it plugs in what ends the assignments of a cancelled lesson, in the same transaction.
   // LessonCreationService stays inside on purpose: LessonsService and LessonGenerationService
   // (GUS-154) both build lessons through it, so a lesson of the series is born with the same rules
   // as one of POST /lessons.
-  exports: [LessonsService, LessonCoverageRegistry, LessonListingService, LessonRollCallRegistry],
+  exports: [
+    LessonsService,
+    LessonCoverageRegistry,
+    LessonListingService,
+    LessonRollCallRegistry,
+    LessonCancellationRegistry,
+  ],
 })
 export class LessonsModule {}

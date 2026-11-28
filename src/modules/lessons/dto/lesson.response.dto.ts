@@ -111,7 +111,7 @@ export class LessonResponseDto {
   @ApiProperty({
     type: () => LessonCoverageDto,
     description:
-      "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet.",
+      "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet. A cancelled lesson counts nobody: cancelling it cancels its assignments (GUS-179).",
   })
   coverage!: LessonCoverageDto;
 

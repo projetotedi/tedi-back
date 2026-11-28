@@ -1,6 +1,7 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
+import { AssignmentStatusReason } from "../enums/assignment-status-reason.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 import { AssignmentLessonRefDto } from "./assignment-lesson-ref.response.dto";
 
@@ -23,9 +24,20 @@ export class MemberAssignmentResponseDto {
     enum: AssignmentStatus,
     enumName: "AssignmentStatus",
     example: AssignmentStatus.CONFIRMED,
-    description: "Every status is listed, the cancelled and the declined ones too.",
+    description:
+      "Every status is listed, the cancelled, declined and expired ones too. A pending application of a lesson before today is answered as expired (GUS-179).",
   })
   status!: AssignmentStatus;
+
+  @ApiProperty({
+    enum: AssignmentStatusReason,
+    enumName: "AssignmentStatusReason",
+    nullable: true,
+    example: null,
+    description:
+      "Why the system ended the assignment, a stable code for the front to translate: lesson_cancelled when the cancellation of the lesson made it cancelled or expired (GUS-179). Null for what a person decided.",
+  })
+  statusReason!: AssignmentStatusReason | null;
 
   @ApiProperty({
     enum: AssignmentSource,

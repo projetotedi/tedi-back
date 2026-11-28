@@ -50,7 +50,7 @@ export class LessonAssignmentsController {
   @ApiCreatedResponse({
     type: LessonAssignmentResponseDto,
     description:
-      "The assignment, direct and pending or confirmed as the body asked. With confirmed, reviewedById is the actor and reviewedAt is now.",
+      "The assignment, direct and pending or confirmed as the body asked. With confirmed, reviewedById is the actor and reviewedAt is now. In a lesson before today, a pending application of the same member gives its place up: it is written expired (GUS-179).",
   })
   @ApiBadRequestResponse({
     type: ApiErrorDto,
@@ -77,7 +77,7 @@ export class LessonAssignmentsController {
     type: LessonAssignmentResponseDto,
     isArray: true,
     description:
-      "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated. The note of each one is null for profiles without assignments.create (RNF-13).",
+      "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. A pending application of a lesson before today is answered as expired (GUS-179). Not paginated. The note of each one is null for profiles without assignments.create (RNF-13).",
   })
   @ApiNotFoundResponse(LESSON_NOT_FOUND_RESPONSE)
   listLessonAssignments(

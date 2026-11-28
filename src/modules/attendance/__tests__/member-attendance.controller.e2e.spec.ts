@@ -662,7 +662,7 @@ describe("member attendance routes (e2e)", () => {
       expect(await attendanceRows()).toEqual([]);
     });
 
-    it("after the lesson is cancelled answers 409 LESSON_CANCELLED and still lists the signed presences", async () => {
+    it("after the lesson is cancelled answers 409 LESSON_CANCELLED, lists nobody (its assignments were cancelled, GUS-179) and keeps the signed presences", async () => {
       await putAttendance(teacher, [
         { assignmentId: monitorAssignment, status: "present" },
         { assignmentId: otherMonitorAssignment, status: "absent" },
@@ -681,11 +681,20 @@ describe("member attendance routes (e2e)", () => {
       ]).expect(409);
       expect(res.body).toMatchObject({ error: "LESSON_CANCELLED" });
 
-      const list = (await getAttendance(coordinator).expect(200)).body as MemberAttendanceBody[];
-      expect(itemOf(list, monitorAssignment).status).toBe("present");
-      expect(itemOf(list, otherMonitorAssignment).status).toBe("absent");
+      // The list is the confirmed staff of the lesson, and cancelling the lesson cancelled it.
+      expect((await getAttendance(coordinator).expect(200)).body).toEqual([]);
+      // The presences that were signed stay, with the hour entry that was reversed.
       const [entry] = await entriesOf(lessonId);
-      expect(itemOf(list, monitorAssignment).hourEntryId).toBe(entry.id);
+      expect(await attendanceRows()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            assignment_id: monitorAssignment,
+            status: "present",
+            hour_entry_id: entry.id,
+          }),
+          expect.objectContaining({ assignment_id: otherMonitorAssignment, status: "absent" }),
+        ]),
+      );
       expect((await historyOf(entry.id)).at(-1)).toMatchObject({
         type: "reversed",
         actor_id: coordinator.id,

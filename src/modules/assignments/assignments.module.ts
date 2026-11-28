@@ -14,6 +14,7 @@ import { LessonAssignment } from "./entities/lesson-assignment.entity";
 import { ApplicationsService } from "./services/applications.service";
 import { AssignmentsService } from "./services/assignments.service";
 import { ConfirmedStaffService } from "./services/confirmed-staff.service";
+import { LessonCancellationHandlerService } from "./services/lesson-cancellation-handler.service";
 import { LessonStaffCounterService } from "./services/lesson-staff-counter.service";
 import { MyAssignmentsService } from "./services/my-assignments.service";
 
@@ -22,8 +23,10 @@ import { MyAssignmentsService } from "./services/my-assignments.service";
   // - LessonsModule: the lesson an assignment is made for (LessonsService.getLessonSummary and
   //   findLessonSummaries), the registry where the counter of the confirmed staff plugs in
   //   (LessonCoverageRegistry) and, for the applications (GUS-160), the agenda with the class of each
-  //   lesson (LessonListingService.findAgendaBetween and findAgendaByIds). The arrow is
-  //   assignments -> lessons: lessons never imports this module;
+  //   lesson (LessonListingService.findAgendaBetween and findAgendaByIds) and, for the cancellation
+  //   of a lesson (GUS-179), the registry where what ends its assignments plugs in
+  //   (LessonCancellationRegistry). The arrow is assignments -> lessons: lessons never imports this
+  //   module;
   // - PeopleModule: whether the person is an active member (MembersService.getMemberSummary) and
   //   the name of the members (PeopleService.findRefsByIds);
   // - PermissionsModule: PermissionPolicy checks the department scope of GET /members/:id/assignments
@@ -45,12 +48,15 @@ import { MyAssignmentsService } from "./services/my-assignments.service";
     MyAssignmentsController,
   ],
   // LessonStaffCounterService plugs itself in the LessonCoverageRegistry in onModuleInit, so every
-  // answer of the lessons counts the confirmed staff through it (F5.4).
+  // answer of the lessons counts the confirmed staff through it (F5.4); and
+  // LessonCancellationHandlerService in the LessonCancellationRegistry, so cancelling a lesson ends
+  // its assignments in the same transaction (GUS-179).
   providers: [
     AssignmentsService,
     ApplicationsService,
     MyAssignmentsService,
     LessonStaffCounterService,
+    LessonCancellationHandlerService,
     ConfirmedStaffService,
     Clock,
   ],

@@ -206,10 +206,31 @@ describe("MyAssignmentsService", () => {
           },
           role: AssignmentRole.TEACHER,
           status: AssignmentStatus.PENDING,
+          statusReason: null,
           source: AssignmentSource.APPLICATION,
         },
       ]);
       expect(JSON.stringify(result)).not.toContain("Chego antes.");
+    });
+
+    it("answers expired for a pending application of a lesson before today, and counts it in no total (GUS-179)", async () => {
+      state.agenda = [buildRef(1, { date: "2026-03-08" }), buildRef(2, { date: "2026-03-08" })];
+      state.rows = [
+        buildAssignment(2, 2, {
+          status: AssignmentStatus.PENDING,
+          source: AssignmentSource.DIRECT,
+        }),
+        buildAssignment(1, 1, { status: AssignmentStatus.PENDING }),
+      ];
+
+      const result = await service.listMine(MEMBER, { from: "2026-03-01", to: "2026-03-31" });
+
+      expect(result.items.map((item) => [item.id, item.status])).toEqual([
+        [assignmentId(1), AssignmentStatus.EXPIRED],
+        // A pending direct assignment is the decision of the board: it does not expire.
+        [assignmentId(2), AssignmentStatus.PENDING],
+      ]);
+      expect(result.totals).toEqual({ upcoming: 1, confirmed: 0, pending: 1, openLessons: 0 });
     });
 
     it("lists a declined application and a cancelled assignment, and counts neither", async () => {

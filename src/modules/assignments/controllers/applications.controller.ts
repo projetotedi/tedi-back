@@ -54,7 +54,7 @@ export class ApplicationsController {
   @ApiOkResponse({
     type: PendingApplicationsResponseDto,
     description:
-      "The pending applications grouped by lesson, the soonest lesson first, with the coverage of each lesson and the note of each application; total is how many applications are listed (the N of the button). Not paginated.",
+      "The pending applications grouped by lesson, the soonest lesson first, with the coverage of each lesson and the note of each application; total is how many applications are listed (the N of the button). An application of a lesson before today or cancelled expired and is left out (GUS-179). Not paginated.",
   })
   @ApiBadRequestResponse({ type: ApiErrorDto, description: "VALIDATION_FAILED" })
   @ApiForbiddenResponse(FORBIDDEN_RESPONSE)

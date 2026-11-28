@@ -24,6 +24,7 @@ import { CreateLessonDto } from "../dto/create-lesson.dto";
 import { UpdateLessonDto } from "../dto/update-lesson.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
+import { LessonCancellationRegistry } from "../services/lesson-cancellation.registry";
 import { ConfirmedStaffCount } from "../services/lesson-coverage";
 import { LessonCoverageRegistry } from "../services/lesson-coverage.registry";
 import { LessonCreationService } from "../services/lesson-creation.service";
@@ -161,6 +162,7 @@ describe("LessonsService", () => {
   const courseLessonPlans = { findPosition: jest.fn() };
   const coverage = { countConfirmedStaff: jest.fn() };
   const rollCalls = { countStudentRollCalls: jest.fn() };
+  const cancellation = { holdAssignments: jest.fn(), endAssignments: jest.fn() };
 
   function auditEvents(): AuditableActionEvent[] {
     return eventEmitter.emit.mock.calls
@@ -249,6 +251,14 @@ describe("LessonsService", () => {
     });
     // No counter registered, or nobody in the roll call: the registry answers an empty map.
     rollCalls.countStudentRollCalls.mockResolvedValue(new Map());
+    cancellation.holdAssignments.mockImplementation(async () => {
+      order.push("hold-assignments");
+    });
+    // Nobody assigned, or no handler registered: no assignment to end, no event.
+    cancellation.endAssignments.mockImplementation(async () => {
+      order.push("end-assignments");
+      return [];
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -264,6 +274,7 @@ describe("LessonsService", () => {
         { provide: CourseLessonPlansService, useValue: courseLessonPlans },
         { provide: LessonCoverageRegistry, useValue: coverage },
         { provide: LessonRollCallRegistry, useValue: rollCalls },
+        { provide: LessonCancellationRegistry, useValue: cancellation },
       ],
     }).compile();
 
@@ -1577,15 +1588,112 @@ describe("LessonsService", () => {
       expect(result).toMatchObject({ date: "2026-03-10", startTime: "14:00", endTime: "15:30" });
     });
 
-    it("locks the lesson FOR UPDATE first and the class FOR SHARE after it", async () => {
+    it("holds the assignments first, then locks the lesson FOR UPDATE and the class FOR SHARE after it", async () => {
       await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
 
+      expect(cancellation.holdAssignments).toHaveBeenCalledWith(manager, LESSON_ID);
       expect(manager.findOne).toHaveBeenCalledWith(Lesson, {
         where: { id: LESSON_ID },
         lock: { mode: "pessimistic_write" },
       });
       expect(classes.getClassSummary).toHaveBeenCalledWith(CLASS_ID, manager, { forShare: true });
-      expect(order.slice(0, 3)).toEqual(["load-lesson", "get-class", "save-lesson"]);
+      expect(order.slice(0, 4)).toEqual([
+        "hold-assignments",
+        "load-lesson",
+        "get-class",
+        "save-lesson",
+      ]);
+    });
+
+    it("ends the assignments in the transaction, after the lesson is saved and before the coverage is counted (GUS-179)", async () => {
+      state.staff = new Map([[LESSON_ID, { teachers: 1, monitors: 1 }]]);
+      cancellation.endAssignments.mockImplementation(async () => {
+        order.push("end-assignments");
+        // What the handler does: nobody is confirmed after it.
+        state.staff = new Map();
+        return [];
+      });
+
+      const result = await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
+
+      expect(cancellation.endAssignments).toHaveBeenCalledTimes(1);
+      expect(cancellation.endAssignments).toHaveBeenCalledWith(manager, LESSON_ID, ACTOR_ID, NOW);
+      expect(order.slice(0, 6)).toEqual([
+        "hold-assignments",
+        "load-lesson",
+        "get-class",
+        "save-lesson",
+        "end-assignments",
+        "get-course",
+      ]);
+      expect(order.indexOf("end-assignments")).toBeLessThan(order.indexOf("count-staff"));
+      expect(order.indexOf("count-staff")).toBeLessThan(order.indexOf("commit"));
+      expect(result.coverage).toEqual({
+        teacher: { confirmed: 0, expected: 1 },
+        monitors: { confirmed: 0, expected: null },
+      });
+    });
+
+    it("emits the events of the assignments it ended after the commit, between LESSON_CANCELLED and lesson.cancelled", async () => {
+      const ended = [
+        Object.assign(new AuditableActionEvent(), {
+          action: AuditableAction.LESSON_ASSIGNMENT_CANCELLED,
+          targetId: OTHER_ID,
+        }),
+        Object.assign(new AuditableActionEvent(), {
+          action: AuditableAction.LESSON_ASSIGNMENT_EXPIRED,
+          targetId: ACTOR_ID,
+        }),
+      ];
+      cancellation.endAssignments.mockResolvedValue(ended);
+
+      await service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID);
+
+      expect(order.slice(-5)).toEqual([
+        "commit",
+        "emit-audit",
+        "emit-audit",
+        "emit-audit",
+        "emit-cancelled",
+      ]);
+      expect(auditEvents().map((event) => event.action)).toEqual([
+        AuditableAction.LESSON_CANCELLED,
+        AuditableAction.LESSON_ASSIGNMENT_CANCELLED,
+        AuditableAction.LESSON_ASSIGNMENT_EXPIRED,
+      ]);
+      expect(auditEvents().slice(1)).toEqual(ended);
+    });
+
+    it("ends no assignment and emits nothing when the class is archived: the transaction is undone", async () => {
+      state.schoolClass = buildClass({ archivedAt: ARCHIVED_AT });
+
+      await expect(service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID)).rejects.toThrow(
+        HttpException,
+      );
+
+      expect(cancellation.holdAssignments).toHaveBeenCalledTimes(1);
+      expect(cancellation.endAssignments).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it("emits no event of the assignments when the transaction fails after ending them", async () => {
+      cancellation.endAssignments.mockResolvedValue([
+        Object.assign(new AuditableActionEvent(), {
+          action: AuditableAction.LESSON_ASSIGNMENT_CANCELLED,
+        }),
+      ]);
+      dataSource.transaction.mockImplementation(
+        async (callback: (m: unknown) => Promise<unknown>) => {
+          await callback(manager);
+          throw new Error("commit failed");
+        },
+      );
+
+      await expect(service.cancel(LESSON_ID, { reason: "Feriado." }, ACTOR_ID)).rejects.toThrow(
+        "commit failed",
+      );
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
     it.each([LessonStatus.PLANNED, LessonStatus.CONFIRMED, LessonStatus.DONE])(
@@ -1662,6 +1770,30 @@ describe("LessonsService", () => {
       });
       expect(manager.save).not.toHaveBeenCalled();
       expect(auditEvents()).toEqual([]);
+    });
+
+    it("still ends the assignments of a lesson already cancelled (one cancelled before GUS-179), and emits their events but no LESSON_CANCELLED", async () => {
+      state.lesson = buildLesson({
+        status: LessonStatus.CANCELLED,
+        cancelReason: "Primeiro motivo.",
+        cancelledAt: new Date("2026-03-05T12:00:00.000Z"),
+        cancelledById: OTHER_ID,
+      });
+      const ended = Object.assign(new AuditableActionEvent(), {
+        action: AuditableAction.LESSON_ASSIGNMENT_CANCELLED,
+      });
+      cancellation.endAssignments.mockImplementation(async () => {
+        order.push("end-assignments");
+        return [ended];
+      });
+
+      await service.cancel(LESSON_ID, { reason: "Segundo motivo." }, ACTOR_ID);
+
+      expect(cancellation.endAssignments).toHaveBeenCalledWith(manager, LESSON_ID, ACTOR_ID, NOW);
+      expect(order.slice(0, 3)).toEqual(["hold-assignments", "load-lesson", "end-assignments"]);
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(auditEvents()).toEqual([ended]);
+      expect(order.slice(-3)).toEqual(["commit", "emit-audit", "emit-cancelled"]);
     });
 
     it("re-emits LessonCancelledEvent for a lesson already cancelled, after the commit, with who asked and when, and no audit event (GUS-168)", async () => {

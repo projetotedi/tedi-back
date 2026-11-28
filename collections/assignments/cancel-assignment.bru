@@ -22,8 +22,8 @@ docs {
   Cancela uma alocação pendente ou confirmada (F5.2). O :id é o id da alocação.
   Requer cookie tedi_session e a permissão assignments.create (@RequirePermission; diretoria, coordenação e superadmin). Membro recebe 403 FORBIDDEN.
   Sem corpo e sem motivo. Grava status cancelled, cancelledById (quem cancelou) e cancelledAt (o instante, o mesmo de updatedAt). A linha continua existindo, com quem a confirmou (reviewedById e reviewedAt) ao lado de quem a cancelou: não existe DELETE de alocação. Cancelar libera o lugar do membro na aula (ele pode ser alocado de novo) e, se era o professor confirmado, a vaga de professor. A cobertura (get-lesson, coverage) deixa de contá-lo.
-  Vale para aula cancelada também: cancelar uma aula não cancela as alocações dela.
-  Cancelar uma alocação que já está cancelada responde 200 sem alterar nada e sem evento: vale o primeiro instante. Alocação recusada (declined) nunca esteve em vigor: 409 ASSIGNMENT_NOT_ACTIVE.
+  Cancelar a aula já cancela as alocações dela (GUS-179, cancel-lesson); numa aula cancelada antes disso, esta rota ainda cancela a alocação que ficou ativa.
+  Cancelar uma alocação que já está cancelada responde 200 sem alterar nada e sem evento: vale o primeiro instante. Alocação recusada (declined) nunca esteve em vigor, e a candidatura expirada (expired, ou pendente de aula antes de hoje ou cancelada) é final: 409 ASSIGNMENT_NOT_ACTIVE.
   A alocação fica travada (FOR UPDATE) até o fim da transação: dois cancelamentos ao mesmo tempo cancelam uma vez só, e a segunda requisição responde o que a primeira gravou.
   Retorna 200 LessonAssignmentResponseDto. Depois do commit, e só quando foi cancelada agora, registra o evento LESSON_ASSIGNMENT_CANCELLED, sem a nota.
   Erros possíveis: 401, 403 FORBIDDEN, 404 ASSIGNMENT_NOT_FOUND (id inexistente ou mal formado), 409 ASSIGNMENT_NOT_ACTIVE.
