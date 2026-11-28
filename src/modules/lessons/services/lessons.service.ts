@@ -27,6 +27,7 @@ import { UpdateLessonDto } from "../dto/update-lesson.dto";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
 import { lessonCreatedPayload } from "./lesson-audit";
+import { LessonCancellationRegistry } from "./lesson-cancellation.registry";
 import { ConfirmedStaffCount, NO_CONFIRMED_STAFF } from "./lesson-coverage";
 import { LessonCoverageRegistry } from "./lesson-coverage.registry";
 import { LessonCreationService, LessonDraft } from "./lesson-creation.service";
@@ -133,9 +134,21 @@ interface LessonSchedule extends Record<string, unknown> {
   originalDate: string | null;
 }
 
+/** What a cancellation did, with the audit events of the assignments it ended (GUS-179). */
 type CancelOutcome =
-  | { changed: false; response: LessonResponseDto; lesson: Lesson }
-  | { changed: true; response: LessonResponseDto; lesson: Lesson; previousStatus: LessonStatus };
+  | {
+      changed: false;
+      response: LessonResponseDto;
+      lesson: Lesson;
+      assignmentEvents: AuditableActionEvent[];
+    }
+  | {
+      changed: true;
+      response: LessonResponseDto;
+      lesson: Lesson;
+      previousStatus: LessonStatus;
+      assignmentEvents: AuditableActionEvent[];
+    };
 
 type RescheduleOutcome =
   | { changed: false; response: LessonResponseDto }
@@ -171,13 +184,16 @@ function assertWithinPeriod(date: string, schoolClass: ClassSummary): void {
  * position in the sequence through the catalog: this module touches no table of another one. The
  * same goes for who is assigned to a lesson: the coverage (F5.4) of every answer is counted through
  * the `LessonCoverageRegistry`, the port the assignments module plugs its counter in (section 15 of
- * docs/ARCHITECTURE.md), and this module touches no table of it. And for the roll call of the
- * students (GUS-166): its numbers come through the `LessonRollCallRegistry`, which the attendance
- * module implements (section 18.1), and this module decides from them whether it is pending.
+ * docs/ARCHITECTURE.md), and this module touches no table of it; cancelling a lesson ends its
+ * assignments through another port of the same kind, the `LessonCancellationRegistry` (GUS-179).
+ * And for the roll call of the students (GUS-166): its numbers come through the
+ * `LessonRollCallRegistry`, which the attendance module implements (section 18.1), and this module
+ * decides from them whether it is pending.
  *
  * Locks, always in this order, so no two writes wait for each other in a circle:
  * - creating: the class FOR SHARE, then the lesson plan FOR SHARE, then the insert;
- * - the other writes: the lesson FOR UPDATE, then the class FOR SHARE.
+ * - the other writes: the lesson FOR UPDATE, then the class FOR SHARE. Cancelling first holds the
+ *   active assignments of the lesson, through the port of the cancellation (GUS-179).
  * The FOR SHARE on the class conflicts with the FOR UPDATE that `ClassesService.update` and
  * `archive` take, so a lesson is never written against a class that was archived or whose period
  * moved a moment before; shared locks do not conflict with each other, so lessons of the same class
@@ -196,6 +212,7 @@ export class LessonsService {
     private readonly courseLessonPlans: CourseLessonPlansService,
     private readonly coverage: LessonCoverageRegistry,
     private readonly rollCalls: LessonRollCallRegistry,
+    private readonly cancellation: LessonCancellationRegistry,
   ) {}
 
   /**
@@ -393,15 +410,26 @@ export class LessonsService {
    * the hours already recorded for it (RN-07), and that is the `hours` module's work: this one only
    * announces it, with the `lesson.cancelled` event.
    *
-   * Cancelling a lesson that is already cancelled answers 200 and keeps the first reason: no write
-   * and no audit event, and not even the class is looked at. It only emits `lesson.cancelled` again,
-   * with whoever asked and the instant of the request: the listeners are idempotent, and that is how
-   * a reversal of the hours that failed is repaired (GUS-168). Otherwise, errors: 404
-   * LESSON_NOT_FOUND and 409 CLASS_ARCHIVED (archived classes are read-only, RN-27).
+   * In the same transaction it ends the assignments of the lesson (GUS-179), through the
+   * `LessonCancellationRegistry`, the port `assignments` implements: the confirmed and the pending
+   * ones become `cancelled`, the pending applications `expired`. That happens before the answer is
+   * built, so its coverage already counts nobody.
+   *
+   * Cancelling a lesson that is already cancelled answers 200 and keeps the first reason: the lesson
+   * is not written, there is no LESSON_CANCELLED, and not even the class is looked at. It still ends
+   * whatever assignment is active (one of a lesson cancelled before GUS-179), and emits
+   * `lesson.cancelled` again, with whoever asked and the instant of the request: the listeners are
+   * idempotent, and that is how a reversal of the hours that failed is repaired (GUS-168).
+   * Otherwise, errors: 404 LESSON_NOT_FOUND and 409 CLASS_ARCHIVED (archived classes are
+   * read-only, RN-27).
+   *
+   * Locks, in this order: the active assignments of the lesson (the port, before the lesson: section
+   * 15.1 of docs/ARCHITECTURE.md), the lesson FOR UPDATE, then the class FOR SHARE.
    *
    * `cancelledAt` and `updatedAt` are the same instant, read once from the clock. After the commit,
    * when the lesson was cancelled now, it emits LESSON_CANCELLED on the audit channel (without the
-   * reason: free text, RNF-13), then `lesson.cancelled`, the hook of the hours.
+   * reason: free text, RNF-13), then the events of the assignments it ended, then
+   * `lesson.cancelled`, the hook of the hours.
    */
   async cancel(
     requestedId: string,
@@ -411,10 +439,21 @@ export class LessonsService {
     const now = this.clock.now();
 
     const outcome = await this.runInTransaction(async (manager): Promise<CancelOutcome> => {
+      await this.cancellation.holdAssignments(manager, requestedId);
       const lesson = await this.loadLesson(manager, requestedId);
 
       if (lesson.status === LessonStatus.CANCELLED) {
-        return { changed: false, lesson, response: await this.buildResponse(manager, lesson) };
+        return {
+          changed: false,
+          lesson,
+          assignmentEvents: await this.cancellation.endAssignments(
+            manager,
+            lesson.id,
+            actorId,
+            now,
+          ),
+          response: await this.buildResponse(manager, lesson),
+        };
       }
 
       const schoolClass = await this.loadWritableClass(manager, lesson.classId);
@@ -433,6 +472,7 @@ export class LessonsService {
         changed: true,
         lesson,
         previousStatus,
+        assignmentEvents: await this.cancellation.endAssignments(manager, lesson.id, actorId, now),
         response: await this.buildResponse(manager, lesson, { schoolClass }),
       };
     });
@@ -446,6 +486,9 @@ export class LessonsService {
         { status: outcome.previousStatus },
         { status: LessonStatus.CANCELLED, cancelledAt: now },
       );
+    }
+    for (const event of outcome.assignmentEvents) {
+      this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
     }
     // Also for a lesson that was already cancelled (GUS-168): the hours reverse what is still active
     // and do nothing otherwise, so a reversal that failed is repaired by cancelling again.

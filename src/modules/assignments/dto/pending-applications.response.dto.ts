@@ -38,7 +38,7 @@ export class PendingApplicationsResponseDto {
     type: () => PendingApplicationGroupResponseDto,
     isArray: true,
     description:
-      "One group per lesson with a pending application, the soonest lesson first (by date, start time and id); a past or cancelled lesson is listed too, so its applications can be declined.",
+      "One group per lesson with a pending application, the soonest lesson first (by date, start time and id). A lesson before today or cancelled is left out: its applications expired (GUS-179).",
   })
   lessons!: PendingApplicationGroupResponseDto[];
 }

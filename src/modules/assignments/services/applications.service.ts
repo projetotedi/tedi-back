@@ -46,6 +46,7 @@ import {
   roleFull,
 } from "./assignment-errors";
 import { toAssignmentLesson, toLessonAssignmentResponse } from "./assignment-response.mapper";
+import { isExpiredApplication } from "./assignment-status";
 import { LessonStaffCounterService } from "./lesson-staff-counter.service";
 import { hasOpenPlace, isClosedForApplications } from "./role-vacancy";
 
@@ -57,6 +58,12 @@ import { hasOpenPlace, isClosedForApplications } from "./role-vacancy";
 export function lessonStaffLockKey(lessonId: string): string {
   return `assignments.lesson-staff:${lessonId}`;
 }
+
+/** Every application of the queue: what `isExpiredApplication` asks of each of them is the same. */
+const PENDING_APPLICATION = {
+  status: AssignmentStatus.PENDING,
+  source: AssignmentSource.APPLICATION,
+} as const;
 
 /** What a review (approve, decline) did: nothing (a no-op) or a change, which is audited. */
 interface ReviewOutcome {
@@ -86,7 +93,8 @@ interface ReviewOutcome {
  *   advisory lock is where they wait for each other, and in READ COMMITTED the count after it is a
  *   new statement that sees what the other one committed. It is the LAST lock taken: after it the
  *   transaction only counts and writes its own row;
- * - declining: the application FOR UPDATE, then the update.
+ * - declining: the application FOR UPDATE, then the update (the lesson is read without a lock, to
+ *   know whether the application expired with it, GUS-179).
  * Every transaction asks for them in the same order (assignment, lesson, person, advisory lock),
  * and `lessons` and `people` never lock an assignment nor take the advisory lock.
  *
@@ -191,10 +199,10 @@ export class ApplicationsService {
   }
 
   /**
-   * The queue of the pending applications (`source` `application`, `status` `pending`), of any
-   * lesson: a cancelled one and one that already happened come too, with the status and the date of
-   * the lesson, so they can be declined (an application does not resolve itself, A13). A direct
-   * pending assignment is not an application and is left out. The route only takes
+   * The queue of the pending applications (`source` `application`, `status` `pending`) that can
+   * still be decided: an application of a lesson before today or cancelled expired
+   * (`isExpiredApplication`, GUS-179) and is left out, of the groups and of `total`. A direct
+   * pending assignment is not an application and is left out too. The route only takes
    * `?status=pending` (the DTO answers 400 to anything else), so the predicate is fixed here and the
    * service takes no query.
    *
@@ -209,13 +217,14 @@ export class ApplicationsService {
    * for the list. Not paginated: the queue holds dozens.
    *
    * A plain read: no transaction, no lock and no event. Four reads, whatever the number of
-   * applications: the applications, the agenda of their lessons (`findAgendaByIds`), the confirmed
-   * staff of those lessons and the names. They run one after the other on purpose: they are
-   * independent, but with dozens of rows running them in parallel only holds more connections of the
-   * pool at once.
+   * applications: the applications, the agenda of their lessons (`findAgendaByIds`, which also says
+   * which ones expired), the confirmed staff of the lessons left and the names. They run one after
+   * the other on purpose: they are independent, but with dozens of rows running them in parallel
+   * only holds more connections of the pool at once.
    */
   async listPending(actor: AuthUser): Promise<PendingApplicationsResponseDto> {
     const visibility = { canSeeNote: this.policy.can(actor, Permission.ASSIGNMENTS_REVIEW) };
+    const today = todayInAppTimeZone(this.clock.now());
 
     const applications = await this.dataSource.getRepository(LessonAssignment).find({
       where: { source: AssignmentSource.APPLICATION, status: AssignmentStatus.PENDING },
@@ -229,12 +238,18 @@ export class ApplicationsService {
       if (ofLesson === undefined) byLesson.set(application.lessonId, [application]);
       else ofLesson.push(application);
     }
-    const lessonIds = [...byLesson.keys()];
 
-    const agenda = await this.listing.findAgendaByIds(lessonIds);
+    // The applications of a lesson expire together: its status and its day decide them all.
+    const agenda = (await this.listing.findAgendaByIds([...byLesson.keys()])).filter(
+      (ref) => !isExpiredApplication(PENDING_APPLICATION, ref, today),
+    );
+    if (agenda.length === 0) return { total: 0, lessons: [] };
+
+    const lessonIds = agenda.map((ref) => ref.id);
+    const listed = lessonIds.flatMap((id) => byLesson.get(id) ?? []);
     const staff = await this.staffCounter.countConfirmedStaff(lessonIds);
     const people = await this.people.findRefsByIds([
-      ...new Set(applications.map((application) => application.personId)),
+      ...new Set(listed.map((application) => application.personId)),
     ]);
     const peopleById = new Map(people.map((person) => [person.id, person]));
 
@@ -268,15 +283,17 @@ export class ApplicationsService {
   /**
    * Approves a pending application: it becomes a confirmed assignment, and the coverage of the
    * lesson counts the member from now on. Who approved it and when go to `reviewedById` and
-   * `reviewedAt` (the same instant as `updatedAt`). The lesson may have already happened: approving
-   * it afterwards is the record of who was there (A12).
+   * `reviewedAt` (the same instant as `updatedAt`). An application of a lesson before today expired
+   * (GUS-179): the record of who was there after the fact is a direct assignment (A12).
    *
    * Approving one that is already confirmed is a no-op that answers 200: no write, no event, and the
    * lesson and the member are not even looked at. Otherwise, errors, in the order they are answered:
    * 404 APPLICATION_NOT_FOUND (unknown, or a direct assignment), 409 APPLICATION_NOT_PENDING
-   * (declined or cancelled), 409 LESSON_CANCELLED, 409 MEMBER_INACTIVE (her access was disabled or
-   * she left while the application waited) and 409 ROLE_FULL (the place was taken while it waited:
-   * a confirmed teacher, or the confirmed monitors at what the lesson expects, or nothing expected).
+   * (declined, cancelled or expired), 409 LESSON_CANCELLED (an application of a lesson cancelled
+   * before GUS-179, still pending), 409 APPLICATION_NOT_PENDING (its lesson is before today, so it
+   * expired), 409 MEMBER_INACTIVE (her access was disabled or she left while the application waited)
+   * and 409 ROLE_FULL (the place was taken while it waited: a confirmed teacher, or the confirmed
+   * monitors at what the lesson expects, or nothing expected).
    *
    * The locks, and why the count is made again after the advisory lock, are in the JSDoc of the
    * class. Past them, the unique index of the confirmed teacher has the last word: its violation is
@@ -287,6 +304,7 @@ export class ApplicationsService {
    */
   async approve(applicationId: string, actorId: string): Promise<LessonAssignmentResponseDto> {
     const now = this.clock.now();
+    const today = todayInAppTimeZone(now);
 
     const outcome = await this.runInTransaction(async (manager): Promise<ReviewOutcome> => {
       const application = await this.loadApplication(manager, applicationId);
@@ -302,6 +320,7 @@ export class ApplicationsService {
         );
       }
       if (lesson.status === LessonStatus.CANCELLED) throw lessonCancelled();
+      if (isExpiredApplication(application, lesson, today)) throw applicationNotPending();
 
       const member = await this.members.getMemberSummary(application.personId, manager, {
         forShare: true,
@@ -353,26 +372,38 @@ export class ApplicationsService {
    * Declines a pending application: status `declined`, with who did it and when (`reviewedById`,
    * `reviewedAt`, the same instant as `updatedAt`). The row stays, the place of the member in the
    * lesson is free again (`declined` does not count in the index of the active place), she sees the
-   * status in "Minhas aulas" and can apply again. It has no body and no reason, and it looks neither
-   * at the lesson nor at the member: an application of a cancelled or past lesson is declined too.
+   * status in "Minhas aulas" and can apply again. It has no body and no reason, and it does not look
+   * at the member. It reads the lesson only to know whether the application expired with it
+   * (`isExpiredApplication`, GUS-179): one of a lesson before today or cancelled is not declined.
    *
    * Declining one that is already declined is a no-op that answers 200, with no write and no event.
-   * Otherwise, errors: 404 APPLICATION_NOT_FOUND and 409 APPLICATION_NOT_PENDING (approved or
-   * cancelled: an approved one leaves through `PATCH /assignments/:id/cancel`).
+   * Otherwise, errors: 404 APPLICATION_NOT_FOUND and 409 APPLICATION_NOT_PENDING (approved,
+   * cancelled or expired: an approved one leaves through `PATCH /assignments/:id/cancel`).
    *
    * The application is locked FOR UPDATE until the commit, so an approval and a decline of it at the
-   * same time are decided once: the second one finds it decided.
+   * same time are decided once: the second one finds it decided. The lesson is read without a lock:
+   * nothing here depends on it staying as it is, and so no lock is added to the order of section
+   * 15.1.
    *
    * Emits LESSON_ASSIGNMENT_DECLINED after the commit, only when it was declined now. The answer
    * carries the note, as the approval.
    */
   async reject(applicationId: string, actorId: string): Promise<LessonAssignmentResponseDto> {
     const now = this.clock.now();
+    const today = todayInAppTimeZone(now);
 
     const outcome = await this.runInTransaction(async (manager): Promise<ReviewOutcome> => {
       const application = await this.loadApplication(manager, applicationId);
       if (application.status === AssignmentStatus.DECLINED) return { changed: false, application };
       if (application.status !== AssignmentStatus.PENDING) throw applicationNotPending();
+
+      const lesson = await this.lessons.getLessonSummary(application.lessonId, manager);
+      if (lesson === null) {
+        throw new Error(
+          `Lesson ${application.lessonId} of application ${application.id} was not found, but the foreign key requires it.`,
+        );
+      }
+      if (isExpiredApplication(application, lesson, today)) throw applicationNotPending();
 
       application.status = AssignmentStatus.DECLINED;
       application.reviewedById = actorId;

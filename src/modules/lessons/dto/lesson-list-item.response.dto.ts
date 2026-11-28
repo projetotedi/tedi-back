@@ -51,7 +51,7 @@ export class LessonListItemResponseDto {
     nullable: true,
     example: { id: "01999a3e-0000-7000-8000-0000000000aa", name: "Maria Silva Santos" },
     description:
-      "The CONFIRMED teacher of the lesson (F5.2, RN-02): her id and her name. Null when the lesson has none, and the front shows a dash: a pending assignment is a candidate, not the teacher. A cancelled lesson keeps the teacher that was confirmed in it, because cancelling a lesson does not cancel its assignments.",
+      "The CONFIRMED teacher of the lesson (F5.2, RN-02): her id and her name. Null when the lesson has none, and the front shows a dash: a pending assignment is a candidate, not the teacher. A cancelled lesson has none either: cancelling a lesson cancels its assignments (GUS-179).",
   })
   teacher!: LessonPersonRefDto | null;
 

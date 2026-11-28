@@ -98,6 +98,8 @@ export enum AuditableAction {
   LESSON_ASSIGNMENT_APPROVED = "LESSON_ASSIGNMENT_APPROVED",
   /** A pending application was declined by whoever reviews them; the row stays and the place of the member in the lesson is free again. The note is never in the payload (RNF-13, GUS-160). */
   LESSON_ASSIGNMENT_DECLINED = "LESSON_ASSIGNMENT_DECLINED",
+  /** A pending application expired: its lesson was cancelled, or its lesson is past and a direct assignment of the same member took its place. The row stays and holds no place. The note is never in the payload (RNF-13, GUS-179). */
+  LESSON_ASSIGNMENT_EXPIRED = "LESSON_ASSIGNMENT_EXPIRED",
   /** An hour entry was logged: by the person, on her behalf or by the attendance (GUS-162). No free text in the payload (RNF-13). */
   HOUR_ENTRY_CREATED = "HOUR_ENTRY_CREATED",
   /** A pending hour entry was removed by its person; the row stays with deleted_at (GUS-162). */

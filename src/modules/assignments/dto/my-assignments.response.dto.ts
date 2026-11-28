@@ -1,6 +1,7 @@
 import { ApiProperty } from "@nestjs/swagger";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
+import { AssignmentStatusReason } from "../enums/assignment-status-reason.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 import { AssignmentLessonResponseDto } from "./assignment-lesson.response.dto";
 
@@ -21,7 +22,7 @@ export class MyAssignmentsTotalsDto {
     type: "integer",
     example: 1,
     description:
-      "Items with status pending (Aguardando confirmação): an application or a direct assignment still waiting.",
+      "Items with status pending (Aguardando confirmação): an application or a direct assignment still waiting. An expired application is not one (GUS-179).",
   })
   pending!: number;
 
@@ -59,9 +60,19 @@ export class MyAssignmentResponseDto {
     enumName: "AssignmentStatus",
     example: AssignmentStatus.PENDING,
     description:
-      "The latest status of the member in the lesson: the active one (pending or confirmed) when there is one, else the latest declined or cancelled.",
+      "The latest status of the member in the lesson: the active one (pending or confirmed) when there is one, else the latest declined, cancelled or expired. A pending application of a lesson before today is answered as expired (GUS-179).",
   })
   status!: AssignmentStatus;
+
+  @ApiProperty({
+    enum: AssignmentStatusReason,
+    enumName: "AssignmentStatusReason",
+    nullable: true,
+    example: null,
+    description:
+      "Why the system ended the assignment, a stable code for the front to translate: lesson_cancelled when the cancellation of the lesson made it cancelled or expired (GUS-179). Null for what a person decided.",
+  })
+  statusReason!: AssignmentStatusReason | null;
 
   @ApiProperty({
     enum: AssignmentSource,

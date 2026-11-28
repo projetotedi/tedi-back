@@ -8,6 +8,8 @@ import { MemberAssignmentResponseDto } from "../dto/member-assignment.response.d
 import { MyAssignmentResponseDto } from "../dto/my-assignments.response.dto";
 import { OpenLessonResponseDto } from "../dto/open-lesson.response.dto";
 import { LessonAssignment } from "../entities/lesson-assignment.entity";
+import { AssignmentStatus } from "../enums/assignment-status.enum";
+import { statusAsOf } from "./assignment-status";
 import { openRolesOf } from "./role-vacancy";
 
 /**
@@ -30,18 +32,24 @@ export interface AssignmentVisibility {
  * of a lesson: the assignment with the member it is for. `person` is null when the person is gone,
  * and `note` is null for whoever `visibility` keeps it from. The optional columns are missing
  * (undefined) on an entity that was just inserted, not loaded, so they are read as null.
+ *
+ * `status` is the stored one unless the caller says otherwise: the list of a lesson passes
+ * `statusAsOf` (an application of a past lesson reads `expired`, GUS-179). A write answers what it
+ * has just written, and the queue only lists applications that are still pending.
  */
 export function toLessonAssignmentResponse(
   assignment: LessonAssignment,
   person: PersonRefDto | null,
   visibility: AssignmentVisibility,
+  status: AssignmentStatus = assignment.status,
 ): LessonAssignmentResponseDto {
   return {
     id: assignment.id,
     lessonId: assignment.lessonId,
     person: person === null ? null : { id: person.id, name: person.name },
     role: assignment.role,
-    status: assignment.status,
+    status,
+    statusReason: assignment.statusReason ?? null,
     source: assignment.source,
     note: visibility.canSeeNote ? (assignment.note ?? null) : null,
     createdById: assignment.createdById,
@@ -56,11 +64,13 @@ export function toLessonAssignmentResponse(
 
 /**
  * The item of the list of a member: the lesson she is assigned to (what says which one it is and
- * when) and what she does in it. Nothing of her class or course, and no note.
+ * when) and what she does in it, with the status as of `today` (`statusAsOf`, GUS-179) and why the
+ * system ended it. Nothing of her class or course, and no note.
  */
 export function toMemberAssignmentResponse(
   assignment: LessonAssignment,
   lesson: LessonSummary,
+  today: string,
 ): MemberAssignmentResponseDto {
   return {
     id: assignment.id,
@@ -73,7 +83,8 @@ export function toMemberAssignmentResponse(
       status: lesson.status,
     },
     role: assignment.role,
-    status: assignment.status,
+    status: statusAsOf(assignment, lesson, today),
+    statusReason: assignment.statusReason ?? null,
     source: assignment.source,
     createdAt: assignment.createdAt,
   };
@@ -99,17 +110,20 @@ export function toAssignmentLesson(ref: LessonAgendaRef): AssignmentLessonRespon
 
 /**
  * An item of "Minhas aulas" (GUS-160): the lesson with its class and what the member does in it,
- * and where it stands. No note: the agenda of the member does not carry it.
+ * and where it stands as of `today` (`statusAsOf`, GUS-179). No note: the agenda of the member does
+ * not carry it.
  */
 export function toMyAssignmentResponse(
   assignment: LessonAssignment,
   ref: LessonAgendaRef,
+  today: string,
 ): MyAssignmentResponseDto {
   return {
     id: assignment.id,
     lesson: toAssignmentLesson(ref),
     role: assignment.role,
-    status: assignment.status,
+    status: statusAsOf(assignment, ref, today),
+    statusReason: assignment.statusReason ?? null,
     source: assignment.source,
   };
 }

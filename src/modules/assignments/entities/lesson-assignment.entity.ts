@@ -2,6 +2,7 @@ import { Check, Column, Entity, ForeignKey, Index } from "typeorm";
 import { BaseEntity } from "@shared/entities/base.entity";
 import { AssignmentRole } from "../enums/assignment-role.enum";
 import { AssignmentSource } from "../enums/assignment-source.enum";
+import { AssignmentStatusReason } from "../enums/assignment-status-reason.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
 
 /**
@@ -11,15 +12,16 @@ import { AssignmentStatus } from "../enums/assignment-status.enum";
  *
  * It starts `pending` or `confirmed` (the coordinator or the director chooses, `source` `direct`),
  * and it is never deleted or archived: its end state is `cancelled` (or `declined`, an application
- * that was refused, GUS-160), which keeps the row, so the history of who was assigned stays. That
- * is why there are no `ArchivableColumns`. A member that was cancelled can be assigned to the same
+ * that was refused, GUS-160, or `expired`, an application nobody decided in time, GUS-179), which
+ * keeps the row, so the history of who was assigned stays. That is why there are no
+ * `ArchivableColumns`. A member that was cancelled can be assigned to the same
  * lesson again: it is a new row.
  *
  * Two rules are held by the database, as partial unique indexes, because two requests at the same
  * time would pass the pre-checks of the service together (docs/ARCHITECTURE.md section 15):
  * - `uq_lesson_assignments_lesson_id_person_id_active`: one member holds at most one place in a
  *   lesson, as teacher or as monitor, never both and never twice (RN-01). Only `pending` and
- *   `confirmed` rows count: a `cancelled` or `declined` one frees the place;
+ *   `confirmed` rows count: a `cancelled`, `declined` or `expired` one frees the place;
  * - `uq_lesson_assignments_lesson_id_confirmed_teacher`: a lesson has at most one CONFIRMED
  *   teacher (RN-02). Several `pending` teachers are fine (candidates), and a monitor never counts.
  * Both ignore soft-deleted rows. `idx_lesson_assignments_lesson_id` serves "the staff of this
@@ -116,6 +118,20 @@ export class LessonAssignment extends BaseEntity {
   /** Free text about the assignment. It can hold personal data (RNF-13): never in an event. */
   @Column({ name: "note", type: "varchar", length: 500, nullable: true, default: null })
   note: string | null;
+
+  /**
+   * Why the system ended the assignment (GUS-179): `lesson_cancelled` when the cancellation of the
+   * lesson made it `cancelled` or `expired`. Null for what a person decided.
+   */
+  @Column({
+    name: "status_reason",
+    type: "enum",
+    enum: AssignmentStatusReason,
+    enumName: "lesson_assignments_status_reason_enum",
+    nullable: true,
+    default: null,
+  })
+  statusReason: AssignmentStatusReason | null;
 
   /** Who made the assignment (for an application, the member who applied). */
   @Column({ name: "created_by_id", type: "uuid" })

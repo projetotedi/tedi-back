@@ -435,7 +435,15 @@
           "pending",
           "confirmed",
           "declined",
-          "cancelled"
+          "cancelled",
+          "expired"
+        ],
+        "type": "string"
+      },
+      "AssignmentStatusReason": {
+        "description": "Why the system ended the assignment, a stable code for the front to translate: lesson_cancelled when the cancellation of the lesson made it cancelled or expired (GUS-179). Null for what a person decided.",
+        "enum": [
+          "lesson_cancelled"
         ],
         "type": "string"
       },
@@ -3743,8 +3751,18 @@
                 "$ref": "#/components/schemas/AssignmentStatus"
               }
             ],
-            "description": "pending waits for a decision; confirmed counts in the coverage of the lesson; declined (a refused application) and cancelled are final.",
+            "description": "pending waits for a decision; confirmed counts in the coverage of the lesson; declined (a refused application), cancelled and expired (an application nobody decided before its lesson was cancelled or happened, GUS-179) are final. In the list of a lesson, a pending application of a lesson before today is answered as expired.",
             "example": "confirmed"
+          },
+          "statusReason": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatusReason"
+              }
+            ],
+            "description": "Why the system ended the assignment, a stable code for the front to translate: lesson_cancelled when the cancellation of the lesson made it cancelled or expired (GUS-179). Null for what a person decided.",
+            "example": null,
+            "nullable": true
           },
           "updatedAt": {
             "example": "2026-03-09T12:00:00.000Z",
@@ -3758,6 +3776,7 @@
           "person",
           "role",
           "status",
+          "statusReason",
           "source",
           "note",
           "createdById",
@@ -3971,7 +3990,7 @@
                 "$ref": "#/components/schemas/LessonPersonRefDto"
               }
             ],
-            "description": "The CONFIRMED teacher of the lesson (F5.2, RN-02): her id and her name. Null when the lesson has none, and the front shows a dash: a pending assignment is a candidate, not the teacher. A cancelled lesson keeps the teacher that was confirmed in it, because cancelling a lesson does not cancel its assignments.",
+            "description": "The CONFIRMED teacher of the lesson (F5.2, RN-02): her id and her name. Null when the lesson has none, and the front shows a dash: a pending assignment is a candidate, not the teacher. A cancelled lesson has none either: cancelling a lesson cancels its assignments (GUS-179).",
             "example": {
               "id": "01999a3e-0000-7000-8000-0000000000aa",
               "name": "Maria Silva Santos"
@@ -4560,7 +4579,7 @@
                 "$ref": "#/components/schemas/LessonCoverageDto"
               }
             ],
-            "description": "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet."
+            "description": "Who is confirmed in the lesson against who is expected (F5.4): the teacher against the one a lesson has, and the monitors against expectedMonitors. Only confirmed assignments count: a pending one is not staff yet. A cancelled lesson counts nobody: cancelling it cancels its assignments (GUS-179)."
           },
           "createdAt": {
             "example": "2026-10-01T13:00:00.000Z",
@@ -4888,8 +4907,18 @@
                 "$ref": "#/components/schemas/AssignmentStatus"
               }
             ],
-            "description": "Every status is listed, the cancelled and the declined ones too.",
+            "description": "Every status is listed, the cancelled, declined and expired ones too. A pending application of a lesson before today is answered as expired (GUS-179).",
             "example": "confirmed"
+          },
+          "statusReason": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatusReason"
+              }
+            ],
+            "description": "Why the system ended the assignment, a stable code for the front to translate: lesson_cancelled when the cancellation of the lesson made it cancelled or expired (GUS-179). Null for what a person decided.",
+            "example": null,
+            "nullable": true
           }
         },
         "required": [
@@ -4897,6 +4926,7 @@
           "lesson",
           "role",
           "status",
+          "statusReason",
           "source",
           "createdAt"
         ],
@@ -6028,8 +6058,18 @@
                 "$ref": "#/components/schemas/AssignmentStatus"
               }
             ],
-            "description": "The latest status of the member in the lesson: the active one (pending or confirmed) when there is one, else the latest declined or cancelled.",
+            "description": "The latest status of the member in the lesson: the active one (pending or confirmed) when there is one, else the latest declined, cancelled or expired. A pending application of a lesson before today is answered as expired (GUS-179).",
             "example": "pending"
+          },
+          "statusReason": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentStatusReason"
+              }
+            ],
+            "description": "Why the system ended the assignment, a stable code for the front to translate: lesson_cancelled when the cancellation of the lesson made it cancelled or expired (GUS-179). Null for what a person decided.",
+            "example": null,
+            "nullable": true
           }
         },
         "required": [
@@ -6037,6 +6077,7 @@
           "lesson",
           "role",
           "status",
+          "statusReason",
           "source"
         ],
         "type": "object"
@@ -6087,7 +6128,7 @@
             "type": "integer"
           },
           "pending": {
-            "description": "Items with status pending (Aguardando confirmação): an application or a direct assignment still waiting.",
+            "description": "Items with status pending (Aguardando confirmação): an application or a direct assignment still waiting. An expired application is not one (GUS-179).",
             "example": 1,
             "type": "integer"
           },
@@ -6344,7 +6385,7 @@
       "PendingApplicationsResponseDto": {
         "properties": {
           "lessons": {
-            "description": "One group per lesson with a pending application, the soonest lesson first (by date, start time and id); a past or cancelled lesson is listed too, so its applications can be declined.",
+            "description": "One group per lesson with a pending application, the soonest lesson first (by date, start time and id). A lesson before today or cancelled is left out: its applications expired (GUS-179).",
             "items": {
               "$ref": "#/components/schemas/PendingApplicationGroupResponseDto"
             },
@@ -8522,7 +8563,7 @@
                 }
               }
             },
-            "description": "The pending applications grouped by lesson, the soonest lesson first, with the coverage of each lesson and the note of each application; total is how many applications are listed (the N of the button). Not paginated."
+            "description": "The pending applications grouped by lesson, the soonest lesson first, with the coverage of each lesson and the note of each application; total is how many applications are listed (the N of the button). An application of a lesson before today or cancelled expired and is left out (GUS-179). Not paginated."
           },
           "400": {
             "content": {
@@ -15061,7 +15102,7 @@
                 }
               }
             },
-            "description": "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. Not paginated. The note of each one is null for profiles without assignments.create (RNF-13)."
+            "description": "Every assignment of the lesson, whatever its status, ordered by role (teacher first), status, when it was made and id. A pending application of a lesson before today is answered as expired (GUS-179). Not paginated. The note of each one is null for profiles without assignments.create (RNF-13)."
           },
           "400": {
             "content": {
@@ -15151,7 +15192,7 @@
                 }
               }
             },
-            "description": "The assignment, direct and pending or confirmed as the body asked. With confirmed, reviewedById is the actor and reviewedAt is now."
+            "description": "The assignment, direct and pending or confirmed as the body asked. With confirmed, reviewedById is the actor and reviewedAt is now. In a lesson before today, a pending application of the same member gives its place up: it is written expired (GUS-179)."
           },
           "400": {
             "content": {

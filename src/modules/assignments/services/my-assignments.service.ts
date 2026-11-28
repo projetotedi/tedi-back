@@ -62,8 +62,10 @@ export class MyAssignmentsService {
    * cancelled, so a declined application shows as declined and a new application replaces it), the
    * soonest lesson first. The totals of the top of the screen, every key always present:
    * `upcoming` (pending plus confirmed), `confirmed`, `pending` and `openLessons`, the number of
-   * lessons `listOpen` answers for the same period, counted by the same rule. Declined and cancelled
-   * items are listed and counted in no total.
+   * lessons `listOpen` answers for the same period, counted by the same rule. Declined, cancelled
+   * and expired items are listed and counted in no total: with a `from` before today, a pending
+   * application of a lesson before today is answered as `expired` (`statusAsOf`, GUS-179), and the
+   * totals count the statuses as answered.
    *
    * 400 INVALID_DATE_RANGE and 400 DATE_RANGE_TOO_LONG come before anything is read.
    */
@@ -79,7 +81,7 @@ export class MyAssignmentsService {
 
     const items = agenda.flatMap((ref) => {
       const assignment = latest.get(ref.id);
-      return assignment === undefined ? [] : [toMyAssignmentResponse(assignment, ref)];
+      return assignment === undefined ? [] : [toMyAssignmentResponse(assignment, ref, today)];
     });
     const open = await this.openLessonsOf(agenda, latest, today);
 
