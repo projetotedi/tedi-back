@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { HttpException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { DataSource, In } from "typeorm";
-import { ClassRef, ClassesService } from "@modules/classes/services/classes.service";
+import { ClassRef, ClassesService, ClassStatus } from "@modules/classes/services/classes.service";
 import { Clock } from "@shared/dates/clock";
 import { LessonsCalendarQueryDto } from "../dto/calendar-query.dto";
 import { ListLessonsQueryDto } from "../dto/list-lessons-query.dto";
@@ -34,6 +34,7 @@ function buildClassRef(overrides: Partial<ClassRef> = {}): ClassRef {
     code: "INFO-A",
     name: "Informática Básica, turma A",
     courseId: COURSE_ID,
+    status: ClassStatus.IN_PROGRESS,
     archivedAt: null,
     creationRank: 1,
     ...overrides,
@@ -1000,10 +1001,16 @@ describe("LessonListingService", () => {
       expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
     });
 
-    it("maps each lesson with its class, the name or the code as the label, the position and the place", async () => {
+    it("maps each lesson with its class, the name or the code as the label, the position, the place and classActive", async () => {
       classes.listClassRefs.mockResolvedValue([
-        buildClassRef(),
-        buildClassRef({ id: CLASS_B_ID, code: "INFO-B", name: null, creationRank: 2 }),
+        buildClassRef({ status: ClassStatus.PLANNED }),
+        buildClassRef({
+          id: CLASS_B_ID,
+          code: "INFO-B",
+          name: null,
+          status: ClassStatus.COMPLETED,
+          creationRank: 2,
+        }),
       ]);
       state.lessons = [
         buildLesson({
@@ -1028,6 +1035,7 @@ describe("LessonListingService", () => {
           location: "Laboratório 2",
           status: LessonStatus.CONFIRMED,
           expectedMonitors: 3,
+          classActive: true,
           class: { id: CLASS_A_ID, code: "INFO-A", name: "Informática Básica, turma A" },
         },
         {
@@ -1040,6 +1048,7 @@ describe("LessonListingService", () => {
           location: null,
           status: LessonStatus.PLANNED,
           expectedMonitors: null,
+          classActive: false,
           class: { id: CLASS_B_ID, code: "INFO-B", name: "INFO-B" },
         },
       ]);
@@ -1088,9 +1097,9 @@ describe("LessonListingService", () => {
       expect(classes.listClassRefs).toHaveBeenCalledWith({ includeArchived: true });
       // No filter by status: the cancelled lesson comes too, and the order is the one of the read.
       expect(repository.find.mock.calls[0][0]).not.toHaveProperty("where.status");
-      expect(agenda.map((ref) => [ref.id, ref.status, ref.class.id])).toEqual([
-        [lessonId(1), LessonStatus.CANCELLED, CLASS_A_ID],
-        [lessonId(2), LessonStatus.PLANNED, CLASS_B_ID],
+      expect(agenda.map((ref) => [ref.id, ref.status, ref.class.id, ref.classActive])).toEqual([
+        [lessonId(1), LessonStatus.CANCELLED, CLASS_A_ID, true],
+        [lessonId(2), LessonStatus.PLANNED, CLASS_B_ID, false],
       ]);
       expect(coverage.findConfirmedStaff).not.toHaveBeenCalled();
     });

@@ -46,7 +46,7 @@ export class LessonApplicationsController {
   @ApiConflictResponse({
     type: ApiErrorDto,
     description:
-      "LESSON_CANCELLED | LESSON_IN_PAST | MEMBER_INACTIVE | ALREADY_APPLIED | ROLE_FULL",
+      "LESSON_CANCELLED | CLASS_NOT_ACTIVE | LESSON_IN_PAST | MEMBER_INACTIVE | ALREADY_APPLIED | ROLE_FULL",
   })
   applyToLesson(
     @Param("id", LESSON_ID) lessonId: string,

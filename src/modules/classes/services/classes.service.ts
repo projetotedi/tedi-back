@@ -112,16 +112,32 @@ export interface ClassSummary {
   archivedAt: Date | null;
 }
 
+const ACTIVE_CLASS_STATUSES: ReadonlySet<ClassStatus> = new Set([
+  ClassStatus.PLANNED,
+  ClassStatus.IN_PROGRESS,
+]);
+
+/**
+ * Whether a class is active: not archived, and `planned` or `in_progress` (`completed` and
+ * `cancelled` are over). Only an active class takes new assignments and applications (GUS-178);
+ * the lessons answer it to the assignments as `classActive`, so this is the one place that says it.
+ */
+export function isActiveClass(schoolClass: Pick<ClassSummary, "status" | "archivedAt">): boolean {
+  return schoolClass.archivedAt === null && ACTIVE_CLASS_STATUSES.has(schoolClass.status);
+}
+
 /**
  * What another module needs to show a class on a row of its own list (the lessons, GUS-153): who
- * the class is, the course it belongs to, whether it is archived and the color slot it gets in the
- * calendar. The shape is the contract of `listClassRefs`: the entity never leaves this module.
+ * the class is, the course it belongs to, its status, whether it is archived and the color slot it
+ * gets in the calendar. The shape is the contract of `listClassRefs`: the entity never leaves this
+ * module.
  */
 export interface ClassRef {
   id: string;
   code: string;
   name: string | null;
   courseId: string;
+  status: ClassStatus;
   /** Null while the class is active; the instant of the archive otherwise (RN-27). */
   archivedAt: Date | null;
   /**
@@ -529,9 +545,10 @@ export class ClassesService {
               ranked.code,
               ranked.name,
               ranked.course_id AS "courseId",
+              ranked.status,
               ranked.archived_at AS "archivedAt",
               ranked."creationRank"
-         FROM (SELECT id, code, name, course_id, archived_at, deleted_at,
+         FROM (SELECT id, code, name, course_id, status, archived_at, deleted_at,
                       ROW_NUMBER() OVER (ORDER BY created_at, id)::int AS "creationRank"
                  FROM classes) ranked
         WHERE ranked.deleted_at IS NULL
@@ -685,3 +702,6 @@ export class ClassesService {
     this.eventEmitter.emit(AUDITABLE_ACTION_EVENT, event);
   }
 }
+
+// Re-exported so modules importing ClassesModule do not reach into `classes/enums/*`.
+export { ClassStatus } from "../enums/class-status.enum";

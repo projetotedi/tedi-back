@@ -15016,7 +15016,7 @@
                 }
               }
             },
-            "description": "LESSON_CANCELLED | LESSON_IN_PAST | MEMBER_INACTIVE | ALREADY_APPLIED | ROLE_FULL"
+            "description": "LESSON_CANCELLED | CLASS_NOT_ACTIVE | LESSON_IN_PAST | MEMBER_INACTIVE | ALREADY_APPLIED | ROLE_FULL"
           },
           "500": {
             "content": {
@@ -15201,7 +15201,7 @@
                 }
               }
             },
-            "description": "LESSON_CANCELLED | MEMBER_INACTIVE | DUPLICATE_ROLE_IN_LESSON | LESSON_TEACHER_TAKEN"
+            "description": "LESSON_CANCELLED | CLASS_NOT_ACTIVE | MEMBER_INACTIVE | DUPLICATE_ROLE_IN_LESSON | LESSON_TEACHER_TAKEN"
           },
           "500": {
             "content": {
@@ -16349,7 +16349,7 @@
                 }
               }
             },
-            "description": "The lessons of the period, from today on and not done, that have an open place for some role and where the member holds no place, with the coverage and the open roles of each, soonest first. Not paginated."
+            "description": "The lessons of the period, from today on and not done, of active classes, that have an open place for some role and where the member holds no place, with the coverage and the open roles of each, soonest first. Not paginated."
           },
           "400": {
             "content": {

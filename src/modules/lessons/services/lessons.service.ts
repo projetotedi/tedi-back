@@ -8,7 +8,11 @@ import {
   LessonPlansService,
   LessonPlanSummary,
 } from "@modules/catalog/services/lesson-plans.service";
-import { ClassesService, ClassSummary } from "@modules/classes/services/classes.service";
+import {
+  ClassesService,
+  ClassSummary,
+  isActiveClass,
+} from "@modules/classes/services/classes.service";
 import { Clock } from "@shared/dates/clock";
 import {
   AUDITABLE_ACTION_EVENT,
@@ -92,6 +96,14 @@ export interface LessonSummary {
   /** How many monitors the lesson expects. Null when not informed. */
   expectedMonitors: number | null;
 }
+
+/**
+ * A `LessonSummary` plus whether the class of the lesson is active (`isActiveClass`: not archived,
+ * and `planned` or `in_progress`). It is how the assignments refuse a new assignment or application
+ * in a class that is archived, completed or cancelled (GUS-178) without importing `ClassesModule`
+ * (docs/ARCHITECTURE.md section 3).
+ */
+export type LessonWithClassActivity = LessonSummary & { classActive: boolean };
 
 /** The columns of a LessonSummary: the free texts of a lesson (post notes, reasons) are not read for it. */
 const LESSON_SUMMARY_COLUMNS: FindOptionsSelect<Lesson> = {
@@ -308,6 +320,40 @@ export class LessonsService {
     });
 
     return lesson === null ? null : toLessonSummary(lesson);
+  }
+
+  /**
+   * `getLessonSummary` plus whether the class of the lesson is active (`isActiveClass`), for the
+   * writes of the assignments that only an active class takes (GUS-178). Null when the id is not a
+   * lesson or is not even a UUID, and then the class is not read. A cancelled lesson is returned
+   * too, with its status, as `getLessonSummary` does.
+   *
+   * With `forShare`, the lesson is locked FOR SHARE first and its class after it
+   * (`ClassesService.getClassSummary`), the order the writes of this module take when they lock
+   * both (the lesson, then the class), so there is no wait in a circle. The lock on the class
+   * conflicts with the FOR UPDATE that `ClassesService.update` and `archive` take: an assignment
+   * and an archive (or a move of the class to completed or cancelled) at the same time are
+   * serialized, and the assignment sees the class as it was left. The foreign key requires the
+   * class: a missing one throws.
+   *
+   * It emits no event and writes nothing.
+   */
+  async getLessonWithClassActivity(
+    id: string,
+    manager?: EntityManager,
+    options: { forShare?: boolean } = {},
+  ): Promise<LessonWithClassActivity | null> {
+    const lesson = await this.getLessonSummary(id, manager, options);
+    if (lesson === null) return null;
+
+    const schoolClass = await this.classes.getClassSummary(lesson.classId, manager, options);
+    if (schoolClass === null) {
+      throw new Error(
+        `Class ${lesson.classId} of lesson ${lesson.id} was not found, but the foreign key requires it.`,
+      );
+    }
+
+    return { ...lesson, classActive: isActiveClass(schoolClass) };
   }
 
   /**

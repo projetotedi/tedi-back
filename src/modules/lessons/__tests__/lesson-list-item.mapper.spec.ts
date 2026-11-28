@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { ClassRef } from "@modules/classes/services/classes.service";
+import { ClassRef, ClassStatus } from "@modules/classes/services/classes.service";
 import { LESSON_CALENDAR_COLOR_COUNT } from "../dto/lesson-limits";
 import { Lesson } from "../entities/lesson.entity";
 import { LessonStatus } from "../enums/lesson-status.enum";
@@ -50,6 +50,7 @@ function buildClassRef(overrides: Partial<ClassRef> = {}): ClassRef {
     code: "INFO-A",
     name: "Informática Básica, turma A",
     courseId: COURSE_ID,
+    status: ClassStatus.IN_PROGRESS,
     archivedAt: null,
     creationRank: 1,
     ...overrides,

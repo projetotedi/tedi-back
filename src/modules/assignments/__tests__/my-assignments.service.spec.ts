@@ -51,6 +51,7 @@ function buildRef(n: number, overrides: Partial<LessonAgendaRef> = {}): LessonAg
     location: null,
     status: LessonStatus.PLANNED,
     expectedMonitors: 2,
+    classActive: true,
     class: { id: CLASS_ID, code: "INFO-A", name: "INFO-A" },
     ...overrides,
   };
@@ -263,8 +264,12 @@ describe("MyAssignmentsService", () => {
         buildRef(3),
         buildRef(4, { expectedMonitors: null }),
         buildRef(5),
+        buildRef(6, { classActive: false }),
       ];
-      state.rows = [buildAssignment(1, 3, { status: AssignmentStatus.PENDING })];
+      state.rows = [
+        buildAssignment(1, 3, { status: AssignmentStatus.PENDING }),
+        buildAssignment(2, 6, { status: AssignmentStatus.CONFIRMED }),
+      ];
       state.staff = new Map([
         [lessonId(4), { teachers: 1, monitors: 0 }],
         [lessonId(5), { teachers: 0, monitors: 2 }],
@@ -275,6 +280,8 @@ describe("MyAssignmentsService", () => {
 
       expect(open.map((item) => item.lesson.id)).toEqual([lessonId(2), lessonId(5)]);
       expect(mine.totals.openLessons).toBe(open.length);
+      expect(mine.items.map((item) => item.lesson.id)).toEqual([lessonId(3), lessonId(6)]);
+      expect(mine.totals.confirmed).toBe(1);
     });
 
     it("does not read assignments nor count staff for an empty agenda", async () => {
@@ -327,6 +334,17 @@ describe("MyAssignmentsService", () => {
       expect(mine.totals.openLessons).toBe(2);
       // The staff is not even counted for the lessons that are closed.
       expect(staffCounter.countConfirmedStaff).toHaveBeenCalledWith([lessonId(2), lessonId(4)]);
+    });
+
+    it("leaves out lessons whose class is not active, without counting staff for them", async () => {
+      state.agenda = [buildRef(1, { classActive: false }), buildRef(2, { classActive: true })];
+
+      const open = await service.listOpen(MEMBER, {});
+      const mine = await service.listMine(MEMBER, {});
+
+      expect(open.map((item) => item.lesson.id)).toEqual([lessonId(2)]);
+      expect(mine.totals.openLessons).toBe(1);
+      expect(staffCounter.countConfirmedStaff).toHaveBeenCalledWith([lessonId(2)]);
     });
 
     it("keeps a lesson where the actor was declined", async () => {

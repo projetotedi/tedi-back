@@ -29,7 +29,7 @@ import { AuthModule } from "@modules/auth/auth.module";
 import { CatalogModule } from "@modules/catalog/catalog.module";
 import { CoursesService } from "@modules/catalog/services/courses.service";
 import { ClassesModule } from "@modules/classes/classes.module";
-import { ClassesService } from "@modules/classes/services/classes.service";
+import { ClassesService, ClassStatus } from "@modules/classes/services/classes.service";
 import { LessonsModule } from "@modules/lessons/lessons.module";
 import { LessonsService, LessonStatus } from "@modules/lessons/services/lessons.service";
 import { PeopleModule } from "@modules/people/people.module";
@@ -408,7 +408,7 @@ describe("Assignments (e2e)", () => {
    * that transaction; `release` commits it.
    */
   async function holdRow(
-    table: "lessons" | "people" | "lesson_assignments",
+    table: "lessons" | "classes" | "people" | "lesson_assignments",
     id: string,
     lock: string,
   ) {
@@ -713,6 +713,69 @@ describe("Assignments (e2e)", () => {
         await assign(ana, {}, { lesson: doneLesson });
 
         expect(await countAssignments()).toBe(2);
+      });
+
+      it("accepts an assignment in planned and in_progress classes (201)", async () => {
+        await assign(ana, {}, { lesson: lessonId });
+
+        const courseId = await createCourse("Segurança Digital");
+        const inProgressClass = await createClassOf(courseId, "SEG-A");
+        await classesService.update(
+          inProgressClass,
+          { status: ClassStatus.IN_PROGRESS },
+          director.id,
+        );
+        const inProgressLesson = await createLesson({ classId: inProgressClass });
+
+        await assign(bruno, {}, { lesson: inProgressLesson });
+
+        expect(await countAssignments()).toBe(2);
+      });
+
+      it("answers 409 CLASS_NOT_ACTIVE for an archived, completed or cancelled class, and saves nothing", async () => {
+        const courseId = await createCourse("Segurança Digital");
+        const archivedClass = await createClassOf(courseId, "SEG-ARCH");
+        const completedClass = await createClassOf(courseId, "SEG-COMP");
+        const cancelledClass = await createClassOf(courseId, "SEG-CANC");
+
+        const archivedLesson = await createLesson({ classId: archivedClass });
+        const completedLesson = await createLesson({ classId: completedClass });
+        const cancelledLesson = await createLesson({ classId: cancelledClass });
+
+        await classesService.archive(archivedClass, undefined, director.id);
+        await classesService.update(completedClass, { status: ClassStatus.COMPLETED }, director.id);
+        await classesService.update(cancelledClass, { status: ClassStatus.CANCELLED }, director.id);
+
+        const events = collectEvents();
+        for (const targetLessonId of [archivedLesson, completedLesson, cancelledLesson]) {
+          const res = await postAssignment(
+            targetLessonId,
+            director,
+            assignmentBody({ personId: ana.id }),
+          ).expect(409);
+
+          expect(res.body).toEqual({
+            statusCode: 409,
+            error: "CLASS_NOT_ACTIVE",
+            message: "Assignments and applications are only allowed in active classes.",
+          });
+        }
+        expect(await countAssignments()).toBe(0);
+        expect(events).toHaveLength(0);
+      });
+
+      it("answers 409 LESSON_CANCELLED before CLASS_NOT_ACTIVE when both apply", async () => {
+        await lessonsService.cancel(lessonId, { reason: "Feriado." }, director.id);
+        await classesService.update(classId, { status: ClassStatus.CANCELLED }, director.id);
+
+        const res = await postAssignment(
+          lessonId,
+          director,
+          assignmentBody({ personId: ana.id }),
+        ).expect(409);
+
+        expect(res.body.error).toBe("LESSON_CANCELLED");
+        expect(await countAssignments()).toBe(0);
       });
     });
 
@@ -1056,6 +1119,32 @@ describe("Assignments (e2e)", () => {
         const res = await pending;
         expect(res.status).toBe(409);
         expect(res.body.error).toBe("LESSON_CANCELLED");
+        expect(await countAssignments()).toBe(0);
+      });
+
+      it("waits for an archive or status update of the class that is in flight, and then answers 409 CLASS_NOT_ACTIVE", async () => {
+        const classLock = await holdRow("classes", classId, "FOR UPDATE");
+
+        const pending = postAssignment(
+          lessonId,
+          director,
+          assignmentBody({ personId: ana.id }),
+        ).then((res) => res);
+
+        try {
+          expect(await blockedStatement()).toMatch(/"SchoolClass"/);
+          expect(await countAssignments()).toBe(0);
+          await classLock.run(
+            `UPDATE classes SET archived_at = now(), archived_by_id = $2 WHERE id = $1`,
+            [classId, director.id],
+          );
+        } finally {
+          await classLock.release();
+        }
+
+        const res = await pending;
+        expect(res.status).toBe(409);
+        expect(res.body.error).toBe("CLASS_NOT_ACTIVE");
         expect(await countAssignments()).toBe(0);
       });
 

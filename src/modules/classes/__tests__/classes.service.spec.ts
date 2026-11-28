@@ -21,7 +21,7 @@ import { SchoolClass } from "../entities/class.entity";
 import { Edition } from "../entities/edition.entity";
 import { ClassStatus } from "../enums/class-status.enum";
 import { toClassResponse } from "../services/class-response.mapper";
-import { ClassesService } from "../services/classes.service";
+import { ClassesService, isActiveClass } from "../services/classes.service";
 import { EditionsService } from "../services/editions.service";
 import { EnrollmentCountsService } from "../services/enrollment-counts.service";
 
@@ -1829,6 +1829,21 @@ describe("ClassesService", () => {
     });
   });
 
+  describe("isActiveClass()", () => {
+    it.each([
+      [ClassStatus.PLANNED, null, true],
+      [ClassStatus.IN_PROGRESS, null, true],
+      [ClassStatus.COMPLETED, null, false],
+      [ClassStatus.CANCELLED, null, false],
+      [ClassStatus.PLANNED, NOW, false],
+      [ClassStatus.IN_PROGRESS, NOW, false],
+      [ClassStatus.COMPLETED, NOW, false],
+      [ClassStatus.CANCELLED, NOW, false],
+    ])("a %s class with archivedAt %s is active: %s", (status, archivedAt, expected) => {
+      expect(isActiveClass({ status, archivedAt })).toBe(expected);
+    });
+  });
+
   describe("listClassRefs()", () => {
     const OTHER_CLASS_ID = "01999a3e-7c1b-7000-8000-0000000000c2";
     const REF = {
@@ -1836,6 +1851,7 @@ describe("ClassesService", () => {
       code: "INFO-A",
       name: null,
       courseId: COURSE_ID,
+      status: ClassStatus.PLANNED,
       archivedAt: null,
       creationRank: 1,
     };

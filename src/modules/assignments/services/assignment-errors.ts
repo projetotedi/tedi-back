@@ -24,6 +24,20 @@ export function lessonCancelled(): HttpException {
 }
 
 /**
+ * 409: assignments and applications are only allowed in active classes (not archived, and in
+ * `planned` or `in_progress` status).
+ */
+export function classNotActive(): HttpException {
+  return new HttpException(
+    {
+      error: "CLASS_NOT_ACTIVE",
+      message: "Assignments and applications are only allowed in active classes.",
+    },
+    409,
+  );
+}
+
+/**
  * 400 for the `personId` of the body of `POST /lessons/:id/assignments`: 404 would read as "route
  * not found". It is also the answer to the foreign key violation `fk_lesson_assignments_person_id`.
  * A student, an unknown id and a deleted person are all "not a member".

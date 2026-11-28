@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { isUUID } from "class-validator";
 import { DataSource, In, SelectQueryBuilder } from "typeorm";
-import { ClassesService, ClassRef } from "@modules/classes/services/classes.service";
+import { ClassesService, ClassRef, isActiveClass } from "@modules/classes/services/classes.service";
 import { Clock } from "@shared/dates/clock";
 import { normalizePagination, PaginatedResult } from "@shared/pagination/pagination.util";
 import { applyTextSearchAllWords } from "@shared/search/search.util";
@@ -49,6 +49,12 @@ export interface LessonAgendaRef {
   status: LessonStatus;
   /** How many monitors the lesson expects. Null when not informed. */
   expectedMonitors: number | null;
+  /**
+   * Whether the class takes new assignments and applications (`isActiveClass`: not archived, and
+   * `planned` or `in_progress`, GUS-178). False for a lesson of an archived class that
+   * `findAgendaByIds` reaches by its id.
+   */
+  classActive: boolean;
   /** The class: `name` is its name or, when it has none, its code (the label of the row, L14). */
   class: { id: string; code: string; name: string };
 }
@@ -65,6 +71,7 @@ function toLessonAgendaRef(lesson: Lesson, schoolClass: ClassRef): LessonAgendaR
     location: lesson.location ?? null,
     status: lesson.status,
     expectedMonitors: lesson.expectedMonitors ?? null,
+    classActive: isActiveClass(schoolClass),
     class: {
       id: schoolClass.id,
       code: schoolClass.code,
